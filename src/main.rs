@@ -1,20 +1,23 @@
-use std::{thread, net::UdpSocket, sync::mpsc::{Sender, self, Receiver}, fs::File, io::Write};
-
-use minifb::{Window, WindowOptions, Key, Scale, ScaleMode};
+use std::{thread, net::UdpSocket};
 use openh264::{decoder::{Decoder, DecodedYUV}, nal_units};
+use slint::ComponentHandle;
 
 fn send_handshake(socket : &UdpSocket) {
-    let _ = socket.send_to(b"ping", "150.136.127.166:8554");
+    let _ = socket.send_to(b"shake", "150.136.127.166:8554");
 
     println!("Sent Handshake Packet");
 
-    let mut buf: [u8; 4] = [0; 4];
+    let mut buf: [u8; 5] = [0; 5];
     
     let (amt, _src) = socket.recv_from(&mut buf).expect("Failed to Receive Packet");
 
-    assert!(amt == 4);
+    assert!(amt == 5);
 
     println!("Received Handshake Packet");
+}
+
+fn ping(socket : &UdpSocket) {
+    let _ = socket.send_to(b"ping", "150.136.127.166:8554");
 }
 
 const MTU: usize = 1032; 
@@ -31,7 +34,7 @@ const H: usize = 900;
 
 const GAMMA_RGB_CORRECTION: [u8; 256] = [
     0,   0,   1,   1,   1,   2,   2,   3,   3,   4,   4,   5,   6,   6,   7,   7,
-     8,   9,   9,  10,  11,  11,  12,  13,  13,  14,  15,  15,  16,  17,  18,  18,
+    8,   9,   9,  10,  11,  11,  12,  13,  13,  14,  15,  15,  16,  17,  18,  18,
     19,  20,  21,  21,  22,  23,  24,  24,  25,  26,  27,  28,  28,  29,  30,  31,
     32,  32,  33,  34,  35,  36,  37,  37,  38,  39,  40,  41,  42,  43,  44,  44,
     45,  46,  47,  48,  49,  50,  51,  52,  52,  53,  54,  55,  56,  57,  58,  59,
@@ -87,34 +90,8 @@ fn rgb_to_slint_pixel_buffer(
 }
 
 fn main() {
-    let app = MainWindow::new().unwrap();
-
-    app.run().unwrap();
-
-    let options = WindowOptions {
-        borderless: true,
-        resize: true,
-        scale: Scale::FitScreen,
-        title: false,
-        scale_mode: ScaleMode::AspectRatioStretch,
-        ..Default::default()
-    };
-
-
-    let mut window = Window::new(
-        "MahitM RT Player",
-        W,
-        H,
-        options,
-    )
-    .unwrap_or_else(|e| {
-        panic!("{}", e);
-    });
-
-    let (tx, rx): (Sender<Vec<u32>>, Receiver<Vec<u32>>) = mpsc::channel();
-
-   // window.limit_update_rate(Some(std::time::Duration::from_micros(16600)));
-
+    let app: MainWindow = MainWindow::new().unwrap();
+    let app_weak = app.as_weak();
     // washed out colors seem to be a problem with the decoder
     // additionally, I should experiment with x264 encoder and see if that provides equiavlent speeds
     let _conn = thread::spawn(move || {
@@ -126,7 +103,7 @@ fn main() {
         let mut nal: Vec<u8> = Vec::new();
     
         let mut decoder = Decoder::new().unwrap();
-        let mut file = File::create("fade.h264").unwrap();
+        // let mut file = File::create("fade.h264").unwrap();
 
         loop {
             socket.recv_from(&mut buf).expect("Failed to Receive Packet");
@@ -139,27 +116,24 @@ fn main() {
                 // println!("Received Nal Packet with Length: {} Real Size: {}", nal.len(), nal_size);
                 let size = if nal_size <= nal.len() { nal_size } else { nal.len() }; 
                 
-                file.write_all(&nal[0..size]).unwrap();
+                // file.write_all(&nal[0..size]).unwrap();
                 for packet in nal_units(&nal[0..size as usize]) {
+                    let app_copy = app_weak.clone();
                     // let now = Instant::now();
                     let _result = match decoder.decode(packet) {
                         Ok(Some(maybe_some_yuv)) => {
                             let mut rgb: Vec<u8> = vec![0; W*H*3];
-                        maybe_some_yuv.write_rgb8(&mut rgb);
-    
-                            let mut single = Vec::new();
-                            for i in 0..W * H {
-                                // let (r, g, b) = (GAMMA_RGB_CORRECTION[rgb[i * 3] as usize] as u32, 
-                                //                                 GAMMA_RGB_CORRECTION[rgb[i * 3 + 1] as usize] as u32, 
-                                //                                 GAMMA_RGB_CORRECTION[rgb[i * 3 + 2] as usize] as u32
-                                let (r, g, b) = (rgb[i * 3] as u32, 
-                                                                rgb[i * 3 + 1] as u32, 
-                                                                rgb[i * 3 + 2] as u32
-                                                            );
-                                single.push((r << 16)| (g << 8) | b);
+                            maybe_some_yuv.write_rgb8(&mut rgb);
+                                for i in 0..W * H {
+                                    rgb[i * 3] = GAMMA_RGB_CORRECTION[rgb[i * 3] as usize];
+                                    rgb[i * 3 + 1] = GAMMA_RGB_CORRECTION[rgb[i * 3 + 1] as usize];
+                                    rgb[i * 3 + 2] = GAMMA_RGB_CORRECTION[rgb[i * 3 + 2] as usize];
+                                }
+                                let pixel_buffer = rgb_to_slint_pixel_buffer(&rgb);
+                                let _ = slint::invoke_from_event_loop(move || {
+                                        app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer))
+                                });
                             }
-                            tx.send(single).unwrap();
-                        }
                         Ok(None) => {
                           println!("None Recieved");
                         }
@@ -175,25 +149,27 @@ fn main() {
         }     
     });
 
-    while window.is_open() && !window.is_key_down(Key::Escape) {
-        let buffer = rx.recv().unwrap();
-        // We unwrap here as we want this code to exit if it fails. Real applications may want to handle this in a different way
-        window
-            .update_with_buffer(&buffer, W, H)
-            .unwrap();
-    }
+    app.run().unwrap();
 }
 
 slint::slint! {
     import { VerticalBox } from "std-widgets.slint";
+
     export component MainWindow inherits Window {
         in property <image> video-frame <=> image.source;
 
         min-width: 1440px;
         min-height: 900px;
 
+        title: "MahitM RT";
+        padding: 0;
+
         VerticalBox {
-            image := Image {}
+            padding: 0;
+            image := Image {
+                padding: 0;
+                height: 900px;
+            }
         }
     }
 }
