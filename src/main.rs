@@ -1,36 +1,68 @@
-use std::{thread, net::UdpSocket};
+use std::{thread, net::UdpSocket, time::Duration};
 use openh264::{decoder::{Decoder, DecodedYUV}, nal_units};
 use slint::ComponentHandle;
 
-fn send_handshake(socket : &UdpSocket) {
-    let _ = socket.send_to(b"shake", "150.136.127.166:8554");
-
-    println!("Sent Handshake Packet");
-
-    let mut buf: [u8; 5] = [0; 5];
-    
-    let (amt, _src) = socket.recv_from(&mut buf).expect("Failed to Receive Packet");
-
-    assert!(amt == 5);
-
-    println!("Received Handshake Packet");
+pub enum EPacketType {
+    SHAKE = 0, 
+    SHOOK = 1,
+    NAL = 2,  
+    STATE = 3
 }
 
-fn ping(socket : &UdpSocket) {
-    let _ = socket.send_to(b"ping", "150.136.127.166:8554");
+struct Packet {
+    packet_type: u8,
+    packets_remaining: u8,
+    real_packet_size: u32
+}
+
+impl Packet {
+    pub fn new(packet_type: EPacketType, packets_remaining: u8, real_packet_size: u32) -> Packet {
+        Packet {
+            packet_type: packet_type as u8,
+            packets_remaining: packets_remaining,
+            real_packet_size: real_packet_size
+        }
+    }
+
+    pub fn write_header(&self, buf: &mut [u8]) {
+        buf[0] = self.packet_type;
+        buf[1] = self.packets_remaining;
+        buf[2..6].copy_from_slice(&self.real_packet_size.to_be_bytes());
+    }
 }
 
 const MTU: usize = 1032; 
 
 // Header Schema
+// Packet Type = 1 byte
 // Packets Remaining = 1 byte
-// Real NAL Byte Size = 4 bytes
-// 3 Bytes are currently unoccupied
+// Real Packet Byte Size = 4 bytes
+// 2 Bytes are currently unoccupied
 const HEADER: usize = 8; 
 // const PACKET: usize = MTU - HEADER;
 
 const W: usize = 1440; 
 const H: usize = 900;
+
+fn send_handshake(socket : &UdpSocket) {
+    socket.set_read_timeout(Some(Duration::from_millis(1000))).expect("Failed to Set Timeout");
+    let mut buf: [u8; HEADER] = [0; HEADER];
+    
+    loop {
+        let _ = socket.send_to(b"shake", "150.136.127.166:8554");
+        println!("Sent Handshake Packet");
+        // validate src
+        let (_amt, _src) = match socket.recv_from(&mut buf) {
+            Ok(v) => v,
+            Err(_e) => continue,
+        };
+
+        if buf[0] == EPacketType::SHOOK as u8 {
+            break;
+        }
+    }
+    println!("Received Handshake Packet");
+}
 
 const GAMMA_RGB_CORRECTION: [u8; 256] = [
     0,   0,   1,   1,   1,   2,   2,   3,   3,   4,   4,   5,   6,   6,   7,   7,
@@ -92,13 +124,92 @@ fn rgb_to_slint_pixel_buffer(
 fn main() {
     let app: MainWindow = MainWindow::new().unwrap();
     let app_weak = app.as_weak();
+
+    let socket = UdpSocket::bind("0.0.0.0:8080").expect("Failed to Bind to Incoming Socket");
+
+    send_handshake(&socket);
+
+    let socket_clone = socket.try_clone().unwrap();
+    let _state = thread::spawn(move || {
+        let mut buf = [0; MTU];
+
+        Packet::new(EPacketType::STATE, 0, HEADER as u32)
+            .write_header(&mut buf);
+
+        // State Payload
+        // 1 Byte for Control 
+        // 1 Byte for Shift
+        // 1 Byte for Alt
+        // 1 Byte for Meta
+        // 2 Bytes for X for click
+        // 2 Bytes for Y for click
+        // 1 Byte for key pressed
+        // 1 Byte for key released
+        let _ = slint::invoke_from_event_loop(move || {
+            let socket_click = socket_clone.try_clone().unwrap();
+            app_weak.unwrap().on_click(move |x, y| {
+                let x_percent = (x / 1440.0 * 10000.0).round() as u16 + 1; 
+                let y_percent = (y / 900.0 * 10000.0).round() as u16 + 1;
+                
+                buf[HEADER + 4..HEADER + 6].copy_from_slice(&x_percent.to_be_bytes());
+                buf[HEADER + 6..HEADER + 8].copy_from_slice(&y_percent.to_be_bytes());
+
+                let _ = socket_click.send_to(&buf, "150.136.127.166:8554");
+
+                buf[HEADER + 4..HEADER + 6].fill(0);
+                buf[HEADER + 6..HEADER + 8].fill(0);            
+            });
+
+            let socket_key_pressed = socket_clone.try_clone().unwrap();
+            app_weak.unwrap().on_key_pressed(move |event| {
+                match event.text.bytes().next() {
+                    Some(key) => {
+                        buf[HEADER] = event.modifiers.control as u8;
+                        buf[HEADER + 1] = event.modifiers.shift as u8;
+                        buf[HEADER + 2] = event.modifiers.alt as u8;
+                        buf[HEADER + 3] = event.modifiers.meta as u8;
+                        buf[HEADER + 8] = key as u8;
+
+                        println!("Key Pressed: {}", buf[HEADER + 8]);
+                        let _ = socket_key_pressed.send_to(&buf[0..32], "150.136.127.166:8554");
+
+                        buf[HEADER..HEADER + 4].fill(0);
+                        buf[HEADER + 8] = 0; 
+                    }
+                    None => {
+                        println!("Key Pressed: None");
+                    }
+                }
+            });
+
+            app_weak.unwrap().on_key_released(move |event| {
+                println!("Key Released: {}", event.text);
+                match event.text.bytes().next() {
+                    Some(key) => {
+                        buf[HEADER] = if event.modifiers.control { event.modifiers.control as u8 + 1 } else { 0 };
+                        buf[HEADER + 1] = if event.modifiers.shift { event.modifiers.shift as u8 + 1 } else { 0 };
+                        buf[HEADER + 2] = if event.modifiers.alt { event.modifiers.alt as u8 + 1 } else { 0 };
+                        buf[HEADER + 3] = if event.modifiers.meta { event.modifiers.meta as u8 + 1 } else { 0 };
+                        buf[HEADER + 9] = key;
+
+                        let _ = socket_clone.send_to(&buf[0..32], "150.136.127.166:8554");
+
+                        println!("Key Released: {}", key as u8);
+                        buf[HEADER..HEADER + 4].fill(0);
+                        buf[HEADER + 9] = 0; 
+                    }
+                    None => {
+                        println!("Key Pressed: None");
+                    }
+                }
+            });
+        });
+    });
+
+    let app_weak = app.as_weak();
     // washed out colors seem to be a problem with the decoder
     // additionally, I should experiment with x264 encoder and see if that provides equiavlent speeds
     let _conn = thread::spawn(move || {
-        let socket = UdpSocket::bind("0.0.0.0:8080").expect("Failed to Bind to Incoming Socket");
-
-        send_handshake(&socket);
-    
         let mut buf: [u8; MTU] = [0; MTU];
         let mut nal: Vec<u8> = Vec::new();
     
@@ -106,11 +217,11 @@ fn main() {
         // let mut file = File::create("fade.h264").unwrap();
 
         loop {
-            socket.recv_from(&mut buf).expect("Failed to Receive Packet");
-            nal.extend_from_slice(&buf[HEADER..]); 
+            let (number_of_bytes, _) = socket.recv_from(&mut buf).expect("Failed to Receive Packet");
+            nal.extend_from_slice(&buf[HEADER..number_of_bytes]); 
     
-            if buf[0] == 0 {
-                let nal_size_bytes: [u8; 4] = buf[1..5].try_into().unwrap();
+            if buf[1] == 0 {
+                let nal_size_bytes: [u8; 4] = buf[2..6].try_into().unwrap();
                 let nal_size = u32::from_be_bytes(nal_size_bytes) as usize;
     
                 // println!("Received Nal Packet with Length: {} Real Size: {}", nal.len(), nal_size);
@@ -164,11 +275,41 @@ slint::slint! {
         title: "MahitM RT";
         padding: 0;
 
+        pure callback drag(/* x */ length, /* y */ length);
+        pure callback click(/* x */ length, /* y */ length);
+        pure callback modifiers_pressed(/* control */ bool, /* shift */ bool, /* alt */ bool, /* meta */ bool);
+        pure callback key_pressed(KeyEvent);
+        pure callback key_released(KeyEvent);
+        
+        forward-focus: key-handler;
+        key-handler := FocusScope {
+            key-pressed(event) => {
+                key_pressed(event);
+                accept
+            }
+            key-released(event) => {
+                debug(event.text);
+                key-released(event);
+                accept
+            }
+        }
+
         VerticalBox {
             padding: 0;
             image := Image {
                 padding: 0;
                 height: 900px;
+                touch := TouchArea {
+                    clicked => {
+                        click(touch.mouse-x, touch.mouse-y);
+                    }
+                    pointer-event(event) => {
+                        // debug(event)
+                    }
+                    moved => {
+                        drag(touch.mouse-x, touch.mouse-y);
+                    }
+                }
             }
         }
     }
