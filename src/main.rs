@@ -1,45 +1,9 @@
+mod proto;
+
 use std::{thread, net::UdpSocket, time::Duration};
 use openh264::{decoder::{Decoder, DecodedYUV}, nal_units};
+use proto::{Packet, MTU, EPacketType, HEADER};
 use slint::ComponentHandle;
-
-pub enum EPacketType {
-    SHAKE = 0, 
-    SHOOK = 1,
-    NAL = 2,  
-    STATE = 3
-}
-
-struct Packet {
-    packet_type: u8,
-    packets_remaining: u8,
-    real_packet_size: u32
-}
-
-impl Packet {
-    pub fn new(packet_type: EPacketType, packets_remaining: u8, real_packet_size: u32) -> Packet {
-        Packet {
-            packet_type: packet_type as u8,
-            packets_remaining: packets_remaining,
-            real_packet_size: real_packet_size
-        }
-    }
-
-    pub fn write_header(&self, buf: &mut [u8]) {
-        buf[0] = self.packet_type;
-        buf[1] = self.packets_remaining;
-        buf[2..6].copy_from_slice(&self.real_packet_size.to_be_bytes());
-    }
-}
-
-const MTU: usize = 1032; 
-
-// Header Schema
-// Packet Type = 1 byte
-// Packets Remaining = 1 byte
-// Real Packet Byte Size = 4 bytes
-// 2 Bytes are currently unoccupied
-const HEADER: usize = 8; 
-// const PACKET: usize = MTU - HEADER;
 
 const W: usize = 1440; 
 const H: usize = 900;
@@ -145,6 +109,7 @@ fn main() {
         // 2 Bytes for Y for click
         // 1 Byte for key pressed
         // 1 Byte for key released
+
         let _ = slint::invoke_from_event_loop(move || {
             let socket_click = socket_clone.try_clone().unwrap();
             app_weak.unwrap().on_click(move |x, y| {
@@ -183,7 +148,6 @@ fn main() {
             });
 
             app_weak.unwrap().on_key_released(move |event| {
-                println!("Key Released: {}", event.text);
                 match event.text.bytes().next() {
                     Some(key) => {
                         buf[HEADER] = if event.modifiers.control { event.modifiers.control as u8 + 1 } else { 0 };
@@ -194,7 +158,6 @@ fn main() {
 
                         let _ = socket_clone.send_to(&buf[0..32], "150.136.127.166:8554");
 
-                        println!("Key Released: {}", key as u8);
                         buf[HEADER..HEADER + 4].fill(0);
                         buf[HEADER + 9] = 0; 
                     }
@@ -214,6 +177,10 @@ fn main() {
         let mut nal: Vec<u8> = Vec::new();
     
         let mut decoder = Decoder::new().unwrap();
+        
+        ffmpeg::init().unwrap();
+        let context_decoder = ffmpeg::codec::context::Context::from_parameters(input.parameters())?;
+        let mut decoder = context_decoder.decoder().video()?;
         // let mut file = File::create("fade.h264").unwrap();
 
         loop {
@@ -272,7 +239,7 @@ slint::slint! {
         min-width: 1440px;
         min-height: 900px;
 
-        title: "MahitM RT";
+        title: "Mrial";
         padding: 0;
 
         pure callback drag(/* x */ length, /* y */ length);
