@@ -1,8 +1,9 @@
 mod proto;
 
-use std::{thread, net::UdpSocket, time::Duration};
+use std::{thread, net::UdpSocket, time::Duration, fs::File, io::Write};
+use ffmpeg_next::{codec::{Parameters, Context, self}, frame::Video, Packet, packet::Flags, ffi::AVCodecParameters, format::Pixel};
 use openh264::{decoder::{Decoder, DecodedYUV}, nal_units};
-use proto::{Packet, MTU, EPacketType, HEADER};
+use proto::{MTU, EPacketType, HEADER};
 use slint::ComponentHandle;
 
 const W: usize = 1440; 
@@ -97,7 +98,7 @@ fn main() {
     let _state = thread::spawn(move || {
         let mut buf = [0; MTU];
 
-        Packet::new(EPacketType::STATE, 0, HEADER as u32)
+        proto::Packet::new(EPacketType::STATE, 0, HEADER as u32)
             .write_header(&mut buf);
 
         // State Payload
@@ -176,12 +177,17 @@ fn main() {
         let mut buf: [u8; MTU] = [0; MTU];
         let mut nal: Vec<u8> = Vec::new();
     
-        let mut decoder = Decoder::new().unwrap();
+        // let mut decoder = Decoder::new().unwrap();
         
-        ffmpeg::init().unwrap();
-        let context_decoder = ffmpeg::codec::context::Context::from_parameters(input.parameters())?;
-        let mut decoder = context_decoder.decoder().video()?;
-        // let mut file = File::create("fade.h264").unwrap();
+        ffmpeg_next::init().unwrap();
+
+        let mut decoder = ffmpeg_next::decoder::new()
+        .open_as(ffmpeg_next::decoder::find(codec::Id::H264))
+        .unwrap()
+        .video()
+        .unwrap();
+        
+        let mut file = File::create("fade.h264").unwrap();
 
         loop {
             let (number_of_bytes, _) = socket.recv_from(&mut buf).expect("Failed to Receive Packet");
@@ -194,32 +200,34 @@ fn main() {
                 // println!("Received Nal Packet with Length: {} Real Size: {}", nal.len(), nal_size);
                 let size = if nal_size <= nal.len() { nal_size } else { nal.len() }; 
                 
-                // file.write_all(&nal[0..size]).unwrap();
+                file.write_all(&nal[0..size]).unwrap();
                 for packet in nal_units(&nal[0..size as usize]) {
                     let app_copy = app_weak.clone();
-                    // let now = Instant::now();
-                    let _result = match decoder.decode(packet) {
-                        Ok(Some(maybe_some_yuv)) => {
-                            let mut rgb: Vec<u8> = vec![0; W*H*3];
-                            maybe_some_yuv.write_rgb8(&mut rgb);
-                                for i in 0..W * H {
-                                    rgb[i * 3] = GAMMA_RGB_CORRECTION[rgb[i * 3] as usize];
-                                    rgb[i * 3 + 1] = GAMMA_RGB_CORRECTION[rgb[i * 3 + 1] as usize];
-                                    rgb[i * 3 + 2] = GAMMA_RGB_CORRECTION[rgb[i * 3 + 2] as usize];
-                                }
-                                let pixel_buffer = rgb_to_slint_pixel_buffer(&rgb);
-                                let _ = slint::invoke_from_event_loop(move || {
-                                        app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer))
-                                });
+
+                    let pt: Packet = ffmpeg_next::packet::Packet::copy(&nal[0..size as usize]);
+
+                    match decoder.send_packet(&pt) {
+                        Ok(_) => {
+                            let mut rgb_frame = ffmpeg_next::frame::Video::empty();
+                            rgb_frame.set_width(W as u32);
+                            rgb_frame.set_height(H as u32);
+
+                            while decoder.receive_frame(&mut rgb_frame).is_ok() {
+                                print!("Decoded Frame");
                             }
-                        Ok(None) => {
-                          println!("None Recieved");
-                        }
-                        Err(_) =>  {
-                            println!("Error Recieved");
+
+                            let rgb_buffer = rgb_frame.data(0);
+                            let pixel_buffer = rgb_to_slint_pixel_buffer(rgb_buffer);
+                            let _ = slint::invoke_from_event_loop(move || {
+                                    app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer))
+                            });
                         },
+                        Err(e) => {
+                            println!("Error Sending Packet: {}", e);
+                        }
                     };
-                    // println!("Decoded in {} ms", now.elapsed().as_millis());
+
+                    
                 }
     
                 nal.clear();
