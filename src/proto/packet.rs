@@ -2,7 +2,8 @@ pub enum EPacketType {
     SHAKE = 0, 
     SHOOK = 1,
     NAL = 2,  
-    STATE = 3
+    STATE = 3,
+    AUDIO = 4
 }
 
 pub const MTU: usize = 1032; 
