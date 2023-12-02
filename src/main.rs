@@ -1,9 +1,11 @@
 mod proto;
+mod audio; 
 
-use std::{thread, io::BufReader, time::{Duration, Instant}};
+use std::{thread, time::{Duration, Instant}};
+use audio::AudioClient;
 use openh264::{decoder::{Decoder, DecodedYUV}, nal_units};
 use proto::{Packet, MTU, EPacketType, HEADER, Client};
-use rodio::{source::SineWave, Source, cpal::FromSample, buffer::SamplesBuffer};
+use rodio::buffer::SamplesBuffer;
 use slint::ComponentHandle;
 
 const W: usize = 1440; 
@@ -152,41 +154,42 @@ fn main() {
     let app_weak = app.as_weak();
 
     let _conn = thread::spawn(move || {
+        let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
+        let sink = rodio::Sink::try_new(&handle).unwrap();
+
         let mut buf: [u8; MTU] = [0; MTU];
         let mut nal: Vec<u8> = Vec::new();
         let mut audio: Vec<u8> = Vec::new();
     
         let mut decoder = Decoder::new().unwrap();
-      
-        let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
-        let sink = rodio::Sink::try_new(&handle).unwrap();
-    
+        // let mut audio = AudioClient::new();
         // let mut file = File::create("fade.h264").unwrap();
 
         // let mut begin = Instant::now();
         loop {
             let (number_of_bytes, _) = client.socket.recv_from(&mut buf).expect("Failed to Receive Packet");
-
-            if buf[0] == EPacketType::AUDIO as u8 {
+            
+            if buf[0] == 4 {
                 let u8_slice = &buf[8..number_of_bytes];
                 audio.extend_from_slice(u8_slice);
                 if buf[1] != 0 { continue; }
-
+        
                 let f32_slice = unsafe {
                     std::slice::from_raw_parts(audio.as_ptr() as *const f32, audio.len() / std::mem::size_of::<f32>())
                 };
                 
                 let audio_buf = SamplesBuffer::new(2, 48000, f32_slice);
+               
+                println!("adding");
                 sink.append(audio_buf);
-
                 audio.clear();
-                // println!("Elasped: {}", begin.elapsed().as_millis());
-                // begin = Instant::now();
-                continue; 
-            } 
+
+                continue;
+            }
+
             nal.extend_from_slice(&buf[HEADER..number_of_bytes]); 
-    
-            if buf[1] == 0 { // unncessary check 
+            
+            if buf[1] == 0 { 
                 let nal_size_bytes: [u8; 4] = buf[2..6].try_into().unwrap();
                 let nal_size = u32::from_be_bytes(nal_size_bytes) as usize;
     
@@ -236,7 +239,7 @@ slint::slint! {
         min-width: 1440px;
         min-height: 900px;
 
-        title: "Mrial";
+        title: "MRIAL";
         padding: 0;
 
         pure callback drag(/* x */ length, /* y */ length);

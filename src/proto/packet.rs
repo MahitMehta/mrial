@@ -20,6 +20,7 @@ pub struct Packet {
 // Packets Remaining = 1 byte
 // Real Packet Byte Size = 4 bytes
 // 2 Bytes are currently unoccupied in the header
+
 // Payload Schema
 // variables sized unencrypted bytes (MAX = MTU - HEADER) 
 
