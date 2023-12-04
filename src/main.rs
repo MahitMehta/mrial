@@ -1,11 +1,11 @@
 mod proto;
 mod audio; 
 
-use std::{thread, time::{Duration, Instant}};
+use std::thread;
 use audio::AudioClient;
+use device_query::DeviceQuery;
 use openh264::{decoder::{Decoder, DecodedYUV}, nal_units};
 use proto::{Packet, MTU, EPacketType, HEADER, Client};
-use rodio::buffer::SamplesBuffer;
 use slint::ComponentHandle;
 
 const W: usize = 1440; 
@@ -78,6 +78,8 @@ fn main() {
     let client_clone = client.try_clone();
     let _state = thread::spawn(move || {
         let mut buf = [0; MTU];
+        let device_state = device_query::DeviceState::new();
+
 
         Packet::new(EPacketType::STATE, 0, HEADER as u32)
             .write_header(&mut buf);
@@ -91,6 +93,11 @@ fn main() {
         // 2 Bytes for Y for click
         // 1 Byte for key pressed
         // 1 Byte for key released
+        // 2 Bytes for X location
+        // 2 Bytes for Y location
+        // 1 Byte for drag
+        // 2 Bytes for X scroll delta
+        // 2 Bytes for Y scroll delta
 
         let _ = slint::invoke_from_event_loop(move || {
             let socket_click = client_clone.try_clone();
@@ -101,10 +108,66 @@ fn main() {
                 buf[HEADER + 4..HEADER + 6].copy_from_slice(&x_percent.to_be_bytes());
                 buf[HEADER + 6..HEADER + 8].copy_from_slice(&y_percent.to_be_bytes());
 
-                let _ = socket_click.socket.send_to(&buf, "150.136.127.166:8554");
+                let _ = socket_click.socket.send_to(&buf[0..32], "150.136.127.166:8554");
 
                 buf[HEADER + 4..HEADER + 6].fill(0);
                 buf[HEADER + 6..HEADER + 8].fill(0);            
+            });
+
+            let socket_drag = client_clone.try_clone();
+            let device_state_clone = device_state.clone();
+            // send packets less frequently 
+            app_weak.unwrap().on_drag(move |x, y| {
+                let x_percent = (x / 1440.0 * 10000.0).round() as u16 + 1; 
+                let y_percent = (y / 900.0 * 10000.0).round() as u16 + 1;
+                
+                buf[HEADER + 10..HEADER + 12].copy_from_slice(&x_percent.to_be_bytes());
+                buf[HEADER + 12..HEADER + 14].copy_from_slice(&y_percent.to_be_bytes());
+
+                let is_dragging: bool = device_state_clone.get_mouse().button_pressed[1]; 
+                buf[HEADER + 14] = is_dragging as u8; 
+
+                let _ = socket_drag.socket.send_to(&buf[0..32], "150.136.127.166:8554");
+
+                buf[HEADER + 10..HEADER + 12].fill(0);
+                buf[HEADER + 12..HEADER + 14].fill(0);
+               
+                buf[HEADER + 14] = 0 as u8; 
+            });
+
+            let socket_scroll = client_clone.try_clone();
+
+            let mut x_delta = 0i16; 
+            let mut y_delta = 0i16; 
+
+            let line_height = 16i16; 
+
+            app_weak.unwrap().on_scroll(move |y, x| {
+               
+                
+                x_delta += x as i16; 
+                y_delta += y as i16; 
+
+               // println!("Scroll X: {} Y: {}", x_delta, y_delta); // need to scale local x,y pixel deltas 
+
+                if x_delta.abs() >= line_height {
+                    let x_lines = x_delta / line_height; 
+                    println!("X: {}", x_lines);
+                    buf[HEADER + 14..HEADER + 16].copy_from_slice(&x_lines.to_be_bytes());
+                    x_delta %= line_height; 
+                }
+
+                if y_delta.abs() >= line_height {
+                    let y_lines = y_delta / line_height;
+                    println!("Y: {}", y_lines);
+                    buf[HEADER + 16..HEADER + 18].copy_from_slice(&y_lines.to_be_bytes());
+                    y_delta %= line_height;
+                }
+
+                let _ = socket_scroll.socket.send_to(&buf[0..32], "150.136.127.166:8554");
+                
+                buf[HEADER + 14..HEADER + 16].fill(0);
+                buf[HEADER + 16..HEADER + 18].fill(0);
             });
 
             let socket_key_pressed = client_clone.try_clone();
@@ -128,6 +191,7 @@ fn main() {
                     }
                 }
             });
+
 
             app_weak.unwrap().on_key_released(move |event| {
                 match event.text.bytes().next() {
@@ -159,31 +223,16 @@ fn main() {
 
         let mut buf: [u8; MTU] = [0; MTU];
         let mut nal: Vec<u8> = Vec::new();
-        let mut audio: Vec<u8> = Vec::new();
-    
+
         let mut decoder = Decoder::new().unwrap();
-        // let mut audio = AudioClient::new();
+        let mut audio = AudioClient::new(sink);
         // let mut file = File::create("fade.h264").unwrap();
 
-        // let mut begin = Instant::now();
         loop {
             let (number_of_bytes, _) = client.socket.recv_from(&mut buf).expect("Failed to Receive Packet");
             
-            if buf[0] == 4 {
-                let u8_slice = &buf[8..number_of_bytes];
-                audio.extend_from_slice(u8_slice);
-                if buf[1] != 0 { continue; }
-        
-                let f32_slice = unsafe {
-                    std::slice::from_raw_parts(audio.as_ptr() as *const f32, audio.len() / std::mem::size_of::<f32>())
-                };
-                
-                let audio_buf = SamplesBuffer::new(2, 48000, f32_slice);
-               
-                println!("adding");
-                sink.append(audio_buf);
-                audio.clear();
-
+            if buf[0] == EPacketType::AUDIO as u8 {
+                audio.play_audio_stream(&buf, number_of_bytes);
                 continue;
             }
 
@@ -210,7 +259,8 @@ fn main() {
                                 }
                                 let pixel_buffer = rgb_to_slint_pixel_buffer(&rgb);
                                 let _ = slint::invoke_from_event_loop(move || {
-                                        app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer))
+                                        app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer));
+                                        app_copy.unwrap().window().request_redraw(); // test if this actually improves smoothness
                                 });
                             }
                         Ok(None) => {
@@ -218,6 +268,7 @@ fn main() {
                         }
                         Err(_) =>  {
                             println!("Error Recieved");
+                            client.send_handshake(); // limit number of handshakes
                         },
                     };
                 }
@@ -247,7 +298,8 @@ slint::slint! {
         pure callback modifiers_pressed(/* control */ bool, /* shift */ bool, /* alt */ bool, /* meta */ bool);
         pure callback key_pressed(KeyEvent);
         pure callback key_released(KeyEvent);
-        
+        pure callback scroll(/* x */ length, /* y */ length);
+
         forward-focus: key-handler;
         key-handler := FocusScope {
             key-pressed(event) => {
@@ -270,8 +322,12 @@ slint::slint! {
                     clicked => {
                         click(touch.mouse-x, touch.mouse-y);
                     }
+                    scroll-event(event) => {
+                        scroll(event.delta-x, event.delta-y);
+                        accept
+                    }
                     pointer-event(event) => {
-                        // debug(event)
+                       // debug(touch.mouse-x) // can use touch in combination with button right to detect right click
                     }
                     moved => {
                         drag(touch.mouse-x, touch.mouse-y);

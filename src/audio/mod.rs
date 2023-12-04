@@ -8,10 +8,7 @@ pub struct AudioClient {
 }
 
 impl AudioClient {
-    pub fn new() -> AudioClient {
-        let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
-        let sink = rodio::Sink::try_new(&handle).unwrap();
-
+    pub fn new(sink : Sink) -> AudioClient {
         AudioClient {
             audio_stream: Vec::new(),
             sink
@@ -28,8 +25,7 @@ impl AudioClient {
         };
         
         let audio_buf = SamplesBuffer::new(2, 48000, f32_slice);
-       
-        println!("adding");
+    
         self.sink.append(audio_buf);
         self.audio_stream.clear();
     }
