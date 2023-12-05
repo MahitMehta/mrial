@@ -1,7 +1,7 @@
 mod proto;
 mod audio; 
 
-use std::thread;
+use std::{thread, time::Instant};
 use audio::AudioClient;
 use device_query::DeviceQuery;
 use openh264::{decoder::{Decoder, DecodedYUV}, nal_units};
@@ -95,7 +95,7 @@ fn main() {
         // 1 Byte for key released
         // 2 Bytes for X location
         // 2 Bytes for Y location
-        // 1 Byte for drag
+        // 1 Byte for mouse_move
         // 2 Bytes for X scroll delta
         // 2 Bytes for Y scroll delta
 
@@ -114,20 +114,20 @@ fn main() {
                 buf[HEADER + 6..HEADER + 8].fill(0);            
             });
 
-            let socket_drag = client_clone.try_clone();
+            let socket_mouse_move = client_clone.try_clone();
             let device_state_clone = device_state.clone();
             // send packets less frequently 
-            app_weak.unwrap().on_drag(move |x, y| {
+            app_weak.unwrap().on_mouse_move(move |x, y| {
                 let x_percent = (x / 1440.0 * 10000.0).round() as u16 + 1; 
                 let y_percent = (y / 900.0 * 10000.0).round() as u16 + 1;
                 
                 buf[HEADER + 10..HEADER + 12].copy_from_slice(&x_percent.to_be_bytes());
                 buf[HEADER + 12..HEADER + 14].copy_from_slice(&y_percent.to_be_bytes());
 
-                let is_dragging: bool = device_state_clone.get_mouse().button_pressed[1]; 
+                let is_dragging = device_state_clone.get_mouse().button_pressed[1]; 
                 buf[HEADER + 14] = is_dragging as u8; 
 
-                let _ = socket_drag.socket.send_to(&buf[0..32], "150.136.127.166:8554");
+                let _ = socket_mouse_move.socket.send_to(&buf[0..32], "150.136.127.166:8554");
 
                 buf[HEADER + 10..HEADER + 12].fill(0);
                 buf[HEADER + 12..HEADER + 14].fill(0);
@@ -140,7 +140,7 @@ fn main() {
             let mut x_delta = 0i16; 
             let mut y_delta = 0i16; 
 
-            let line_height = 16i16; 
+            let line_height = 12i16; 
 
             app_weak.unwrap().on_scroll(move |y, x| {
                
@@ -152,19 +152,19 @@ fn main() {
 
                 if x_delta.abs() >= line_height {
                     let x_lines = x_delta / line_height; 
-                    println!("X: {}", x_lines);
                     buf[HEADER + 14..HEADER + 16].copy_from_slice(&x_lines.to_be_bytes());
                     x_delta %= line_height; 
                 }
 
                 if y_delta.abs() >= line_height {
                     let y_lines = y_delta / line_height;
-                    println!("Y: {}", y_lines);
                     buf[HEADER + 16..HEADER + 18].copy_from_slice(&y_lines.to_be_bytes());
                     y_delta %= line_height;
                 }
 
-                let _ = socket_scroll.socket.send_to(&buf[0..32], "150.136.127.166:8554");
+                if buf[HEADER + 14] != 0 || buf[HEADER + 15] != 0 || buf[HEADER + 16] != 0 || buf[HEADER + 17] != 0 {
+                    let _ = socket_scroll.socket.send_to(&buf[0..32], "150.136.127.166:8554");
+                }
                 
                 buf[HEADER + 14..HEADER + 16].fill(0);
                 buf[HEADER + 16..HEADER + 18].fill(0);
@@ -233,47 +233,46 @@ fn main() {
             
             if buf[0] == EPacketType::AUDIO as u8 {
                 audio.play_audio_stream(&buf, number_of_bytes);
-                continue;
-            }
+            } else if buf[0] == EPacketType::NAL as u8 {
+                nal.extend_from_slice(&buf[HEADER..number_of_bytes]); 
 
-            nal.extend_from_slice(&buf[HEADER..number_of_bytes]); 
-            
-            if buf[1] == 0 { 
-                let nal_size_bytes: [u8; 4] = buf[2..6].try_into().unwrap();
-                let nal_size = u32::from_be_bytes(nal_size_bytes) as usize;
-    
-                // println!("Received Nal Packet with Length: {} Real Size: {}", nal.len(), nal_size);
-                let size = if nal_size <= nal.len() { nal_size } else { nal.len() }; 
-                
-                // file.write_all(&nal[0..size]).unwrap();
-                for packet in nal_units(&nal[0..size as usize]) {
-                    let app_copy = app_weak.clone();
-                    let _result = match decoder.decode(packet) {
-                        Ok(Some(maybe_some_yuv)) => {
-                            let mut rgb: Vec<u8> = vec![0; W*H*3];
-                            maybe_some_yuv.write_rgb8(&mut rgb);
-                                for i in 0..W * H {
-                                    rgb[i * 3] = GAMMA_RGB_CORRECTION[rgb[i * 3] as usize];
-                                    rgb[i * 3 + 1] = GAMMA_RGB_CORRECTION[rgb[i * 3 + 1] as usize];
-                                    rgb[i * 3 + 2] = GAMMA_RGB_CORRECTION[rgb[i * 3 + 2] as usize];
+                if buf[1] == 0 { 
+                    let nal_size_bytes: [u8; 4] = buf[2..6].try_into().unwrap();
+                    let nal_size = u32::from_be_bytes(nal_size_bytes) as usize;
+        
+                    // println!("Received Nal Packet with Length: {} Real Size: {}", nal.len(), nal_size);
+                    let size = if nal_size <= nal.len() { nal_size } else { nal.len() }; 
+                    
+                    // file.write_all(&nal[0..size]).unwrap();
+                    for packet in nal_units(&nal[0..size as usize]) {
+                        let app_copy = app_weak.clone();
+                        let _result = match decoder.decode(packet) {
+                            Ok(Some(maybe_some_yuv)) => {
+                                let mut rgb: Vec<u8> = vec![0; W*H*3];
+                                maybe_some_yuv.write_rgb8(&mut rgb);
+                                    for i in 0..W * H {
+                                        rgb[i * 3] = GAMMA_RGB_CORRECTION[rgb[i * 3] as usize];
+                                        rgb[i * 3 + 1] = GAMMA_RGB_CORRECTION[rgb[i * 3 + 1] as usize];
+                                        rgb[i * 3 + 2] = GAMMA_RGB_CORRECTION[rgb[i * 3 + 2] as usize];
+                                    }
+                                    let pixel_buffer = rgb_to_slint_pixel_buffer(&rgb);
+                                    let _ = slint::invoke_from_event_loop(move || {
+                                            app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer));
+                                            app_copy.unwrap().window().request_redraw(); // test if this actually improves smoothness
+                                    });
                                 }
-                                let pixel_buffer = rgb_to_slint_pixel_buffer(&rgb);
-                                let _ = slint::invoke_from_event_loop(move || {
-                                        app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer));
-                                        app_copy.unwrap().window().request_redraw(); // test if this actually improves smoothness
-                                });
+                            Ok(None) => {
+                              println!("None Recieved");
                             }
-                        Ok(None) => {
-                          println!("None Recieved");
-                        }
-                        Err(_) =>  {
-                            println!("Error Recieved");
-                            client.send_handshake(); // limit number of handshakes
-                        },
-                    };
+                            Err(_) =>  {
+                                println!("Error Recieved");
+                                client.send_handshake(); // limit number of handshakes
+                            },
+                        };
+                    }
+        
+                    nal.clear();
                 }
-    
-                nal.clear();
             }
         }     
     });
@@ -293,7 +292,7 @@ slint::slint! {
         title: "MRIAL";
         padding: 0;
 
-        pure callback drag(/* x */ length, /* y */ length);
+        pure callback mouse_move(/* x */ length, /* y */ length);
         pure callback click(/* x */ length, /* y */ length);
         pure callback modifiers_pressed(/* control */ bool, /* shift */ bool, /* alt */ bool, /* meta */ bool);
         pure callback key_pressed(KeyEvent);
@@ -330,7 +329,7 @@ slint::slint! {
                        // debug(touch.mouse-x) // can use touch in combination with button right to detect right click
                     }
                     moved => {
-                        drag(touch.mouse-x, touch.mouse-y);
+                        mouse_move(touch.mouse-x, touch.mouse-y);
                     }
                 }
             }
