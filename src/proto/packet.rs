@@ -2,7 +2,8 @@ pub enum EPacketType {
     SHAKE = 0, 
     SHOOK = 1,
     NAL = 2,  
-    STATE = 3
+    STATE = 3,
+    AUDIO = 4
 }
 
 pub const MTU: usize = 1032; 
@@ -19,6 +20,7 @@ pub struct Packet {
 // Packets Remaining = 1 byte
 // Real Packet Byte Size = 4 bytes
 // 2 Bytes are currently unoccupied in the header
+
 // Payload Schema
 // variables sized unencrypted bytes (MAX = MTU - HEADER) 
 
