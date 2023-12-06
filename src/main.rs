@@ -1,7 +1,7 @@
 mod proto;
 
 use std::{thread, net::UdpSocket, time::Duration, fs::File, io::Write};
-use ffmpeg_next::{codec::{Parameters, Context, self}, frame::Video, Packet, packet::Flags, ffi::AVCodecParameters, format::Pixel};
+use ffmpeg_next::{codec::{Parameters, Context, self}, frame::Video, Packet, packet::Flags, ffi::AVCodecParameters, format::Pixel, software};
 use openh264::{decoder::{Decoder, DecodedYUV}, nal_units};
 use proto::{MTU, EPacketType, HEADER};
 use slint::ComponentHandle;
@@ -14,7 +14,7 @@ fn send_handshake(socket : &UdpSocket) {
     let mut buf: [u8; HEADER] = [0; HEADER];
     
     loop {
-        let _ = socket.send_to(b"shake", "150.136.127.166:8554");
+        let _ = socket.send_to(&buf, "150.136.127.166:8554");
         println!("Sent Handshake Packet");
         // validate src
         let (_amt, _src) = match socket.recv_from(&mut buf) {
@@ -182,12 +182,14 @@ fn main() {
         ffmpeg_next::init().unwrap();
 
         let mut decoder = ffmpeg_next::decoder::new()
-        .open_as(ffmpeg_next::decoder::find(codec::Id::H264))
-        .unwrap()
-        .video()
-        .unwrap();
+            .open_as(ffmpeg_next::decoder::find(codec::Id::H264))
+            .unwrap()
+            .video()
+            .unwrap(); 
         
-        let mut file = File::create("fade.h264").unwrap();
+        //let mut file = File::create("fade.h264").unwrap();
+        let mut scalar = software::converter((W as u32, H as u32), Pixel::YUV420P, Pixel::RGB24)
+            .unwrap();
 
         loop {
             let (number_of_bytes, _) = socket.recv_from(&mut buf).expect("Failed to Receive Packet");
@@ -197,38 +199,35 @@ fn main() {
                 let nal_size_bytes: [u8; 4] = buf[2..6].try_into().unwrap();
                 let nal_size = u32::from_be_bytes(nal_size_bytes) as usize;
     
-                // println!("Received Nal Packet with Length: {} Real Size: {}", nal.len(), nal_size);
                 let size = if nal_size <= nal.len() { nal_size } else { nal.len() }; 
                 
-                file.write_all(&nal[0..size]).unwrap();
-                for packet in nal_units(&nal[0..size as usize]) {
-                    let app_copy = app_weak.clone();
+                // file.write_all(&nal[0..size]).unwrap();
+                let pt: Packet = ffmpeg_next::packet::Packet::copy(&nal[0..size as usize]);
 
-                    let pt: Packet = ffmpeg_next::packet::Packet::copy(&nal[0..size as usize]);
+                match decoder.send_packet(&pt) {
+                    Ok(_) => {
+                        let mut raw_frame = ffmpeg_next::util::frame::Video::empty();
+                        let mut rgb_frame = ffmpeg_next::util::frame::Video::empty();
 
-                    match decoder.send_packet(&pt) {
-                        Ok(_) => {
-                            let mut rgb_frame = ffmpeg_next::frame::Video::empty();
-                            rgb_frame.set_width(W as u32);
-                            rgb_frame.set_height(H as u32);
+                        while decoder.receive_frame(&mut raw_frame).is_ok() {
+                            let app_copy = app_weak.clone();
 
-                            while decoder.receive_frame(&mut rgb_frame).is_ok() {
-                                print!("Decoded Frame");
-                            }
+                            scalar.run(&raw_frame, &mut rgb_frame).unwrap();
+                            let rgb_buffer: &[u8] = rgb_frame.data(0);
 
-                            let rgb_buffer = rgb_frame.data(0);
                             let pixel_buffer = rgb_to_slint_pixel_buffer(rgb_buffer);
                             let _ = slint::invoke_from_event_loop(move || {
                                     app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer))
                             });
-                        },
-                        Err(e) => {
-                            println!("Error Sending Packet: {}", e);
                         }
-                    };
 
-                    
-                }
+                        
+                    },
+                    Err(e) => {
+                        println!("Error Sending Packet: {}", e);
+                    }
+                };
+
     
                 nal.clear();
             }
