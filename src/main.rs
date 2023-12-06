@@ -1,12 +1,13 @@
 mod proto;
 mod audio; 
 
-use std::{thread, time::Instant};
+use std::thread;
 use audio::AudioClient;
-use device_query::DeviceQuery;
-use openh264::{decoder::{Decoder, DecodedYUV}, nal_units};
+// use device_query::DeviceQuery;
+use openh264::{decoder::Decoder, nal_units};
 use proto::{Packet, MTU, EPacketType, HEADER, Client};
 use slint::ComponentHandle;
+use ffmpeg_next;
 
 const W: usize = 1440; 
 const H: usize = 900;
@@ -30,34 +31,6 @@ const GAMMA_RGB_CORRECTION: [u8; 256] = [
    236, 238, 239, 240, 241, 243, 244, 245, 246, 248, 249, 250, 251, 253, 254, 255,
 ];
 
-pub fn write_rgb8(yuv: DecodedYUV, target: &mut [u8]) {
-    let dim = yuv.dimension_rgb();
-    let strides = yuv.strides_yuv();
-
-    for y in 0..dim.1 {
-        for x in 0..dim.0 {
-            let base_tgt = (y * dim.0 + x) * 3;
-            let base_y = y * strides.0 + x;
-            let base_u = (y / 2 * strides.1) + (x / 2);
-            let base_v = (y / 2 * strides.2) + (x / 2);
-
-            let rgb_pixel = &mut target[base_tgt..base_tgt + 3];
-
-            let y = yuv.y_with_stride()[base_y] as f32;
-            let u = yuv.u_with_stride()[base_u] as f32;
-            let v = yuv.v_with_stride()[base_v] as f32;
-
-            rgb_pixel[0] = (1.164 * (y - 16.0) + 1.596 * (v - 128.0)) as u8; 
-            //rgb_pixel[0] = (y + 1.402 * (v - 128.0)) as u8;
-            rgb_pixel[1] = (1.164 * (y - 16.0) - 0.183 * (v - 128.0) - 0.392 * (u - 128.0)) as u8;
-            //rgb_pixel[1] = (y - 0.344 * (u - 128.0) - 0.714 * (v - 128.0)) as u8;
-            rgb_pixel[2] = (1.164 * (y - 16.0) + 2.017 * (u - 128.0)) as u8;
-            //rgb_pixel[2] = (y + 1.772 * (u - 128.0)) as u8;
-        }
-    }
-}
-
-
 fn rgb_to_slint_pixel_buffer(
     rgb: &[u8],
 ) -> slint::SharedPixelBuffer<slint::Rgb8Pixel> {
@@ -78,8 +51,7 @@ fn main() {
     let client_clone = client.try_clone();
     let _state = thread::spawn(move || {
         let mut buf = [0; MTU];
-        let device_state = device_query::DeviceState::new();
-
+        //let device_state = device_query::DeviceState::new();
 
         Packet::new(EPacketType::STATE, 0, HEADER as u32)
             .write_header(&mut buf);
@@ -115,17 +87,15 @@ fn main() {
             });
 
             let socket_mouse_move = client_clone.try_clone();
-            let device_state_clone = device_state.clone();
             // send packets less frequently 
-            app_weak.unwrap().on_mouse_move(move |x, y| {
+            app_weak.unwrap().on_mouse_move(move |x, y, pressed| {
                 let x_percent = (x / 1440.0 * 10000.0).round() as u16 + 1; 
                 let y_percent = (y / 900.0 * 10000.0).round() as u16 + 1;
                 
                 buf[HEADER + 10..HEADER + 12].copy_from_slice(&x_percent.to_be_bytes());
                 buf[HEADER + 12..HEADER + 14].copy_from_slice(&y_percent.to_be_bytes());
 
-                let is_dragging = device_state_clone.get_mouse().button_pressed[1]; 
-                buf[HEADER + 14] = is_dragging as u8; 
+                buf[HEADER + 14] = pressed as u8; 
 
                 let _ = socket_mouse_move.socket.send_to(&buf[0..32], "150.136.127.166:8554");
 
@@ -142,13 +112,10 @@ fn main() {
 
             let line_height = 12i16; 
 
-            app_weak.unwrap().on_scroll(move |y, x| {
-               
-                
+            // improve scroll smoothness
+            app_weak.unwrap().on_scroll(move |y, x| {                
                 x_delta += x as i16; 
                 y_delta += y as i16; 
-
-               // println!("Scroll X: {} Y: {}", x_delta, y_delta); // need to scale local x,y pixel deltas 
 
                 if x_delta.abs() >= line_height {
                     let x_lines = x_delta / line_height; 
@@ -236,43 +203,41 @@ fn main() {
             } else if buf[0] == EPacketType::NAL as u8 {
                 nal.extend_from_slice(&buf[HEADER..number_of_bytes]); 
 
-                if buf[1] == 0 { 
-                    let nal_size_bytes: [u8; 4] = buf[2..6].try_into().unwrap();
-                    let nal_size = u32::from_be_bytes(nal_size_bytes) as usize;
-        
-                    // println!("Received Nal Packet with Length: {} Real Size: {}", nal.len(), nal_size);
-                    let size = if nal_size <= nal.len() { nal_size } else { nal.len() }; 
-                    
-                    // file.write_all(&nal[0..size]).unwrap();
-                    for packet in nal_units(&nal[0..size as usize]) {
-                        let app_copy = app_weak.clone();
-                        let _result = match decoder.decode(packet) {
-                            Ok(Some(maybe_some_yuv)) => {
-                                let mut rgb: Vec<u8> = vec![0; W*H*3];
-                                maybe_some_yuv.write_rgb8(&mut rgb);
-                                    for i in 0..W * H {
-                                        rgb[i * 3] = GAMMA_RGB_CORRECTION[rgb[i * 3] as usize];
-                                        rgb[i * 3 + 1] = GAMMA_RGB_CORRECTION[rgb[i * 3 + 1] as usize];
-                                        rgb[i * 3 + 2] = GAMMA_RGB_CORRECTION[rgb[i * 3 + 2] as usize];
-                                    }
-                                    let pixel_buffer = rgb_to_slint_pixel_buffer(&rgb);
-                                    let _ = slint::invoke_from_event_loop(move || {
-                                            app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer));
-                                            app_copy.unwrap().window().request_redraw(); // test if this actually improves smoothness
-                                    });
+                if buf[1] != 0 { continue }  
+                
+                let nal_size_bytes: [u8; 4] = buf[2..6].try_into().unwrap();
+                let nal_size = u32::from_be_bytes(nal_size_bytes) as usize;
+                let size = if nal_size <= nal.len() { nal_size } else { nal.len() }; 
+                
+                // file.write_all(&nal[0..size]).unwrap();
+                for packet in nal_units(&nal[0..size as usize]) {
+                    let app_copy = app_weak.clone();
+                    let _result = match decoder.decode(packet) {
+                        Ok(Some(yuv)) => {
+                            let mut rgb: Vec<u8> = vec![0; W*H*3];
+                            yuv.write_rgb8(&mut rgb);
+                                for i in 0..W * H {
+                                    rgb[i * 3] = GAMMA_RGB_CORRECTION[rgb[i * 3] as usize];
+                                    rgb[i * 3 + 1] = GAMMA_RGB_CORRECTION[rgb[i * 3 + 1] as usize];
+                                    rgb[i * 3 + 2] = GAMMA_RGB_CORRECTION[rgb[i * 3 + 2] as usize];
                                 }
-                            Ok(None) => {
-                              println!("None Recieved");
+                                let pixel_buffer = rgb_to_slint_pixel_buffer(&rgb);
+                                let _ = slint::invoke_from_event_loop(move || {
+                                        app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer));
+                                        app_copy.unwrap().window().request_redraw(); // test if this actually improves smoothness
+                                });
                             }
-                            Err(_) =>  {
-                                println!("Error Recieved");
-                                client.send_handshake(); // limit number of handshakes
-                            },
-                        };
-                    }
-        
-                    nal.clear();
+                        Ok(None) => {
+                            println!("None Recieved");
+                        }
+                        Err(_) =>  {
+                            println!("Error Recieved");
+                            client.send_handshake(); // limit number of handshakes
+                        },
+                    };
                 }
+    
+                nal.clear();
             }
         }     
     });
@@ -292,7 +257,7 @@ slint::slint! {
         title: "MRIAL";
         padding: 0;
 
-        pure callback mouse_move(/* x */ length, /* y */ length);
+        pure callback mouse_move(/* x */ length, /* y */ length, /* pressed */ bool);
         pure callback click(/* x */ length, /* y */ length);
         pure callback modifiers_pressed(/* control */ bool, /* shift */ bool, /* alt */ bool, /* meta */ bool);
         pure callback key_pressed(KeyEvent);
@@ -306,7 +271,6 @@ slint::slint! {
                 accept
             }
             key-released(event) => {
-                debug(event.text);
                 key-released(event);
                 accept
             }
@@ -329,7 +293,7 @@ slint::slint! {
                        // debug(touch.mouse-x) // can use touch in combination with button right to detect right click
                     }
                     moved => {
-                        mouse_move(touch.mouse-x, touch.mouse-y);
+                        mouse_move(touch.mouse-x, touch.mouse-y, self.pressed);
                     }
                 }
             }
