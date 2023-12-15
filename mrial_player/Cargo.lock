@@ -2533,19 +2533,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mahitm_player"
-version = "0.1.0"
-dependencies = [
- "device_query",
- "ffmpeg-next",
- "minifb",
- "openh264",
- "rodio",
- "slint",
- "tokio",
-]
-
-[[package]]
 name = "malloc_buf"
 version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2671,6 +2658,19 @@ dependencies = [
  "libc",
  "wasi",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "mrial_player"
+version = "0.1.0"
+dependencies = [
+ "device_query",
+ "ffmpeg-next",
+ "minifb",
+ "openh264",
+ "rodio",
+ "slint",
+ "tokio",
 ]
 
 [[package]]

@@ -4,8 +4,7 @@ mod audio;
 use std::thread;
 use ffmpeg_next::{ frame, format::Pixel, software };
 use audio::AudioClient;
-// use device_query::DeviceQuery;
-use proto::{ MTU, EPacketType, HEADER, Client };
+use proto::*;
 use slint::ComponentHandle;
 use ffmpeg_next;
 
@@ -34,8 +33,12 @@ fn main() {
         let mut buf = [0; MTU];
         //let device_state = device_query::DeviceState::new();
 
-        proto::Packet::new(EPacketType::STATE, 0, HEADER as u32)
-            .write_header(&mut buf);
+        proto::write_header(
+            EPacketType::STATE, 
+            0, 
+            HEADER as u32,
+            &mut buf
+        );
 
         // State Payload
         // 1 Byte for Control 
@@ -185,47 +188,47 @@ fn main() {
 
         loop {
             let (number_of_bytes, _) = client.socket.recv_from(&mut buf).expect("Failed to Receive Packet");
-            
-            if buf[0] == EPacketType::AUDIO as u8 {
-                audio.play_audio_stream(&buf, number_of_bytes);
-            } else if buf[0] == EPacketType::NAL as u8 {
-                nal.extend_from_slice(&buf[HEADER..number_of_bytes]); 
+            let (packet_type, packets_remaining, _real_packet_size) = proto::parse_header(&buf);
 
-                if buf[1] != 0 { continue }  
-                
-                let nal_size_bytes: [u8; 4] = buf[2..6].try_into().unwrap();
-                let nal_size = u32::from_be_bytes(nal_size_bytes) as usize;
-    
-                let size = if nal_size <= nal.len() { nal_size } else { nal.len() }; 
-                let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&nal[0..size as usize]);
+            match packet_type {
+                EPacketType::AUDIO => {
+                    audio.play_audio_stream(&buf, number_of_bytes);
+                }
+                EPacketType::NAL => {
+                    if !proto::assemble_packet(&mut nal, packets_remaining, number_of_bytes, &buf) {
+                        continue;
+                    }; 
+                    
+                    let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&nal);
 
-                match decoder.send_packet(&pt) {
-                    Ok(_) => {
-                        let mut raw_frame = frame::Video::empty();
-                        let mut rgb_frame = frame::Video::empty();
+                    match decoder.send_packet(&pt) {
+                        Ok(_) => {
+                            let mut yuv_frame = frame::Video::empty();
+                            let mut rgb_frame = frame::Video::empty();
 
-                        while decoder.receive_frame(&mut raw_frame).is_ok() {
-                            let app_copy = app_weak.clone();
+                            while decoder.receive_frame(&mut yuv_frame).is_ok() {
+                                let app_copy = app_weak.clone();
 
-                            scalar.run(&raw_frame, &mut rgb_frame).unwrap();
-                            let rgb_buffer: &[u8] = rgb_frame.data(0);
+                                scalar.run(&yuv_frame, &mut rgb_frame).unwrap();
+                                let rgb_buffer: &[u8] = rgb_frame.data(0);
 
-                            let pixel_buffer = rgb_to_slint_pixel_buffer(rgb_buffer);
-                            let _ = slint::invoke_from_event_loop(move || {
-                                    app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer));
-                                    app_copy.unwrap().window().request_redraw(); // test if this actually improves smoothness
-                            });
+                                let pixel_buffer = rgb_to_slint_pixel_buffer(rgb_buffer);
+                                let _ = slint::invoke_from_event_loop(move || {
+                                        app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer));
+                                        app_copy.unwrap().window().request_redraw(); // test if this actually improves smoothness
+                                });
+                            }
+
+                            
+                        },
+                        Err(e) => {
+                            println!("Error Sending Packet: {}", e);
+                            client.send_handshake(); // limit number of handshakes
                         }
-
-                        
-                    },
-                    Err(e) => {
-                        println!("Error Sending Packet: {}", e);
-                        client.send_handshake(); // limit number of handshakes
-                    }
-                };
-    
-                nal.clear();
+                    };
+                    nal.clear();
+                }
+                _ => {}
             }
         }     
     });
