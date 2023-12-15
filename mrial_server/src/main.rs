@@ -10,11 +10,12 @@ use enigo::{
     Mouse,
 };
 
-use libyuv_sys::{ARGBToI420, ARGBToI444, BGRAToARGB};
+use libyuv_sys::{ARGBToI420, ARGBToI444};
 use openh264::{encoder::{EncoderConfig, Encoder}, formats::YUVSource};
 use futures::{executor::ThreadPool, task::SpawnExt, future::RemoteHandle};
 use audio::AudioController;
 use x264::{Param, Picture};
+use scrap::{Capturer, Display};
 
 pub enum EPacketType {
     SHAKE = 0,
@@ -234,7 +235,6 @@ impl <'a>openh264::formats::YUVSource for YUVBuffer {
 
 #[tokio::main]
 async fn main() {
-    use scrap::{Capturer, Display};
     use std::io::ErrorKind::WouldBlock;
 
     let socket: UdpSocket = UdpSocket::bind("0.0.0.0:8554").expect("Failed to Bind to 0.0.0.0:3000");

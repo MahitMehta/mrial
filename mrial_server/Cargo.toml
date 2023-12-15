@@ -15,3 +15,4 @@ x264 = { path = "../libs/x264-rs" }
 mouse-rs = "0.4.2"
 enigo = "0.2.0-rc2"
 pipewire = "0.7.2"
+cfg-if = "0.1"
