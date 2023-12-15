@@ -1,3 +1,6 @@
 [submodule "libs/x264-rs"]
 	path = libs/x264-rs
 	url = https://github.com/MahitMehta/x264-rs.git
+[submodule "libs/libyuv-sys"]
+	path = libs/libyuv-sys
+	url = https://github.com/MahitMehta/libyuv-sys.git
