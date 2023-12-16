@@ -2691,11 +2691,16 @@ dependencies = [
  "device_query",
  "ffmpeg-next",
  "minifb",
+ "mrial_proto",
  "openh264",
  "rodio",
  "slint",
  "tokio",
 ]
+
+[[package]]
+name = "mrial_proto"
+version = "0.1.0"
 
 [[package]]
 name = "nasm-rs"

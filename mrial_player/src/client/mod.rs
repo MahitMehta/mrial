@@ -1,6 +1,6 @@
 use std::{time::Duration, net::UdpSocket};
 
-use crate::proto::*;
+use mrial_proto::*; 
 
 pub struct Client {
    pub socket: UdpSocket
@@ -29,7 +29,7 @@ impl Client {
         let _ = &self.socket.set_read_timeout(Some(Duration::from_millis(1000))).expect("Failed to Set Timeout");
         let mut buf: [u8; HEADER] = [0; HEADER];
         
-        packet::write_header(
+        write_header(
             EPacketType::SHAKE, 
             0, 
             HEADER as u32,

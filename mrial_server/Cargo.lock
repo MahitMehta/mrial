@@ -636,6 +636,7 @@ dependencies = [
  "futures",
  "libyuv-sys",
  "mouse-rs",
+ "mrial_proto",
  "openh264",
  "pipewire",
  "scrap",
@@ -715,6 +716,10 @@ dependencies = [
  "winapi 0.3.9",
  "x11",
 ]
+
+[[package]]
+name = "mrial_proto"
+version = "0.1.0"
 
 [[package]]
 name = "nasm-rs"

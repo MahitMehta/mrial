@@ -1,10 +1,14 @@
-mod proto;
 mod audio; 
+mod client; 
+
+use audio::AudioClient;
+use client::Client;
+
+use mrial_proto::*;
+use mrial_proto as proto; 
 
 use std::thread;
 use ffmpeg_next::{ frame, format::Pixel, software };
-use audio::AudioClient;
-use proto::*;
 use slint::ComponentHandle;
 use ffmpeg_next;
 

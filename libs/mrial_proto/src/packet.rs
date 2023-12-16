@@ -21,6 +21,7 @@ impl From<u8> for EPacketType {
 
 pub const MTU: usize = 1032; 
 pub const HEADER: usize = 8; 
+pub const PAYLOAD: usize = MTU - HEADER;
 
 // Header Schema
 // Packet Type = 1 byte

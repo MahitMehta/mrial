@@ -2,6 +2,8 @@
 
 mod audio;
 
+use mrial_proto::*;
+
 use std::{time::{Instant, Duration}, collections::VecDeque, thread, sync::{Mutex, Arc}, net::UdpSocket};
 use enigo::{
     Direction::{Press, Release},
@@ -10,46 +12,14 @@ use enigo::{
     Mouse,
 };
 
-use openh264::{encoder::{EncoderConfig, Encoder}, formats::YUVSource};
+use openh264::formats::YUVSource;
 use futures::{executor::ThreadPool, task::SpawnExt, future::RemoteHandle};
 use audio::AudioController;
 use x264::{Param, Picture};
 use scrap::{Capturer, Display};
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 use libyuv_sys::{ARGBToI420, ARGBToI444};
-
-pub enum EPacketType {
-    SHAKE = 0,
-    SHOOK = 1,
-    NAL = 2,
-    Audio = 4
-}
-
-pub struct Packet {
-    pub packet_type: EPacketType, 
-    pub count: u8, // nunber of remaining packets
-    pub size: u32 // size of entire packet
-}
-
-const MTU: usize = 1032;
-const HEADER: usize = 8;
-const PAYLOAD: usize = MTU - HEADER;
-
-impl Packet {
-    pub fn new(packet_type: EPacketType, count: u8, size: u32) -> Self {
-        Self {
-            packet_type,
-            count,
-            size
-        }
-    }
-    pub fn get_packet(self, buf: &mut [u8; MTU]) {
-        buf[0] = self.packet_type as u8;
-        buf[1] = self.count;
-        buf[2..6].copy_from_slice(&self.size.to_be_bytes());
-    }
-}
 
 pub struct YUVBuffer {
     yuv: Vec<u8>,
@@ -77,7 +47,7 @@ impl YUVBuffer {
         rval
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub fn with_bgra_for_444(width: usize, height: usize, bgra: &[u8]) -> Self {
         let mut rval = Self {
             yuv: vec![0u8; 3 * width * height],
@@ -89,7 +59,7 @@ impl YUVBuffer {
         rval
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub fn read_bgra_for_444(&mut self, bgra: &[u8]) {
         assert_eq!(bgra.len(), self.width * self.height * 4);
         assert_eq!(self.width % 2, 0, "width needs to be multiple of 2");
@@ -120,12 +90,12 @@ impl YUVBuffer {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
     pub fn read_bgra_for_420(&mut self, bgra: &[u8]) {
         
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub fn read_bgra_for_420(&mut self, bgra: &[u8]) {
         assert_eq!(bgra.len(), self.width * self.height * 4);
         assert_eq!(self.width % 2, 0, "width needs to be multiple of 2");
@@ -245,8 +215,8 @@ async fn main() {
        panic!("Invalid Handsake");
     }
 
-    let _ = Packet::new(EPacketType::SHOOK, 1, HEADER as u32).get_packet(&mut buf); 
-    socket.send_to(&buf[0..HEADER], src).expect("Failed to send pong");
+    write_header(EPacketType::SHOOK, 0, HEADER as u32, &mut buf);
+    socket.send_to(&buf[0..HEADER], src).expect("Failed to send SHOOK");
 
     let d = Display::primary().unwrap();
     
@@ -254,38 +224,22 @@ async fn main() {
     const H:usize = 900;
 
     let mut capturer = Capturer::new(d).unwrap();
-    
-    let config = EncoderConfig::new(
-        W.try_into().unwrap(),
-        H.try_into().unwrap()
-    );
-
-    //config.enable_skip_frame(true);
-    //config.rate_control_mode(openh264::encoder::RateControlMode::Quality);
-
-    let mut encoder = Encoder::with_config(config).unwrap();
 
     let mut par = Param::default_preset("veryfast", "zerolatency").unwrap();
 
-    par = par.set_dimension(H, W);
     //par = par.param_parse("repeat_headers", "0").unwrap();
     //par = par.param_parse("csp", "i444").unwrap();
     //spar = par.set_csp(12); // i444
+    par = par.set_dimension(H, W);
     par = par.param_parse("annexb", "1").unwrap();
     par = par.param_parse("bframes", "0").unwrap();
     par = par.param_parse("crf", "18").unwrap();
-    // par = par.apply_profile("high444").unwrap();
     par = par.apply_profile("high").unwrap();
+     // par = par.apply_profile("high444").unwrap();
 
     let mut pic = Picture::from_param(&par).unwrap();
     let mut enc = x264::Encoder::open(&mut par).unwrap();
 
-
-    //unsafe {
-        // look into this --> ENCODER_OPTION_IDR_INTERVAL
-        // let mut option_value = "main";
-        // encoder.raw_api().set_option(11, addr_of_mut!(option_value).cast());
-    //}
     //let mut file = File::create("fade.h264").unwrap();
 
     let pool = ThreadPool::new().unwrap();

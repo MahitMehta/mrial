@@ -1,6 +1,6 @@
 use rodio::{buffer::SamplesBuffer, Sink};
 
-use crate::proto::HEADER;
+use mrial_proto::*; 
 
 pub struct AudioClient {
     audio_stream: Vec<u8>,
