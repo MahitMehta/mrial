@@ -10,10 +10,6 @@ use std::mem;
 
 use crate::EPacketType;
 
-pub struct AudioController {
-
-}
-
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
     cursor_move: bool,

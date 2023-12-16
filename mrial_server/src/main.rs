@@ -10,12 +10,14 @@ use enigo::{
     Mouse,
 };
 
-use libyuv_sys::{ARGBToI420, ARGBToI444};
 use openh264::{encoder::{EncoderConfig, Encoder}, formats::YUVSource};
 use futures::{executor::ThreadPool, task::SpawnExt, future::RemoteHandle};
 use audio::AudioController;
 use x264::{Param, Picture};
 use scrap::{Capturer, Display};
+
+#[cfg(target_os = "linux")]
+use libyuv_sys::{ARGBToI420, ARGBToI444};
 
 pub enum EPacketType {
     SHAKE = 0,
@@ -75,6 +77,7 @@ impl YUVBuffer {
         rval
     }
 
+    #[cfg(target_os = "linux")]
     pub fn with_bgra_for_444(width: usize, height: usize, bgra: &[u8]) -> Self {
         let mut rval = Self {
             yuv: vec![0u8; 3 * width * height],
@@ -86,6 +89,7 @@ impl YUVBuffer {
         rval
     }
 
+    #[cfg(target_os = "linux")]
     pub fn read_bgra_for_444(&mut self, bgra: &[u8]) {
         assert_eq!(bgra.len(), self.width * self.height * 4);
         assert_eq!(self.width % 2, 0, "width needs to be multiple of 2");
@@ -100,20 +104,7 @@ impl YUVBuffer {
         let dst_u = self.yuv[u..].as_mut_ptr();
         let dst_v = self.yuv[v..].as_mut_ptr();
 
-        // let mut argb = vec![0u8; self.width * self.height * 4]; 
-        // let src_stride_bgra = self.width * 4;
-        // let dst_stride_argb = self.width * 4;
-        // let dst_argb = argb.as_mut_ptr();
-
         unsafe {
-            // BGRAToARGB(
-            //     bgra.as_ptr(), 
-            //     src_stride_bgra as _, 
-            //     dst_argb, 
-            //     dst_stride_argb as _, 
-            //     self.width as _, 
-            //     self.height as _
-            // );
             ARGBToI444(
                 bgra.as_ptr(),
                 (bgra.len() / self.height) as _,
@@ -129,6 +120,12 @@ impl YUVBuffer {
         }
     }
 
+    #[cfg(not(target_os = "linux"))]
+    pub fn read_bgra_for_420(&mut self, bgra: &[u8]) {
+        
+    }
+
+    #[cfg(target_os = "linux")]
     pub fn read_bgra_for_420(&mut self, bgra: &[u8]) {
         assert_eq!(bgra.len(), self.width * self.height * 4);
         assert_eq!(self.width % 2, 0, "width needs to be multiple of 2");

@@ -10,9 +10,11 @@ futures = { version = "0.3.29", features = ["thread-pool", "executor"]}
 openh264 = "0.4.4"
 scrap = "0.5"
 tokio = { version = "1.34.0", features = ["full"]}
-libyuv-sys = { path = "../libs/libyuv-sys" }
 x264 = { path = "../libs/x264-rs" }
 mouse-rs = "0.4.2"
 enigo = "0.2.0-rc2"
-pipewire = "0.7.2"
 cfg-if = "0.1"
+
+[target."cfg(target_os = \"linux\")".dependencies] 
+libyuv-sys = { path = "../libs/libyuv-sys" }
+pipewire = "0.7.2"
