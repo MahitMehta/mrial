@@ -32,7 +32,6 @@ pub const PAYLOAD: usize = MTU - HEADER;
 // Payload Schema
 // variables sized unencrypted bytes (MAX = MTU - HEADER) 
 
-
 pub fn write_header(
     packet_type: EPacketType, 
     packets_remaining: u16, 
@@ -56,7 +55,12 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32) {
     (packet_type, packets_remaining, real_packet_size)
 }
 
-pub fn assemble_packet(packet: &mut Vec<u8>, packets_remaining: u16, number_of_bytes: usize, buf: &[u8]) -> bool {
+pub fn assembled_packet(
+    packet: &mut Vec<u8>, 
+    buf: &[u8], 
+    number_of_bytes: usize, 
+    packets_remaining: u16
+) -> bool {
     packet.extend_from_slice(&buf[HEADER..number_of_bytes]);
    
     packets_remaining == 0 // packet assembled

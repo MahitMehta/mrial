@@ -1,29 +1,23 @@
 mod audio; 
 mod client; 
+mod video; 
 
 use audio::AudioClient;
 use client::Client;
+use video::VideoThread; 
 
 use mrial_proto::*;
 use mrial_proto as proto; 
 
-use std::thread;
-use ffmpeg_next::{ frame, format::Pixel, software };
+use std::{thread, time::Instant, fs::File, f64::consts::PI};
+use ffmpeg_next::{ format::Pixel, software };
 use slint::ComponentHandle;
 use ffmpeg_next;
 
 const W: usize = 1440; 
 const H: usize = 900;
 
-fn rgb_to_slint_pixel_buffer(
-    rgb: &[u8],
-) -> slint::SharedPixelBuffer<slint::Rgb8Pixel> {
-    let mut pixel_buffer =
-        slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(W as u32, H as u32);
-        pixel_buffer.make_mut_bytes().copy_from_slice(rgb);
-
-    pixel_buffer
-}
+slint::include_modules!();
 
 fn main() {
     let app: MainWindow = MainWindow::new().unwrap();
@@ -61,9 +55,12 @@ fn main() {
 
         let _ = slint::invoke_from_event_loop(move || {
             let socket_click = client_clone.try_clone();
-            app_weak.unwrap().on_click(move |x, y| {
-                let x_percent = (x / 1440.0 * 10000.0).round() as u16 + 1; 
-                let y_percent = (y / 900.0 * 10000.0).round() as u16 + 1;
+            app_weak.unwrap().global::<VideoFunctions>().on_click(move |x, y| {
+                let window_width = 1440f32; 
+                let window_height = 900f32;
+
+                let x_percent = (x / window_width * 10000.0).round() as u16 + 1; 
+                let y_percent = (y / window_height  * 10000.0).round() as u16 + 1;
                 
                 buf[HEADER + 4..HEADER + 6].copy_from_slice(&x_percent.to_be_bytes());
                 buf[HEADER + 6..HEADER + 8].copy_from_slice(&y_percent.to_be_bytes());
@@ -76,7 +73,7 @@ fn main() {
 
             let socket_mouse_move = client_clone.try_clone();
             // send packets less frequently 
-            app_weak.unwrap().on_mouse_move(move |x, y, pressed| {
+            app_weak.unwrap().global::<VideoFunctions>().on_mouse_move(move |x, y, pressed| {
                 let x_percent = (x / 1440.0 * 10000.0).round() as u16 + 1; 
                 let y_percent = (y / 900.0 * 10000.0).round() as u16 + 1;
                 
@@ -101,7 +98,7 @@ fn main() {
             let line_height = 12i16; 
 
             // improve scroll smoothness
-            app_weak.unwrap().on_scroll(move |y, x| {                
+            app_weak.unwrap().global::<VideoFunctions>().on_scroll(move |y, x| {                
                 x_delta += x as i16; 
                 y_delta += y as i16; 
 
@@ -126,7 +123,8 @@ fn main() {
             });
 
             let socket_key_pressed = client_clone.try_clone();
-            app_weak.unwrap().on_key_pressed(move |event| {
+            
+            app_weak.unwrap().global::<VideoFunctions>().on_key_pressed(move |event| {
                 match event.text.bytes().next() {
                     Some(key) => {
                         buf[HEADER] = event.modifiers.control as u8;
@@ -148,7 +146,7 @@ fn main() {
             });
 
 
-            app_weak.unwrap().on_key_released(move |event| {
+            app_weak.unwrap().global::<VideoFunctions>().on_key_released(move |event| {
                 match event.text.bytes().next() {
                     Some(key) => {
                         buf[HEADER] = if event.modifiers.control { event.modifiers.control as u8 + 1 } else { 0 };
@@ -173,125 +171,66 @@ fn main() {
     let app_weak = app.as_weak();
 
     let _conn = thread::spawn(move || {
+        let mut buf: [u8; MTU] = [0; MTU];
+
         let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
         let sink = rodio::Sink::try_new(&handle).unwrap();
-
-        let mut buf: [u8; MTU] = [0; MTU];
-        let mut nal: Vec<u8> = Vec::new();
     
+        // get signal stats
+        // ffmpeg -i test.h264 -vf "signalstats,metadata=print:file=logfile.txt" -an -f null -
         ffmpeg_next::init().unwrap();
-        let mut decoder = ffmpeg_next::decoder::new()
+        let ffmpeg_decoder = ffmpeg_next::decoder::new()
             .open_as(ffmpeg_next::decoder::find(ffmpeg_next::codec::Id::H264))
             .unwrap()
             .video()
             .unwrap(); 
-        let mut scalar = software::converter((W as u32, H as u32), Pixel::YUV420P, Pixel::RGB24)
-            .unwrap();
+
+        // TODO: switch scalar depending on bitrate to reduce latency
+        let scalar = software::scaling::context::Context::get(
+            Pixel::YUVJ420P, 
+            W as u32, 
+            H as u32, 
+            Pixel::RGB24, 
+            2560 as u32, 
+            1600 as u32, 
+            software::scaling::flag::Flags::LANCZOS
+        ).unwrap();
+
+        // let scalar = software::converter((W as u32, H as u32), Pixel::YUVJ420P, Pixel::RGB24)
+        //     .unwrap();
 
         let mut audio = AudioClient::new(sink);
+
+        let video_client = client.try_clone();
+        let mut video = VideoThread::new(ffmpeg_decoder, scalar, video_client);
 
         loop {
             let (number_of_bytes, _) = client.socket.recv_from(&mut buf).expect("Failed to Receive Packet");
             let (packet_type, packets_remaining, _real_packet_size) = proto::parse_header(&buf);
 
             match packet_type {
-                EPacketType::AUDIO => {
-                    audio.play_audio_stream(&buf, number_of_bytes);
-                }
+                EPacketType::AUDIO => audio.play_audio_stream(&buf, number_of_bytes, packets_remaining),
                 EPacketType::NAL => {
-                    if !proto::assemble_packet(&mut nal, packets_remaining, number_of_bytes, &buf) {
-                        continue;
-                    }; 
-                    
-                    let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&nal);
-
-                    match decoder.send_packet(&pt) {
-                        Ok(_) => {
-                            let mut yuv_frame = frame::Video::empty();
-                            let mut rgb_frame = frame::Video::empty();
-
-                            while decoder.receive_frame(&mut yuv_frame).is_ok() {
-                                let app_copy = app_weak.clone();
-
-                                scalar.run(&yuv_frame, &mut rgb_frame).unwrap();
-                                let rgb_buffer: &[u8] = rgb_frame.data(0);
-
-                                let pixel_buffer = rgb_to_slint_pixel_buffer(rgb_buffer);
-                                let _ = slint::invoke_from_event_loop(move || {
-                                        app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer));
-                                        app_copy.unwrap().window().request_redraw(); // test if this actually improves smoothness
-                                });
-                            }
-
+                    match video.packet(&buf, number_of_bytes, packets_remaining) {
+                        Some(pixel_buffer) => {
+                            //println!("Time to decode: {:?}", start.elapsed());
+                            let app_copy: slint::Weak<MainWindow> = app_weak.clone();
+                            let _ = slint::invoke_from_event_loop(move || {
+                                    app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer));
+                                    app_copy.unwrap().window().request_redraw(); // test if this actually improves smoothness
+                            });
                             
-                        },
-                        Err(e) => {
-                            println!("Error Sending Packet: {}", e);
-                            client.send_handshake(); // limit number of handshakes
                         }
+                        None => {}
+                        
                     };
-                    nal.clear();
-                }
+                 
+
+                },
                 _ => {}
             }
         }     
     });
 
     app.run().unwrap();
-}
-
-slint::slint! {
-    import { VerticalBox } from "std-widgets.slint";
-
-    export component MainWindow inherits Window {
-        in property <image> video-frame <=> image.source;
-
-        min-width: 1440px;
-        min-height: 900px;
-
-        title: "MRIAL";
-        padding: 0;
-
-        pure callback mouse_move(/* x */ length, /* y */ length, /* pressed */ bool);
-        pure callback click(/* x */ length, /* y */ length);
-        pure callback modifiers_pressed(/* control */ bool, /* shift */ bool, /* alt */ bool, /* meta */ bool);
-        pure callback key_pressed(KeyEvent);
-        pure callback key_released(KeyEvent);
-        pure callback scroll(/* x */ length, /* y */ length);
-
-        forward-focus: key-handler;
-        key-handler := FocusScope {
-            key-pressed(event) => {
-                key_pressed(event);
-                accept
-            }
-            key-released(event) => {
-                key-released(event);
-                accept
-            }
-        }
-
-        VerticalBox {
-            padding: 0;
-            image := Image {
-                padding: 0;
-                height: 900px;
-                touch := TouchArea {
-                    clicked => {
-                        click(touch.mouse-x, touch.mouse-y);
-                    }
-                    scroll-event(event) => {
-                        scroll(event.delta-x, event.delta-y);
-                        accept
-                    }
-                    pointer-event(event) => {
-                       // debug(touch.mouse-x) // can use touch in combination with button right to detect right click
-                    }
-                    moved => {
-                        mouse_move(touch.mouse-x, touch.mouse-y, self.pressed);
-                    }
-                }
-            }
-        }
-    }
 }

@@ -1,0 +1,34 @@
+import { VerticalBox, Button } from "std-widgets.slint";
+import { VideoScreen, VideoFunctions } from "video.slint";
+
+export { VideoFunctions }
+
+export component MainWindow inherits Window {
+    in-out property <int> current-subpage: 0;
+    in-out property <image> video-frame;
+
+    min-width: 700px;
+    min-height: 500px;
+
+    title: "MRIAL";
+    padding: 0;
+
+    forward-focus: key-handler;
+    key-handler := FocusScope {
+        key-pressed(event) => {
+            VideoFunctions.key_pressed(event);
+            accept
+        }
+        key-released(event) => {
+            VideoFunctions.key-released(event);
+            accept
+        }
+    }
+
+    VideoScreen {
+        video-frame: root.video-frame;
+        back => { root.current-subpage = 0 }
+        x: root.current-subpage == 0 ? 0 : parent.width + parent.x + 2px;
+        animate x { duration: 125ms; easing: ease; }
+    }
+}

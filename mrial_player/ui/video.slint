@@ -1,0 +1,56 @@
+import { Screen } from "./common.slint";
+import { VerticalBox, Button } from "std-widgets.slint";
+
+export global VideoFunctions {
+    pure callback mouse_move(/* x */ length, /* y */ length, /* pressed */ bool);
+    pure callback click(/* x */ length, /* y */ length);
+    pure callback modifiers_pressed(/* control */ bool, /* shift */ bool, /* alt */ bool, /* meta */ bool);
+    pure callback key_pressed(KeyEvent);
+    pure callback key_released(KeyEvent);
+    pure callback scroll(/* x */ length, /* y */ length);
+}
+
+export component VideoScreen inherits Screen {
+    in property <image> video-frame <=> image.source;
+
+    background: black;
+
+    // popup := PopupWindow {
+    //     Rectangle { 
+    //         height: 100%; 
+    //         width: 100%; 
+    //         background: rgba(0,0,0,0.9); 
+    //         border-color: rgba(30,30,30,0.8);
+    //         border-width: 1px;
+    //     }
+    //     x: 50px; y: 50px; height: 200px; width: 150px;
+    // }
+
+    VerticalBox {
+        padding: 0;
+        // Button {
+        //     text: "Click";
+        //     width: 50px;
+        //     height: 50px;
+        //     clicked => { popup.show(); }
+        // }
+        image := Image {
+            padding: 0;
+            touch := TouchArea {
+                clicked => {
+                    VideoFunctions.click(touch.mouse-x, touch.mouse-y);
+                }
+                scroll-event(event) => {
+                    VideoFunctions.scroll(event.delta-x, event.delta-y);
+                    accept
+                }
+                pointer-event(event) => {
+                   // debug(touch.mouse-x) // can use touch in combination with button right to detect right click
+                }
+                moved => {
+                    VideoFunctions.mouse_move(touch.mouse-x, touch.mouse-y, self.pressed);
+                }
+            }
+        }
+    }
+}

@@ -215,16 +215,12 @@ async fn main() {
        panic!("Invalid Handsake");
     }
 
-    write_header(EPacketType::SHOOK, 0, HEADER as u32, &mut buf);
-    socket.send_to(&buf[0..HEADER], src).expect("Failed to send SHOOK");
-
     let d = Display::primary().unwrap();
     
     const W:usize = 1440; 
     const H:usize = 900;
 
     let mut capturer = Capturer::new(d).unwrap();
-
     let mut par = Param::default_preset("veryfast", "zerolatency").unwrap();
 
     //par = par.param_parse("repeat_headers", "0").unwrap();
@@ -239,6 +235,12 @@ async fn main() {
 
     let mut pic = Picture::from_param(&par).unwrap();
     let mut enc = x264::Encoder::open(&mut par).unwrap();
+
+    //let headers = enc.headers().unwrap();
+    //while mrial_proto::assembled_packet(packet, buf, number_of_bytes, packets_remaining)
+
+    write_header(EPacketType::SHOOK, 0, HEADER as u32, &mut buf);
+    socket.send_to(&buf[0..HEADER], src).expect("Failed to send SHOOK");
 
     //let mut file = File::create("fade.h264").unwrap();
 
