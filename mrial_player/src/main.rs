@@ -9,13 +9,8 @@ use video::VideoThread;
 use mrial_proto::*;
 use mrial_proto as proto; 
 
-use std::{thread, time::Instant, fs::File, f64::consts::PI};
-use ffmpeg_next::{ format::Pixel, software };
+use std::thread;
 use slint::ComponentHandle;
-use ffmpeg_next;
-
-const W: usize = 1440; 
-const H: usize = 900;
 
 slint::include_modules!();
 
@@ -127,12 +122,14 @@ fn main() {
             app_weak.unwrap().global::<VideoFunctions>().on_key_pressed(move |event| {
                 match event.text.bytes().next() {
                     Some(key) => {
-                        buf[HEADER] = event.modifiers.control as u8;
+                        //buf[HEADER] = event.modifiers.control as u8;
                         buf[HEADER + 1] = event.modifiers.shift as u8;
                         buf[HEADER + 2] = event.modifiers.alt as u8;
                         buf[HEADER + 3] = event.modifiers.meta as u8;
-                        buf[HEADER + 8] = key as u8;
-
+                        if key != 17 {
+                            buf[HEADER + 8] = key as u8;
+                        }
+                        
                         println!("Key Pressed: {}", buf[HEADER + 8]);
                         let _ = socket_key_pressed.socket.send_to(&buf[0..32], "150.136.127.166:8554");
 
@@ -149,11 +146,14 @@ fn main() {
             app_weak.unwrap().global::<VideoFunctions>().on_key_released(move |event| {
                 match event.text.bytes().next() {
                     Some(key) => {
-                        buf[HEADER] = if event.modifiers.control { event.modifiers.control as u8 + 1 } else { 0 };
+                        //buf[HEADER] = if event.modifiers.control { event.modifiers.control as u8 + 1 } else { 0 };
                         buf[HEADER + 1] = if event.modifiers.shift { event.modifiers.shift as u8 + 1 } else { 0 };
                         buf[HEADER + 2] = if event.modifiers.alt { event.modifiers.alt as u8 + 1 } else { 0 };
                         buf[HEADER + 3] = if event.modifiers.meta { event.modifiers.meta as u8 + 1 } else { 0 };
-                        buf[HEADER + 9] = key;
+                        
+                        if key != 17 {
+                            buf[HEADER + 9] = key;
+                        }
 
                         let _ = client_clone.socket.send_to(&buf[0..32], "150.136.127.166:8554");
 
@@ -175,34 +175,13 @@ fn main() {
 
         let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
         let sink = rodio::Sink::try_new(&handle).unwrap();
-    
-        // get signal stats
-        // ffmpeg -i test.h264 -vf "signalstats,metadata=print:file=logfile.txt" -an -f null -
-        ffmpeg_next::init().unwrap();
-        let ffmpeg_decoder = ffmpeg_next::decoder::new()
-            .open_as(ffmpeg_next::decoder::find(ffmpeg_next::codec::Id::H264))
-            .unwrap()
-            .video()
-            .unwrap(); 
 
-        // TODO: switch scalar depending on bitrate to reduce latency
-        let scalar = software::scaling::context::Context::get(
-            Pixel::YUVJ420P, 
-            W as u32, 
-            H as u32, 
-            Pixel::RGB24, 
-            2560 as u32, 
-            1600 as u32, 
-            software::scaling::flag::Flags::LANCZOS
-        ).unwrap();
-
-        // let scalar = software::converter((W as u32, H as u32), Pixel::YUVJ420P, Pixel::RGB24)
-        //     .unwrap();
 
         let mut audio = AudioClient::new(sink);
 
         let video_client = client.try_clone();
-        let mut video = VideoThread::new(ffmpeg_decoder, scalar, video_client);
+        let mut video = VideoThread::new();
+        video.begin_decoding(app_weak.clone(), video_client);
 
         loop {
             let (number_of_bytes, _) = client.socket.recv_from(&mut buf).expect("Failed to Receive Packet");
@@ -210,23 +189,7 @@ fn main() {
 
             match packet_type {
                 EPacketType::AUDIO => audio.play_audio_stream(&buf, number_of_bytes, packets_remaining),
-                EPacketType::NAL => {
-                    match video.packet(&buf, number_of_bytes, packets_remaining) {
-                        Some(pixel_buffer) => {
-                            //println!("Time to decode: {:?}", start.elapsed());
-                            let app_copy: slint::Weak<MainWindow> = app_weak.clone();
-                            let _ = slint::invoke_from_event_loop(move || {
-                                    app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer));
-                                    app_copy.unwrap().window().request_redraw(); // test if this actually improves smoothness
-                            });
-                            
-                        }
-                        None => {}
-                        
-                    };
-                 
-
-                },
+                EPacketType::NAL => video.packet(&buf, number_of_bytes, packets_remaining),
                 _ => {}
             }
         }     

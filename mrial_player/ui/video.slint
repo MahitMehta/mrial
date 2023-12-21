@@ -13,8 +13,6 @@ export global VideoFunctions {
 export component VideoScreen inherits Screen {
     in property <image> video-frame <=> image.source;
 
-    background: black;
-
     // popup := PopupWindow {
     //     Rectangle { 
     //         height: 100%; 
@@ -26,14 +24,21 @@ export component VideoScreen inherits Screen {
     //     x: 50px; y: 50px; height: 200px; width: 150px;
     // }
 
+    // popup_button := PopupWindow {
+    //     Button {
+    //         text: "Click";
+    //         width: 50px;
+    //         height: 50px;
+    //         clicked => { popup.show(); }
+    //     }
+    //     init => {
+    //         self.show();
+    //     }
+    //     x: 50px; y: 50px; height: 200px; width: 150px;
+    // }
+
     VerticalBox {
         padding: 0;
-        // Button {
-        //     text: "Click";
-        //     width: 50px;
-        //     height: 50px;
-        //     clicked => { popup.show(); }
-        // }
         image := Image {
             padding: 0;
             touch := TouchArea {

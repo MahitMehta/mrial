@@ -1,5 +1,8 @@
+import "../assets/fonts/Inknut_Antiqua/InknutAntiqua-Bold.ttf";
+
 import { VerticalBox, Button } from "std-widgets.slint";
 import { VideoScreen, VideoFunctions } from "video.slint";
+import { LoginScreen } from "login.slint";
 
 export { VideoFunctions }
 
@@ -7,7 +10,7 @@ export component MainWindow inherits Window {
     in-out property <int> current-subpage: 0;
     in-out property <image> video-frame;
 
-    min-width: 700px;
+    min-width: 750px;
     min-height: 500px;
 
     title: "MRIAL";
@@ -25,10 +28,16 @@ export component MainWindow inherits Window {
         }
     }
 
+    LoginScreen {
+        set_current_subpage(page) => { root.current-subpage = page }
+        back => { root.current-subpage = 0 }
+        animate y { duration: 500ms; easing: ease-in-out; }
+    }
+
     VideoScreen {
         video-frame: root.video-frame;
         back => { root.current-subpage = 0 }
-        x: root.current-subpage == 0 ? 0 : parent.width + parent.x + 2px;
-        animate x { duration: 125ms; easing: ease; }
+        y: root.current-subpage == 1 ? 0 : parent.height + parent.y + 2px;
+        animate y { duration: 500ms; easing: ease-in-out; }
     }
 }

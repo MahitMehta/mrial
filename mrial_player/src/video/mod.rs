@@ -1,6 +1,6 @@
-use std::{thread, time::Instant, fs::File, io::Write};
+use std::{thread, time::Instant};
 
-use ffmpeg_next::{frame, codec::decoder, software::{scaling, self}, format::Pixel }; 
+use ffmpeg_next::{frame, software, format::Pixel }; 
 use kanal::{unbounded, Sender, Receiver};
 use mrial_proto::*;
 
@@ -11,31 +11,21 @@ const H: usize = 900;
 
 pub struct VideoThread {
     nal: Vec<u8>,
-    decoder: decoder::Video,
-    scalar: scaling::Context,
-    client: Client,
-    file: File,
+    // file: File,
     pub channel: (Sender<Vec<u8>>, Receiver<Vec<u8>>)
 }
 
 impl VideoThread {
-    pub fn new(
-        decoder: decoder::Video, 
-        scalar: scaling::Context, 
-        client: Client,
-    ) -> VideoThread {
+    pub fn new() -> VideoThread {
         VideoThread {
             nal: Vec::new(),
-            decoder,
-            scalar,
-            client,
-            file: File::create("test.h264").unwrap(),
+            // file: File::create("recording.h264").unwrap(),
             channel: unbounded()
         }
     }
 
     fn rgb_to_slint_pixel_buffer(
-        &self, rgb: &[u8],
+        rgb: &[u8],
     ) -> slint::SharedPixelBuffer<slint::Rgb8Pixel> {
         let mut pixel_buffer =
             slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(2560 as u32, 1600 as u32);
@@ -44,22 +34,64 @@ impl VideoThread {
         pixel_buffer
     }
 
-    pub fn decode(&mut self) {
+    pub fn begin_decoding(
+        &mut self,
+        app_weak: slint::Weak<super::slint_generatedMainWindow::MainWindow>,
+        client: Client
+    ) {
         ffmpeg_next::init().unwrap();
-        let ffmpeg_decoder = ffmpeg_next::decoder::new()
+
+        // get signal stats
+        // ffmpeg -i test.h264 -vf "signalstats,metadata=print:file=logfile.txt" -an -f null -
+        let mut ffmpeg_decoder = ffmpeg_next::decoder::new()
             .open_as(ffmpeg_next::decoder::find(ffmpeg_next::codec::Id::H264))
             .unwrap()
             .video()
             .unwrap(); 
 
-        let scalar = software::converter((W as u32, H as u32), Pixel::YUVJ420P, Pixel::RGB24)
-            .unwrap();
-
         let receiver = self.channel.1.clone();
         let _video_thread = thread::spawn(move || {
-            let mut nal: Vec<u8> = Vec::new();
+            let mut _simple_scalar = software::converter((W as u32, H as u32), Pixel::YUVJ422P, Pixel::RGB24)
+                .unwrap();
+        
+              // TODO: switch scalar depending on bitrate to reduce latency
+            let mut lanczos_scalar = software::scaling::context::Context::get(
+                Pixel::YUVJ422P, 
+                W as u32, 
+                H as u32, 
+                Pixel::RGB24, 
+                2560 as u32, 
+                1600 as u32, 
+                software::scaling::flag::Flags::LANCZOS
+            ).unwrap();
+
             loop {
-                let buf = receiver.recv().unwrap(); // possibly only send entire nal unit
+                let buf = receiver.recv().unwrap(); 
+
+                let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&buf);
+                match ffmpeg_decoder.send_packet(&pt) {
+                    Ok(_) => {
+                        let mut yuv_frame = frame::Video::empty();
+                        let mut rgb_frame = frame::Video::empty();
+
+                        while ffmpeg_decoder.receive_frame(&mut yuv_frame).is_ok() {
+                            lanczos_scalar.run(&yuv_frame, &mut rgb_frame).unwrap();
+                            let rgb_buffer: &[u8] = rgb_frame.data(0);
+                            let pixel_buffer = VideoThread::rgb_to_slint_pixel_buffer(rgb_buffer);
+                        
+                            let app_copy: slint::Weak<super::slint_generatedMainWindow::MainWindow> = app_weak.clone();
+                            let _ = slint::invoke_from_event_loop(move || {
+                                    app_copy.unwrap().set_video_frame(slint::Image::from_rgb8(pixel_buffer));
+                                    // app_copy.unwrap().window().request_redraw(); // test if this actually improves smoothness
+                            });
+                        }
+
+                    },
+                    Err(e) => {
+                        println!("Error Sending Packet: {}", e);
+                        client.send_handshake(); // limit number of handshakes
+                    }
+                };
             }
         });
     }
@@ -69,38 +101,13 @@ impl VideoThread {
         buf: &[u8], 
         number_of_bytes: usize,
         packets_remaining: u16, 
-    ) -> Option<slint::SharedPixelBuffer<slint::Rgb8Pixel>> {
+    ) {
         if !assembled_packet(&mut self.nal, &buf, number_of_bytes, packets_remaining) {
-            return None;
+            return; 
         }; 
         
-        self.file.write_all(&self.nal).unwrap();
-        let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&self.nal);
-
-        match self.decoder.send_packet(&pt) {
-            Ok(_) => {
-                let mut yuv_frame = frame::Video::empty();
-                let mut rgb_frame = frame::Video::empty();
-
-                // yuv_frame.set_color_space(ffmpeg_next::util::color::Space::BT709);
-                while self.decoder.receive_frame(&mut yuv_frame).is_ok() {
-                    self.scalar.run(&yuv_frame, &mut rgb_frame).unwrap();
-                    let rgb_buffer: &[u8] = rgb_frame.data(0);
-
-                    let pixel_buffer = self.rgb_to_slint_pixel_buffer(rgb_buffer);
-                    self.nal.clear();
-
-                    return Some(pixel_buffer);
-                }
-
-            },
-            Err(e) => {
-                println!("Error Sending Packet: {}", e);
-                self.nal.clear();
-                self.client.send_handshake(); // limit number of handshakes
-            }
-        };
-        
-        None
+        // self.file.write_all(&self.nal).unwrap();
+        self.channel.0.send(self.nal.clone()).unwrap();
+        self.nal.clear();    
     }
 }

@@ -53,7 +53,7 @@ impl AudioClient {
         let audio_buf = SamplesBuffer::new(2, 48000, f32_slice);
     
         self.sink.append(audio_buf);
-        self.handle_latency_by_speed_up();
+        self._handle_latency_by_dropping();
         
         self.audio_stream.clear();
     }

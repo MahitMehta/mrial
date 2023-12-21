@@ -1,0 +1,65 @@
+import { Screen, MrialTextInput } from "common.slint";
+import { VerticalBox , Button } from "std-widgets.slint";
+
+export component LoginScreen inherits Screen {
+    padding: 0;
+    VerticalLayout {
+        alignment: start;
+        padding: 0;
+        Image {
+            source: @image-url("../assets/your_name.jpeg");
+            Rectangle {
+                x: parent.width / 2 - self.width / 2;
+                y: 100px; 
+                width: 250px;
+                height: 350px;
+                background: rgb(20, 20, 20);
+                border-color: rgb(29, 29, 29);
+                border-width: 3px;
+                border-radius: 10px;
+                VerticalLayout{
+                    padding: 25px;
+                    alignment: LayoutAlignment.space-between;
+                    VerticalLayout {
+                        width: parent.width - parent.padding * 2;
+                        Text {
+                            text: "MRIAL";
+                            font-family: "Inknut Antiqua";
+                            font-weight: 900;
+                            font-size: 40px;
+                            color: white;
+                            horizontal-alignment: TextHorizontalAlignment.center;
+                            height: self.preferred-height;
+                        }
+                        VerticalLayout {
+                            spacing: 10px;
+                            MrialTextInput {
+                                placeholder: "Username";
+                                width: parent.width;
+                                height: 35px; 
+                            }
+                            MrialTextInput {
+                                placeholder: "Password";
+                                width: parent.width;
+                                height: 35px; 
+                            }
+                        }
+                    }
+
+                    text_container := TouchArea {
+                        clicked => {
+                            root.set_current_subpage(1);
+                        }
+                        max-height: text.preferred-height;
+                        text := Text {
+                            text: "Continue Decentralized";
+                            font-size: 12px;
+                            font-family: "Inknut Antiqua";
+                            color: text_container.has-hover ? rgba(100, 100, 100) : rgba(89, 89, 89);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

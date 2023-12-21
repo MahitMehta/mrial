@@ -1,3 +1,29 @@
 export component Screen inherits Rectangle {
     callback back;
+    callback set_current_subpage(int);
+
+    background: rgb(20, 20, 20);
+}
+
+export component MrialTextInput inherits Rectangle {
+    in property <string> placeholder;
+
+    background: rgb(20, 20, 20);
+    border-color: rgb(29, 29, 29);
+    border-width: 3px;
+    border-radius: 5px;
+
+    TextInput {
+        horizontal-alignment: TextHorizontalAlignment.center;
+        input-type: InputType.text;
+        text: self.has-focus ? "" : placeholder;
+        height: self.preferred-height;
+        single-line: true;
+        font-family: "Inknut Antiqua";
+        color: rgba(89, 89, 89);
+        
+        // edited => {
+            
+        // }
+    }
 }
