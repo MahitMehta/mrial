@@ -47,6 +47,7 @@ export component LoginScreen inherits Screen {
                     }
 
                     text_container := TouchArea {
+                        mouse-cursor: MouseCursor.pointer;
                         clicked => {
                             root.set_current_subpage(1);
                         }

@@ -6,6 +6,7 @@ export component Screen inherits Rectangle {
 }
 
 export component MrialTextInput inherits Rectangle {
+    in-out property <InputType> input-type <=> text_input.input-type;
     in property <string> placeholder;
 
     background: rgb(20, 20, 20);
@@ -13,7 +14,7 @@ export component MrialTextInput inherits Rectangle {
     border-width: 3px;
     border-radius: 5px;
 
-    TextInput {
+    text_input := TextInput {
         horizontal-alignment: TextHorizontalAlignment.center;
         input-type: InputType.text;
         text: self.has-focus ? "" : placeholder;

@@ -19,7 +19,6 @@ fn main() {
     let app_weak = app.as_weak();
 
     let client = Client::new();
-    client.send_handshake();
 
     let client_clone = client.try_clone();
     let _state = thread::spawn(move || {
@@ -171,6 +170,8 @@ fn main() {
     let app_weak = app.as_weak();
 
     let _conn = thread::spawn(move || {
+        client.send_handshake();
+
         let mut buf: [u8; MTU] = [0; MTU];
 
         let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
