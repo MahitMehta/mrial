@@ -9,6 +9,9 @@ use super::client::Client;
 const W: usize = 1440; 
 const H: usize = 900;
 
+const TARGET_WIDTH: usize = 2560; 
+const TARGET_HEIGHT: usize = 1600;
+
 pub struct VideoThread {
     nal: Vec<u8>,
     // file: File,
@@ -28,7 +31,7 @@ impl VideoThread {
         rgb: &[u8],
     ) -> slint::SharedPixelBuffer<slint::Rgb8Pixel> {
         let mut pixel_buffer =
-            slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(2560 as u32, 1600 as u32);
+            slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(TARGET_WIDTH as u32, TARGET_HEIGHT as u32);
             pixel_buffer.make_mut_bytes().copy_from_slice(rgb);
     
         pixel_buffer
@@ -60,8 +63,8 @@ impl VideoThread {
                 W as u32, 
                 H as u32, 
                 Pixel::RGB24, 
-                2560 as u32, 
-                1600 as u32, 
+                TARGET_WIDTH as u32, 
+                TARGET_HEIGHT as u32, 
                 software::scaling::flag::Flags::LANCZOS
             ).unwrap();
 
@@ -75,7 +78,9 @@ impl VideoThread {
                         let mut rgb_frame = frame::Video::empty();
 
                         while ffmpeg_decoder.receive_frame(&mut yuv_frame).is_ok() {
+                            //let start = Instant::now();
                             lanczos_scalar.run(&yuv_frame, &mut rgb_frame).unwrap();
+                            //println!("Scaling: {:?}", start.elapsed());
                             let rgb_buffer: &[u8] = rgb_frame.data(0);
                             let pixel_buffer = VideoThread::rgb_to_slint_pixel_buffer(rgb_buffer);
                         

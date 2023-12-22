@@ -10,7 +10,7 @@ export component MainWindow inherits Window {
     in-out property <int> current-subpage: 0;
     in-out property <image> video-frame;
 
-    min-width: 750px;
+    min-width: 700px;
     min-height: 500px;
 
     title: "MRIAL";
@@ -29,6 +29,7 @@ export component MainWindow inherits Window {
     }
 
     LoginScreen {
+        window-height: parent.height;
         set_current_subpage(page) => { root.current-subpage = page }
         back => { root.current-subpage = 0 }
         animate y { duration: 500ms; easing: ease-in-out; }
@@ -36,6 +37,7 @@ export component MainWindow inherits Window {
 
     VideoScreen {
         video-frame: root.video-frame;
+
         back => { root.current-subpage = 0 }
         y: root.current-subpage == 1 ? 0 : parent.height + parent.y + 2px;
         animate y { duration: 500ms; easing: ease-in-out; }

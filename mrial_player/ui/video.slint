@@ -13,33 +13,11 @@ export global VideoFunctions {
 export component VideoScreen inherits Screen {
     in property <image> video-frame <=> image.source;
 
-    // popup := PopupWindow {
-    //     Rectangle { 
-    //         height: 100%; 
-    //         width: 100%; 
-    //         background: rgba(0,0,0,0.9); 
-    //         border-color: rgba(30,30,30,0.8);
-    //         border-width: 1px;
-    //     }
-    //     x: 50px; y: 50px; height: 200px; width: 150px;
-    // }
-
-    // popup_button := PopupWindow {
-    //     Button {
-    //         text: "Click";
-    //         width: 50px;
-    //         height: 50px;
-    //         clicked => { popup.show(); }
-    //     }
-    //     init => {
-    //         self.show();
-    //     }
-    //     x: 50px; y: 50px; height: 200px; width: 150px;
-    // }
-
     VerticalBox {
         padding: 0;
         image := Image {
+            width: 1440px;
+            height: 900px;
             padding: 0;
             touch := TouchArea {
                 clicked => {
@@ -54,20 +32,20 @@ export component VideoScreen inherits Screen {
                 }
                 moved => {
                     VideoFunctions.mouse_move(touch.mouse-x, touch.mouse-y, self.pressed);
-                    control.x = touch.mouse-x - 12px;
-                    control.y = touch.mouse-y - 12px;
+                    // control.x = touch.mouse-x - 12px;
+                    // control.y = touch.mouse-y - 12px;
                 }
             }
-            TouchArea { 
-                control := Rectangle {
-                    x: 100px;
-                    y: 100px;
-                    width: 25px;
-                    height: 25px;
-                    border-radius: 5px;
-                    background: white;
-                }
-            }
+            // TouchArea { 
+            //     control := Rectangle {
+            //         x: 100px;
+            //         y: 100px;
+            //         width: 25px;
+            //         height: 25px;
+            //         border-radius: 5px;
+            //         background: white;
+            //     }
+            // }
         }
     }
 }

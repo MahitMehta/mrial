@@ -1,8 +1,10 @@
-import { Screen, MrialTextInput } from "common.slint";
-import { VerticalBox , Button } from "std-widgets.slint";
+import { Screen, MrialTextInput , MrialButton} from "common.slint";
+import { VerticalBox , Button , HorizontalBox} from "std-widgets.slint";
 
 export component LoginScreen inherits Screen {
+    in property <length> window_height;
     padding: 0;
+
     VerticalLayout {
         alignment: start;
         padding: 0;
@@ -10,9 +12,9 @@ export component LoginScreen inherits Screen {
             source: @image-url("../assets/your_name.jpeg");
             Rectangle {
                 x: parent.width / 2 - self.width / 2;
-                y: 100px; 
+                y: window_height / 2 - self.height / 2;
                 width: 250px;
-                height: 350px;
+                height: 325px;
                 background: rgb(20, 20, 20);
                 border-color: rgb(29, 29, 29);
                 border-width: 3px;
@@ -43,6 +45,9 @@ export component LoginScreen inherits Screen {
                                 width: parent.width;
                                 height: 35px; 
                             }
+                            MrialButton {
+                                label: "Continue";
+                            }
                         }
                     }
 
@@ -60,6 +65,14 @@ export component LoginScreen inherits Screen {
                         }
                     }
                 }
+            }   
+        }
+        HorizontalLayout {
+            padding: 5px;
+            Text {
+                text: "Build Version: 0.0.1";
+                color: white; 
+                horizontal-alignment: TextHorizontalAlignment.right;
             }
         }
     }

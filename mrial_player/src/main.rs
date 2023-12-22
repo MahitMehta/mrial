@@ -49,9 +49,14 @@ fn main() {
 
         let _ = slint::invoke_from_event_loop(move || {
             let socket_click = client_clone.try_clone();
+            let app_weak_copy = app_weak.clone();
+
             app_weak.unwrap().global::<VideoFunctions>().on_click(move |x, y| {
-                let window_width = 1440f32; 
-                let window_height = 900f32;
+                let window_width = app_weak_copy.unwrap().get_video_frame().size().width as f32;
+                let window_height = app_weak_copy.unwrap().get_video_frame().size().height as f32;
+                
+                println!("Window Width: {}", window_width);
+                println!("Window Height: {}", window_height);
 
                 let x_percent = (x / window_width * 10000.0).round() as u16 + 1; 
                 let y_percent = (y / window_height  * 10000.0).round() as u16 + 1;
@@ -67,9 +72,13 @@ fn main() {
 
             let socket_mouse_move = client_clone.try_clone();
             // send packets less frequently 
+            let app_weak_copy = app_weak.clone();
             app_weak.unwrap().global::<VideoFunctions>().on_mouse_move(move |x, y, pressed| {
-                let x_percent = (x / 1440.0 * 10000.0).round() as u16 + 1; 
-                let y_percent = (y / 900.0 * 10000.0).round() as u16 + 1;
+                let window_width = app_weak_copy.unwrap().get_video_frame().size().width as f32;
+                let window_height = app_weak_copy.unwrap().get_video_frame().size().height as f32;
+                
+                let x_percent = (x / window_width * 10000.0).round() as u16 + 1; 
+                let y_percent = (y / window_height * 10000.0).round() as u16 + 1;
                 
                 buf[HEADER + 10..HEADER + 12].copy_from_slice(&x_percent.to_be_bytes());
                 buf[HEADER + 12..HEADER + 14].copy_from_slice(&y_percent.to_be_bytes());
