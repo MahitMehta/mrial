@@ -6,16 +6,16 @@ export component LoginScreen inherits Screen {
     padding: 0;
 
     VerticalLayout {
-        alignment: start;
+        alignment: LayoutAlignment.space-between;
         padding: 0;
         Image {
             source: @image-url("../assets/your_name.jpeg");
             Rectangle {
                 x: parent.width / 2 - self.width / 2;
                 y: window_height / 2 - self.height / 2;
-                width: 250px;
-                height: 325px;
-                background: rgb(20, 20, 20);
+                width: 275px;
+                height: 350px;
+                background: rgba(20, 20, 20, 1.0);
                 border-color: rgb(29, 29, 29);
                 border-width: 3px;
                 border-radius: 10px;
@@ -35,15 +35,28 @@ export component LoginScreen inherits Screen {
                         }
                         VerticalLayout {
                             spacing: 10px;
-                            MrialTextInput {
-                                placeholder: "Username";
-                                width: parent.width;
-                                height: 35px; 
+                            VerticalLayout {
+                                spacing: 3px;
+                                Text {
+                                    text: "Username";
+                                    color: rgba(89, 89, 89);
+                                }
+                                MrialTextInput {
+                                    width: parent.width;
+                                    height: 35px; 
+                                }
                             }
-                            MrialTextInput {
-                                placeholder: "Password";
-                                width: parent.width;
-                                height: 35px; 
+                            VerticalLayout {
+                                spacing: 3px;
+                                Text {
+                                    text: "Password";
+                                    color: rgba(89, 89, 89);
+                                }
+                                MrialTextInput {
+                                    width: parent.width;
+                                    input-type: InputType.password;
+                                    height: 35px; 
+                                }
                             }
                             MrialButton {
                                 label: "Continue";
@@ -60,18 +73,24 @@ export component LoginScreen inherits Screen {
                         text := Text {
                             text: "Continue Decentralized";
                             font-size: 12px;
-                            font-family: "Inknut Antiqua";
                             color: text_container.has-hover ? rgba(100, 100, 100) : rgba(89, 89, 89);
+                            animate color { duration: 0.25s; }
                         }
                     }
                 }
             }   
         }
         HorizontalLayout {
-            padding: 5px;
+            padding: 10px;
+            alignment: LayoutAlignment.space-between;
+            Text {
+                text: "©2023 MahitM Product. All Rights Reserved.";
+                color: rgba(89, 89, 89); 
+                horizontal-alignment: TextHorizontalAlignment.right;
+            }
             Text {
                 text: "Build Version: 0.0.1";
-                color: white; 
+                color: rgba(89, 89, 89); 
                 horizontal-alignment: TextHorizontalAlignment.right;
             }
         }

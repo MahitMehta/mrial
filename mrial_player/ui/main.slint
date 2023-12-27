@@ -3,11 +3,12 @@ import "../assets/fonts/Inknut_Antiqua/InknutAntiqua-Bold.ttf";
 import { VerticalBox, Button } from "std-widgets.slint";
 import { VideoScreen, VideoFunctions } from "video.slint";
 import { LoginScreen } from "login.slint";
+import { HomeScreen } from "home.slint";
 
 export { VideoFunctions }
 
 export component MainWindow inherits Window {
-    in-out property <int> current-subpage: 0;
+    in-out property <int> page: 0;
     in-out property <image> video-frame;
 
     min-width: 700px;
@@ -30,16 +31,25 @@ export component MainWindow inherits Window {
 
     LoginScreen {
         window-height: parent.height;
-        set_current_subpage(page) => { root.current-subpage = page }
-        back => { root.current-subpage = 0 }
-        animate y { duration: 500ms; easing: ease-in-out; }
+        set_current_subpage(page) => { root.page = page }
+        back => { root.page = 0 }
+        x: (0 - root.page) * (parent.width + parent.x + 2px);
+        animate x { duration: 500ms; easing: ease-in-out; }
+    }
+
+    HomeScreen {
+        back => { root.page = 0 }
+        set_current_subpage(page) => { root.page = page }
+        x: (1 - root.page) * (parent.width + parent.x + 2px);
+        animate x { duration: 500ms; easing: ease-in-out; }
     }
 
     VideoScreen {
         video-frame: root.video-frame;
 
-        back => { root.current-subpage = 0 }
-        y: root.current-subpage == 1 ? 0 : parent.height + parent.y + 2px;
-        animate y { duration: 500ms; easing: ease-in-out; }
+        set_current_subpage(page) => { root.page = page }
+        back => { root.page = 0 }
+        x: (2 - root.page) * (parent.width + parent.x + 2px);
+        animate x { duration: 500ms; easing: ease-in-out; }
     }
 }

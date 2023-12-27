@@ -1,0 +1,110 @@
+import { Button , VerticalBox , GridBox } from "std-widgets.slint";
+import { Theme , MrialButton} from "../common.slint";
+
+component SpecBox inherits Rectangle{
+    in property <length> container_width;
+    in property <string> spec;
+    in property <string> spec_label;
+
+    width: container_width / 2 - 12.5px;
+    height: 50px;
+    border-radius: 5px;
+    background: Theme.bg-secondary-color;
+    VerticalLayout {
+        alignment: LayoutAlignment.center;
+        Text {
+            text: spec;
+            color: Theme.text-primary-color;
+            font-size: 20px;
+            font-weight: 600;
+            horizontal-alignment: TextHorizontalAlignment.center;
+        }
+        Text {
+            text: spec-label;
+            color: Theme.text-secondary-color;
+            font-size: 12px;
+            font-weight: 600;
+            horizontal-alignment: TextHorizontalAlignment.center;
+        }
+    }
+}
+
+export component Server inherits Rectangle{
+    callback clicked();
+    
+    in property <length> container_width: 175px;
+
+    width: container-width;
+    height: 225px;
+    border-width: 2px;
+    border-radius: 10px;
+    border-color: Theme.border-color;    
+
+    VerticalLayout {
+        width: parent.width;
+        padding: 10px;
+        alignment: LayoutAlignment.center;
+        spacing: 10px;
+
+        GridLayout {
+            spacing: 5px;
+            Row {
+                Rectangle {
+                    width: container_width / 2 - 12.5px;
+                    height: 50px;
+                    border-radius: 5px;
+                    background: Theme.bg-secondary-color;
+                    Rectangle {
+                        width: 45px;
+                        height: 45px;
+                        border-radius: 5px;
+                        clip: true;
+                        
+                        Image {
+                            source: @image-url("../../assets/os/ubuntu.png");
+                            width: parent.width;
+                            height: parent.height;
+                        }
+                    }
+                }
+                SpecBox {
+                    container_width: container_width;
+                    spec: "4";
+                    spec_label: "vCPU";
+                }
+            }
+            Row {
+                SpecBox {
+                    container_width: container_width;
+                    spec: "40";
+                    spec_label: "GB Storage";
+                }
+                SpecBox {
+                    container_width: container_width;
+                    spec: "16";
+                    spec_label: "GB RAM";
+                }
+            }
+        }
+
+        VerticalLayout {
+            spacing: 5px;
+            Text {
+                text: "mahitm_compute";
+                font-size: 16px;
+                font-weight: 600;
+            }
+            Text {
+                text: "Decentralized";
+                font-size: 12px;
+                color: Theme.text-secondary-color;
+            }
+        }
+
+        MrialButton {
+            width: container-width - 10px * 2;
+            label: "Connect";
+            clicked => { clicked(); }
+        }
+    }
+}

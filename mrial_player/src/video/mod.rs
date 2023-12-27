@@ -1,16 +1,15 @@
-use std::{thread, time::Instant};
+use std::thread;
 
 use ffmpeg_next::{frame, software, format::Pixel }; 
 use kanal::{unbounded, Sender, Receiver};
 use mrial_proto::*;
 
-use super::client::Client;
-
 const W: usize = 1440; 
 const H: usize = 900;
 
-const TARGET_WIDTH: usize = 2560; 
-const TARGET_HEIGHT: usize = 1600;
+// should be max resolution of monitor
+const TARGET_WIDTH: usize = 2560; // 2560
+const TARGET_HEIGHT: usize = 1600; // 1600
 
 pub struct VideoThread {
     nal: Vec<u8>,
@@ -40,7 +39,7 @@ impl VideoThread {
     pub fn begin_decoding(
         &mut self,
         app_weak: slint::Weak<super::slint_generatedMainWindow::MainWindow>,
-        client: Client
+        conn_sender: Sender<super::ConnectionAction>
     ) {
         ffmpeg_next::init().unwrap();
 
@@ -94,13 +93,14 @@ impl VideoThread {
                     },
                     Err(e) => {
                         println!("Error Sending Packet: {}", e);
-                        client.send_handshake(); // limit number of handshakes
+                        conn_sender.send(super::ConnectionAction::Reconnect).unwrap();
                     }
                 };
             }
         });
     }
 
+    #[inline]
     pub fn packet(
         &mut self, 
         buf: &[u8], 

@@ -1,3 +1,20 @@
+import { VerticalBox } from "std-widgets.slint";
+
+export global Theme {
+    out property <color> border_color: rgb(29, 29, 29);
+    out property <color> red_color: rgba(226,24,24,1);
+
+    out property <color> text_primary_color: rgb(255, 255, 255);
+    out property <color> text_secondary_color: rgb(89, 89, 89);
+
+    out property <color> bg_primary_color: rgb(20, 20, 20);
+    out property <color> bg_secondary_color: rgb(29, 29, 29);
+
+    out property <brush> bg_primary_brush: @linear-gradient(90deg, #FC466B 0%, #3F5EFB 100%);
+    out property <brush> bg_negative_brush: @linear-gradient(90deg, #FF9A8B 0%, #FF6A88 55%, #FF99AC 100%);
+        
+}
+
 export component Screen inherits Rectangle {
     callback back;
     callback set_current_subpage(int);
@@ -5,18 +22,48 @@ export component Screen inherits Rectangle {
     background: rgb(20, 20, 20);
 }
 
+export enum ButtonType {
+    gradient,
+    negative,
+    postive
+}
+
 export component MrialButton inherits Rectangle {
     in property <string> label;
+    in property <ButtonType> type: ButtonType.gradient;
+    callback clicked();
 
     width: 100%;
     height: 35px;
-    border-radius: 5px;
-    background: @linear-gradient(90deg, #FC466B 0%, #3F5EFB 100%);
+    border-radius: 7.5px;
+
+    
+    init => {
+        if (type == ButtonType.gradient) {
+            self.background = Theme.bg-primary-brush;
+        } 
+        else if (type == ButtonType.negative) {
+            self.border-width = 2px; 
+           //  self.border-color = Theme.red-color;
+            self.background = Theme.bg_negative_brush;
+        } 
+        else if (type == ButtonType.postive) {
+            
+        }
+    }
+
+    opacity: tocuh-area.has-hover ? 0.8 : 1.0;
+    animate opacity { duration: 250ms; }
+
+    tocuh_area := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { clicked(); }
+    }
 
     Text {
         text: label;
         font-size: 12px;
-        font-family: "Inknut Antiqua";
+        font-weight: 500;
         color: white;
         horizontal-alignment: TextHorizontalAlignment.center;
         vertical-alignment: TextVerticalAlignment.center;
@@ -25,24 +72,18 @@ export component MrialButton inherits Rectangle {
 
 export component MrialTextInput inherits Rectangle {
     in-out property <InputType> input-type <=> text_input.input-type;
-    in property <string> placeholder;
 
-    background: rgb(20, 20, 20);
-    border-color: rgb(29, 29, 29);
-    border-width: 3px;
-    border-radius: 5px;
+    background: Theme.bg-primary-color;
+    border-color: Theme.border_color;
+    border-width: 2px;
+    border-radius: 7.5px;
 
     text_input := TextInput {
-        horizontal-alignment: TextHorizontalAlignment.center;
+        x: 10px;
+        vertical-alignment: TextVerticalAlignment.center;
         input-type: InputType.text;
-        text: self.has-focus ? "" : placeholder;
-        height: self.preferred-height;
+        height: parent.height;
         single-line: true;
-        font-family: "Inknut Antiqua";
-        color: rgba(89, 89, 89);
-        
-        // edited => {
-            
-        // }
+        color: Theme.text-secondary-color;
     }
 }
