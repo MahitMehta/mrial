@@ -26,8 +26,6 @@ export component VideoScreen inherits Screen {
             padding: 0;
             touch := TouchArea {
                 clicked => {
-                    VideoFunctions.click(touch.mouse-x, touch.mouse-y);
-
                     if (touch.mouse-x > control_panel_button.x && 
                         touch.mouse-x < control_panel_button.x + control_panel_button.width && 
                         touch.mouse-y > control_panel_button.y && 
@@ -38,7 +36,9 @@ export component VideoScreen inherits Screen {
                         } else {
                             control_panel.visible = true; 
                         }
-                    }
+                    } else {
+                        VideoFunctions.click(touch.mouse-x, touch.mouse-y);
+                    }                    
                 }
                 scroll-event(event) => {
                     VideoFunctions.scroll(event.delta-x, event.delta-y);

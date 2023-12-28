@@ -1,5 +1,6 @@
 import { Screen, MrialTextInput , MrialButton} from "common.slint";
 import { VerticalBox , Button , HorizontalBox} from "std-widgets.slint";
+import { Footer } from "components/footer.slint";
 
 export component LoginScreen inherits Screen {
     in property <length> window_height;
@@ -80,19 +81,6 @@ export component LoginScreen inherits Screen {
                 }
             }   
         }
-        HorizontalLayout {
-            padding: 10px;
-            alignment: LayoutAlignment.space-between;
-            Text {
-                text: "©2023 MahitM Product. All Rights Reserved.";
-                color: rgba(89, 89, 89); 
-                horizontal-alignment: TextHorizontalAlignment.right;
-            }
-            Text {
-                text: "Build Version: 0.0.1";
-                color: rgba(89, 89, 89); 
-                horizontal-alignment: TextHorizontalAlignment.right;
-            }
-        }
+        Footer {}
     }
 }

@@ -1,32 +1,98 @@
-import { Screen, Theme } from "common.slint";
+import { Screen, Theme , MrialButton, ButtonType } from "common.slint";
 import { Button , VerticalBox } from "std-widgets.slint";
-import { Server } from "components/server.slint";
+import { Server, IServer } from "components/server.slint";
 import { VideoFunctions } from "video.slint";
+import { Footer } from "components/footer.slint";
 
 export component HomeScreen inherits Screen {
+    in property <[IServer]> servers: [
+        {
+            ram: 8,
+            vcpu: 8,
+            storage: 512,
+            shareable: true, 
+            os: "macos",
+            name: "macbook_air_1990"
+        },
+        {
+            ram: 24,
+            vcpu: 4,
+            storage: 40,
+            os: "ubuntu",
+            shareable: false,
+            name: "mahitm_compute"
+        }
+    ];
+
     HorizontalLayout {
-        Rectangle {
+        navbar := Rectangle {
             width: 150px;
             height: 100%;
             background: Theme.bg-secondary-color;
-        }
-        GridLayout {
-            spacing: 10px;
-            padding: 15px;
+            VerticalLayout {
+                width: parent.width;
+                padding: 10px;
+                padding-top: 15px;
 
-            Row {
-                Server {
-                    clicked => {
-                        root.set_current_subpage(2);
-                        VideoFunctions.connect();
-                    }
+                MrialButton {
+                    width: parent.width - parent.padding * 2;
+                    label: "Add Server";
+                    type: ButtonType.basic;
+                    border-color: Theme.secondary-border-color;
+                    border-width: 1px;
+                    icon:  @image-url("../assets/icons/plus.svg");
+                    has-icon: true;
                 }
-                Server {
-                    clicked => {
-                        root.set_current_subpage(2);
+
+                // VerticalLayout {
+                //     padding-top: 10px;
+                //     Rectangle {
+                //         width: parent.width;
+                //         background: rgba(255,255,255,0.1);
+                //         HorizontalLayout {
+                //             padding: 10px;
+                //             alignment: LayoutAlignment.space-between;
+                //             VerticalLayout {
+                //                 alignment: LayoutAlignment.center;
+                //                 Image {
+                //                     width: 25px;
+                //                     height: 25px;
+                //                     source: @image-url("../assets/icons/server_stack.svg");
+                //                     colorize: Theme.text-primary-color;
+                //                 }
+                //             }
+                //             Text {
+                //                 text: "Servers";
+                //                 font-size: 20px;
+                //                 font-weight: 500;
+                //                 color: Theme.text-primary-color;
+                //                 vertical-alignment: TextVerticalAlignment.center;
+                //                 horizontal-alignment: TextHorizontalAlignment.center;
+                //             }
+                //         }
+                //     }
+                // }
+            }
+        }
+        VerticalLayout {
+            alignment: LayoutAlignment.space-between;
+            width: parent.width - navbar.width;
+            HorizontalLayout {
+                spacing: 10px;
+                padding: 15px;
+    
+                for server in servers: Server {
+                    server: server;
+
+                    cb => {
+                        if (!server.shareable) {
+                            root.set_current_subpage(2);
+                            VideoFunctions.connect();
+                        } 
                     }
                 }
             }
+            Footer {}
         }
     }
 }

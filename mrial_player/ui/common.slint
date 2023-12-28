@@ -2,6 +2,7 @@ import { VerticalBox } from "std-widgets.slint";
 
 export global Theme {
     out property <color> border_color: rgb(29, 29, 29);
+    out property <color> secondary-border-color: rgb(45, 45, 45);
     out property <color> red_color: rgba(226,24,24,1);
 
     out property <color> text_primary_color: rgb(255, 255, 255);
@@ -12,7 +13,7 @@ export global Theme {
 
     out property <brush> bg_primary_brush: @linear-gradient(90deg, #FC466B 0%, #3F5EFB 100%);
     out property <brush> bg_negative_brush: @linear-gradient(90deg, #FF9A8B 0%, #FF6A88 55%, #FF99AC 100%);
-        
+    out property <brush> bg_positive_brush: @linear-gradient( 99deg,  rgba(255,166,0,1) 14.7%, rgba(255,99,97,1) 73%, rgba(255,99,97,1) 100%);
 }
 
 export component Screen inherits Rectangle {
@@ -23,32 +24,35 @@ export component Screen inherits Rectangle {
 }
 
 export enum ButtonType {
+    basic,
     gradient,
     negative,
-    postive
+    positive
 }
 
 export component MrialButton inherits Rectangle {
     in property <string> label;
     in property <ButtonType> type: ButtonType.gradient;
+   
+    in property <image> icon;
+    in property <bool> has_icon: false;
+
     callback clicked();
 
     width: 100%;
     height: 35px;
     border-radius: 7.5px;
 
-    
     init => {
         if (type == ButtonType.gradient) {
             self.background = Theme.bg-primary-brush;
-        } 
-        else if (type == ButtonType.negative) {
+        } else if (type == ButtonType.negative) {
             self.border-width = 2px; 
-           //  self.border-color = Theme.red-color;
             self.background = Theme.bg_negative_brush;
-        } 
-        else if (type == ButtonType.postive) {
-            
+        } else if (type == ButtonType.positive) {
+            self.background = Theme.bg-positive-brush;
+        } else if (type == ButtonType.basic) {
+            self.background = Theme.bg-primary-color;
         }
     }
 
@@ -60,13 +64,28 @@ export component MrialButton inherits Rectangle {
         clicked => { clicked(); }
     }
 
-    Text {
-        text: label;
-        font-size: 12px;
-        font-weight: 500;
-        color: white;
-        horizontal-alignment: TextHorizontalAlignment.center;
-        vertical-alignment: TextVerticalAlignment.center;
+    HorizontalLayout {
+        alignment: LayoutAlignment.center;
+        spacing: 5px;
+
+        VerticalLayout {
+            alignment: LayoutAlignment.center;
+            if has-icon: Image {
+                source: icon;
+                width: 20px;
+                height: 20px;
+                colorize: Theme.text-primary-color;
+            }
+        }
+
+        Text {
+            text: label;
+            font-size: 12px;
+            font-weight: 500;
+            color: white;
+            horizontal-alignment: TextHorizontalAlignment.center;
+            vertical-alignment: TextVerticalAlignment.center;
+        }
     }
 }
 

@@ -1,5 +1,5 @@
 import { Button , VerticalBox , GridBox } from "std-widgets.slint";
-import { Theme , MrialButton} from "../common.slint";
+import { Theme , MrialButton, ButtonType } from "../common.slint";
 
 component SpecBox inherits Rectangle{
     in property <length> container_width;
@@ -29,82 +29,109 @@ component SpecBox inherits Rectangle{
     }
 }
 
-export component Server inherits Rectangle{
-    callback clicked();
+export struct IServer {
+    shareable: bool,
+    vcpu: int,
+    storage: int,
+    ram: int,
+    os: string,
+    name: string
+}
+
+export component Server inherits TouchArea {
+    callback cb();
     
+    in property <IServer> server;
     in property <length> container_width: 175px;
 
     width: container-width;
     height: 225px;
-    border-width: 2px;
-    border-radius: 10px;
-    border-color: Theme.border-color;    
 
-    VerticalLayout {
+    clicked => { cb(); }
+    mouse-cursor: MouseCursor.pointer;
+
+    Rectangle { 
         width: parent.width;
-        padding: 10px;
-        alignment: LayoutAlignment.center;
-        spacing: 10px;
-
-        GridLayout {
-            spacing: 5px;
-            Row {
-                Rectangle {
-                    width: container_width / 2 - 12.5px;
-                    height: 50px;
-                    border-radius: 5px;
-                    background: Theme.bg-secondary-color;
-                    Rectangle {
-                        width: 45px;
-                        height: 45px;
-                        border-radius: 5px;
-                        clip: true;
-                        
-                        Image {
-                            source: @image-url("../../assets/os/ubuntu.png");
-                            width: parent.width;
-                            height: parent.height;
-                        }
-                    }
-                }
-                SpecBox {
-                    container_width: container_width;
-                    spec: "4";
-                    spec_label: "vCPU";
-                }
-            }
-            Row {
-                SpecBox {
-                    container_width: container_width;
-                    spec: "40";
-                    spec_label: "GB Storage";
-                }
-                SpecBox {
-                    container_width: container_width;
-                    spec: "16";
-                    spec_label: "GB RAM";
-                }
-            }
-        }
+        height: parent.height;
+        border-width: 2px;
+        border-radius: 10px;
+        border-color: parent.has-hover ? Theme.secondary-border-color : Theme.border-color;   
+        animate border-color { duration: 0.25s; }
 
         VerticalLayout {
-            spacing: 5px;
-            Text {
-                text: "mahitm_compute";
-                font-size: 16px;
-                font-weight: 600;
+            width: parent.width;
+            padding: 10px;
+            alignment: LayoutAlignment.center;
+            spacing: 10px;
+    
+            GridLayout {
+                spacing: 5px;
+                Row {
+                    Rectangle {
+                        width: container_width / 2 - 12.5px;
+                        height: 50px;
+                        border-radius: 5px;
+                        background: Theme.bg-secondary-color;
+                        Rectangle {
+                            width: 45px;
+                            height: 45px;
+                            border-radius: 5px;
+                            clip: true;
+                            
+                            Image {
+                                init => {
+                                    if (server.os == "ubuntu") {
+                                        self.source =  @image-url("../../assets/os/ubuntu.png");
+                                    } else if (server.os == "macos") {
+                                        self.source =  @image-url("../../assets/os/macos.png");
+                                    }
+                                }
+                                image-fit: ImageFit.contain;
+                                width: parent.width;
+                                height: parent.height;
+                            }
+                        }
+                    }
+                    SpecBox {
+                        container_width: container_width;
+                        spec: server.vcpu;
+                        spec_label: "vCPU";
+                    }
+                }
+                Row {
+                    SpecBox {
+                        container_width: container_width;
+                        spec: server.storage;
+                        spec_label: "GB Storage";
+                    }
+                    SpecBox {
+                        container_width: container_width;
+                        spec: server.ram;
+                        spec_label: "GB RAM";
+                    }
+                }
             }
-            Text {
-                text: "Decentralized";
-                font-size: 12px;
-                color: Theme.text-secondary-color;
+    
+            VerticalLayout {
+                spacing: 5px;
+                Text {
+                    text: server.name;
+                    font-size: 16px;
+                    font-weight: 600;
+                }
+                Text {
+                    text: "Decentralized";
+                    font-size: 12px;
+                    color: Theme.text-secondary-color;
+                }
+            }
+    
+            MrialButton {
+                width: container-width - 10px * 2;
+                label: server.shareable ? "Share" : "Connect";
+                type: server.shareable ? ButtonType.positive : ButtonType.gradient;
+                clicked => { cb(); }
             }
         }
-
-        MrialButton {
-            width: container-width - 10px * 2;
-            label: "Connect";
-            clicked => { clicked(); }
-        }
-    }
+    } 
 }
