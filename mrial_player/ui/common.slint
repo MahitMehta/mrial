@@ -68,9 +68,9 @@ export component MrialButton inherits Rectangle {
         alignment: LayoutAlignment.center;
         spacing: 5px;
 
-        VerticalLayout {
+        if has-icon: VerticalLayout {
             alignment: LayoutAlignment.center;
-            if has-icon: Image {
+            Image {
                 source: icon;
                 width: 20px;
                 height: 20px;

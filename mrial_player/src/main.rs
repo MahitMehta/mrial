@@ -43,12 +43,6 @@ fn main() {
         });
     }).unwrap();
 
-    let _state = thread::spawn(move || {
-        
-
-
-    });
-
     let app_weak = app.as_weak();
 
     let _conn: thread::JoinHandle<_> = thread::spawn(move || {

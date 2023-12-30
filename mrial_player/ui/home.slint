@@ -1,10 +1,54 @@
-import { Screen, Theme , MrialButton, ButtonType } from "common.slint";
+import { Screen, Theme , MrialButton, ButtonType , MrialTextInput} from "common.slint";
 import { Button , VerticalBox } from "std-widgets.slint";
 import { Server, IServer } from "components/server.slint";
 import { VideoFunctions } from "video.slint";
 import { Footer } from "components/footer.slint";
 
+component NavItem inherits Rectangle {
+    in property <string> name;
+    in property <bool> active;
+    in property <image> icon;
+
+    callback clicked();
+
+    height: 35px;
+    background: touch-area.has-hover && !active ? rgba(255,255,255,0.05) : rgba(0,0,0,0);
+    border-radius: 7.5px;
+    animate background { duration: 0.15s; }
+
+    touch_area := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => { clicked();  }
+    }
+
+    HorizontalLayout {
+        padding: 5px;
+        padding-left: 14px;
+        spacing: 7.5px;
+        VerticalLayout {
+            alignment: LayoutAlignment.center;
+            Image {
+                width: 20px;
+                height: 20px;
+                source: icon;
+                colorize: Theme.text-primary-color;
+                opacity: active ? 1.0 : 0.8;
+            }
+        }
+        Text {
+            text: name; 
+            font-size: 12px;
+            font-weight: 500;
+            opacity: active ? 1.0 : 0.8;
+            color: Theme.text-primary-color;
+            vertical-alignment: TextVerticalAlignment.center;
+        }
+    }
+}
+
 export component HomeScreen inherits Screen {
+    in-out property <int> nav_page: 1;
+
     in property <[IServer]> servers: [
         {
             ram: 8,
@@ -33,6 +77,7 @@ export component HomeScreen inherits Screen {
                 width: parent.width;
                 padding: 10px;
                 padding-top: 15px;
+                spacing: 15px;
 
                 MrialButton {
                     width: parent.width - parent.padding * 2;
@@ -42,56 +87,109 @@ export component HomeScreen inherits Screen {
                     border-width: 1px;
                     icon:  @image-url("../assets/icons/plus.svg");
                     has-icon: true;
+                    clicked => { root.nav-page = 0; }
                 }
-
-                // VerticalLayout {
-                //     padding-top: 10px;
-                //     Rectangle {
-                //         width: parent.width;
-                //         background: rgba(255,255,255,0.1);
-                //         HorizontalLayout {
-                //             padding: 10px;
-                //             alignment: LayoutAlignment.space-between;
-                //             VerticalLayout {
-                //                 alignment: LayoutAlignment.center;
-                //                 Image {
-                //                     width: 25px;
-                //                     height: 25px;
-                //                     source: @image-url("../assets/icons/server_stack.svg");
-                //                     colorize: Theme.text-primary-color;
-                //                 }
-                //             }
-                //             Text {
-                //                 text: "Servers";
-                //                 font-size: 20px;
-                //                 font-weight: 500;
-                //                 color: Theme.text-primary-color;
-                //                 vertical-alignment: TextVerticalAlignment.center;
-                //                 horizontal-alignment: TextHorizontalAlignment.center;
-                //             }
-                //         }
-                //     }
-                // }
-            }
-        }
-        VerticalLayout {
-            alignment: LayoutAlignment.space-between;
-            width: parent.width - navbar.width;
-            HorizontalLayout {
-                spacing: 10px;
-                padding: 15px;
-    
-                for server in servers: Server {
-                    server: server;
-
-                    cb => {
-                        if (!server.shareable) {
-                            root.set_current_subpage(2);
-                            VideoFunctions.connect();
+                Rectangle {
+                    height: 1px;
+                    width: parent.width - parent.padding * 2;
+                    background: Theme.secondary-border-color;
+                }
+                Rectangle {
+                    nav_item_overlay := Rectangle {
+                        opacity: root.nav-page != 0 ? 1.0 : 0.0;
+                        y: (root.nav_page - 1) * 40px + 5px;
+                        width: parent.width;
+                        height: 35px;
+                        background: rgba(255,255,255,0.05);
+                        border-radius: 7.5px;
+                        animate y { duration: 0.25s; easing: ease-in-out; }
+                        Rectangle {
+                            x: 5px; 
+                            y: parent.height / 2 - self.height / 2; 
+                            width: 3px; 
+                            height: 14px; 
+                            border-radius: 2px;
+                            background:#3F5EFB;
+                        }
+                    }
+                    VerticalLayout {
+                        padding-top: 5px;
+                        spacing: 5px;
+                        NavItem {
+                            in property <int> nav_page: 1;
+                            active: root.nav_page == self.nav-page;
+                            name: "Servers";             
+                            icon: @image-url("../assets/icons/server_stack.svg");
+                            clicked => { root.nav_page = self.nav-page; }
+                        }
+                        NavItem {
+                            in property <int> nav_page: 2;
+                            active: root.nav_page == self.nav-page;
+                            name: "Hosting";
+                            icon: @image-url("../assets/icons/globe.svg");
+                            clicked => { root.nav_page = self.nav-page; }
                         } 
                     }
                 }
             }
+        }
+        content := VerticalLayout {
+            alignment: LayoutAlignment.space-between;
+            width: parent.width - navbar.width;
+            Rectangle {
+                HorizontalLayout {
+                    y: (1 - nav_page) * content.height; 
+                    spacing: 10px;
+                    padding: 15px;
+                    
+                    for server in servers: Server {
+                        server: server;
+    
+                        cb => {
+                            if (!server.shareable) {
+                                root.set_current_subpage(2);
+                                VideoFunctions.connect();
+                            } 
+                        }
+                    }
+                }
+                VerticalLayout {
+                    padding: 15px;
+                    y: (0 - nav_page) * -content.height; 
+                    spacing: 10px;
+                    HorizontalLayout {
+                        spacing: 10px;
+                        VerticalLayout {
+                            spacing: 5px;
+                            Text {
+                                text: "IP Address";
+                            }
+                            MrialTextInput {
+                                input-type: InputType.text;
+                                width: 125px;
+                                height: 30px;
+                            }
+                        }
+                        VerticalLayout {
+                            spacing: 5px;
+                            Text {
+                                text: "Port";
+                            }
+                            MrialTextInput {
+                                width: 125px;
+                                height: 30px;
+                                input-type: InputType.number;
+                            }
+                        }
+                    }
+                    MrialButton {
+                        width: 125px;
+                        has-icon: true;
+                        icon:  @image-url("../assets/icons/server.svg");
+                        label: "Add Server";
+                    }
+                }
+            }            
             Footer {}
         }
     }
