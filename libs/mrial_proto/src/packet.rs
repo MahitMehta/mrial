@@ -3,7 +3,8 @@ pub enum EPacketType {
     SHOOK = 1,
     NAL = 2,  
     STATE = 3,
-    AUDIO = 4
+    AUDIO = 4,
+    InternalEOL = 13
 }
 
 impl From<u8> for EPacketType {
@@ -14,6 +15,7 @@ impl From<u8> for EPacketType {
             2 => EPacketType::NAL,
             3 => EPacketType::STATE,
             4 => EPacketType::AUDIO,
+            13 => EPacketType::InternalEOL,
             _ => panic!("Invalid Packet Type")
         }
     }
@@ -32,6 +34,7 @@ pub const PAYLOAD: usize = MTU - HEADER;
 // Payload Schema
 // variables sized unencrypted bytes (MAX = MTU - HEADER) 
 
+#[inline]
 pub fn write_header(
     packet_type: EPacketType, 
     packets_remaining: u16, 
@@ -43,6 +46,7 @@ pub fn write_header(
     buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
 }
 
+#[inline]
 pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32) {
     let packet_type = EPacketType::from(buf[0]);
 
@@ -55,6 +59,7 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32) {
     (packet_type, packets_remaining, real_packet_size)
 }
 
+#[inline]
 pub fn assembled_packet(
     packet: &mut Vec<u8>, 
     buf: &[u8], 

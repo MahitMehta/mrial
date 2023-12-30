@@ -438,7 +438,7 @@ async fn main() {
                         // encoder = Encoder::with_config(config).unwrap();
                         enc = x264::Encoder::open(&mut par).unwrap();
                         buf[0] = EPacketType::SHOOK as u8;
-                        socket.send_to(&buf[0..HEADER], src).expect("Failed to send NAL Unit");
+                        socket.send_to(&buf[0..HEADER], src).expect("Failed to send Handshake");
                         *attempt_reconnect.lock().unwrap() = false;
                     }
                 }

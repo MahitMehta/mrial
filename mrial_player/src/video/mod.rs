@@ -8,8 +8,8 @@ const W: usize = 1440;
 const H: usize = 900;
 
 // should be max resolution of monitor
-const TARGET_WIDTH: usize = 1440; // 2560
-const TARGET_HEIGHT: usize = 900; // 1600
+const TARGET_WIDTH: usize = 2560; // 2560
+const TARGET_HEIGHT: usize = 1600; // 1600
 
 pub struct VideoThread {
     nal: Vec<u8>,
