@@ -59,4 +59,3 @@ impl AudioClient {
         self.audio_stream.clear();
     }
 }
-
