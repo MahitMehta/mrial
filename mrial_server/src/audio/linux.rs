@@ -1,5 +1,7 @@
-use std::net::UdpSocket;
+use super::AudioController;
+use mrial_proto::*;
 
+use std::net::UdpSocket;
 use pipewire as pw;
 use pw::spa::WritableDict;
 use pw::spa::format::{MediaType, MediaSubtype};
@@ -7,8 +9,6 @@ use pw::{properties, spa};
 use spa::param::format_utils;
 use spa::pod::Pod;
 use std::mem;
-
-use crate::EPacketType;
 
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
@@ -36,6 +36,7 @@ impl AudioController {
             // run if error  
             // 1. systemctl --user restart pipewire.service
             // 2. "systemctl --user restart pipewire-pulse.service" 
+            // 3. pactl load-module module-null-sink media.class=Audio/Sink sink_name=mrial_sink channel_map=stereo
             let core = context.connect(None).unwrap();
 
             let data = UserData {
@@ -126,7 +127,7 @@ impl AudioController {
 
                             for i in 0..buf.len()/1024 {
                                 let mut buf2 = [0u8; 1032];
-                                buf2[0] = EPacketType::Audio as u8; 
+                                buf2[0] = EPacketType::AUDIO as u8; 
                                 buf2[1..3].copy_from_slice(&((packets - i - 1) as u16).to_be_bytes());
                                 buf2[3..7].copy_from_slice(&(buf.len() as i32).to_be_bytes());
 

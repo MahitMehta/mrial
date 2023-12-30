@@ -19,6 +19,7 @@ mrial_proto = { path = "../libs/mrial_proto" }
 [target."cfg(target_os = \"linux\")".dependencies] 
 libyuv-sys = { path = "../libs/libyuv-sys" }
 pipewire = "0.7.2"
+mouse-keyboard-input = "0.4.1"
 
 [target."cfg(target_os = \"macos\")".dependencies] 
 libyuv-sys = { path = "../libs/libyuv-sys" }
