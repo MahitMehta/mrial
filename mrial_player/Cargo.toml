@@ -6,14 +6,14 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-device_query = "1.1.3"
 ffmpeg-next = "6.0.0"
 minifb = "0.25.0"
-openh264 = "0.4.4"
+rodio = "0.17.3"
 slint = "1.3.2"
 # slint = { path = "../libs/slint/api/rs/slint" }
 tokio = { version = "1.34.0", features = ["full"] }
 mrial_proto = { path = "../libs/mrial_proto" }
+kanal = "0.1.0-pre8"
 
-# Have to install "libasound2-dev" and "pkg-config"
-rodio = "0.17.3"
+[build-dependencies] 
+slint-build = "1.3.2"

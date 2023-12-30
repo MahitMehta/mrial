@@ -315,8 +315,7 @@ async fn main() {
     const H: usize = 900;
 
     let mut capturer = Capturer::new(d).unwrap();
-
-    let mut par = Param::default_preset("ultrafast", "zerolatency").unwrap();
+    let mut par = Param::default_preset("superfast", "zerolatency").unwrap();
 
     par = par.param_parse("repeat_headers", "1").unwrap();
     //par = par.param_parse("csp", "i444").unwrap();
@@ -335,6 +334,12 @@ async fn main() {
 
     let mut pic = Picture::from_param(&par).unwrap();
     let mut enc = x264::Encoder::open(&mut par).unwrap();
+
+    //let headers = enc.headers().unwrap();
+    //while mrial_proto::assembled_packet(packet, buf, number_of_bytes, packets_remaining)
+
+    write_header(EPacketType::SHOOK, 0, HEADER as u32, &mut buf);
+    socket.send_to(&buf[0..HEADER], src).expect("Failed to send SHOOK");
 
     //let mut file = File::create("fade.h264").unwrap();
 

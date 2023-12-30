@@ -1,0 +1,55 @@
+import "../assets/fonts/Inknut_Antiqua/InknutAntiqua-Bold.ttf";
+
+import { VerticalBox, Button } from "std-widgets.slint";
+import { VideoScreen, VideoFunctions } from "video.slint";
+import { LoginScreen } from "login.slint";
+import { HomeScreen } from "home.slint";
+
+export { VideoFunctions }
+
+export component MainWindow inherits Window {
+    in-out property <int> page: 0;
+    in-out property <image> video-frame;
+
+    min-width: 700px;
+    min-height: 500px;
+
+    title: "MRIAL";
+    padding: 0;
+
+    forward-focus: key-handler;
+    key-handler := FocusScope {
+        key-pressed(event) => {
+            VideoFunctions.key_pressed(event);
+            accept
+        }
+        key-released(event) => {
+            VideoFunctions.key-released(event);
+            accept
+        }
+    }
+
+    LoginScreen {
+        window-height: parent.height;
+        set_current_subpage(page) => { root.page = page }
+        back => { root.page = 0 }
+        x: (0 - root.page) * (parent.width + parent.x + 2px);
+        animate x { duration: 500ms; easing: ease-in-out; }
+    }
+
+    HomeScreen {
+        back => { root.page = 0 }
+        set_current_subpage(page) => { root.page = page }
+        x: (1 - root.page) * (parent.width + parent.x + 2px);
+        animate x { duration: 500ms; easing: ease-in-out; }
+    }
+
+    VideoScreen {
+        video-frame: root.video-frame;
+
+        set_current_subpage(page) => { root.page = page }
+        back => { root.page = 0 }
+        x: (2 - root.page) * (parent.width + parent.x + 2px);
+        animate x { duration: 500ms; easing: ease-in-out; }
+    }
+}
