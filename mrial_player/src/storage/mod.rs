@@ -3,10 +3,10 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
-struct Server {
-    name: String,
-    address: String,
-    port: u16,
+pub struct Server {
+    pub name: String,
+    pub address: String,
+    pub port: u16,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -34,6 +34,33 @@ impl Servers {
         Servers {
             state: None,
             db_path: "./db/servers.json".to_string()
+        }
+    }
+
+    pub fn get_servers(&self) -> Option<Vec<Server>> {
+        if let Some(state) = &self.state {
+            return Some(state.servers.clone());
+        }
+       
+        None
+    }
+
+    pub fn find_server(&self, server_id: String) -> Option<Server> {
+        if let Some(state) = &self.state {
+            for server in &state.servers {
+                if server.name == server_id {
+                    return Some(server.clone());
+                }
+            }
+        }
+
+        None
+    }
+
+    pub fn try_clone(&self) -> Servers {
+        Servers {
+            state: self.state.clone(),
+            db_path: self.db_path.clone()
         }
     }
 

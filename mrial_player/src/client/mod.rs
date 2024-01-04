@@ -1,4 +1,4 @@
-use std::{time::Duration, net::UdpSocket};
+use std::{time::Duration, net::UdpSocket, thread};
 
 use mrial_proto::*; 
 
@@ -10,19 +10,24 @@ pub enum ConnectionState {
 }
 
 pub struct Client {
+    socket_address: String,
     socket: Option<UdpSocket>,
     state: ConnectionState
 }
 
-const SERVER_ADDR: &'static str = "150.136.127.166:8554";
 const CLIENT_ADDR: &'static str = "0.0.0.0:8080";
 
 impl Client {
     pub fn new() -> Client {
         Client {
+            socket_address: String::new(),
             socket: None,
             state: ConnectionState::Disconnected
         }
+    }
+
+    pub fn set_socket_address(&mut self, ip_addr: String, port: u16) {
+        self.socket_address = format!("{}:{}", ip_addr, port);
     }
 
     pub fn set_state(&mut self, state: ConnectionState) {
@@ -31,8 +36,15 @@ impl Client {
 
     pub fn connect(&mut self) {
         if !self.socket_connected() && self.state == ConnectionState::Connecting {
-            let socket = UdpSocket::bind(CLIENT_ADDR).expect("Failed to Bind to Incoming Socket");
-            self.socket = Some(socket);
+            let socket = UdpSocket::bind(CLIENT_ADDR).expect("Failed to Bind to Local Port");
+            match socket.connect(&self.socket_address) {
+                Ok(_) => self.socket = Some(socket),
+                Err(_e) => {
+                    println!("Failed to Connect to Server: {}", &self.socket_address);
+                    thread::sleep(Duration::from_millis(1000));
+                    return;
+                }
+            }
         }
 
         self.send_handshake();
@@ -62,12 +74,14 @@ impl Client {
         if let Some(socket) = &self.socket {
             let socket = socket.try_clone().unwrap();
             return Client {
+                socket_address: self.socket_address.clone(),
                 socket: Some(socket),
                 state: self.state.clone()
             }
         } 
 
         return Client {
+            socket_address: self.socket_address.clone(),
             socket: None,
             state: ConnectionState::Disconnected
         }
@@ -89,7 +103,7 @@ impl Client {
         match &self.socket {
             None => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Socket Not Initialized")),
             Some(socket) => {
-                let amt = socket.send_to(buf, SERVER_ADDR)?;
+                let amt = socket.send(buf)?;
                 return Ok(amt);
             }
         }
@@ -107,7 +121,7 @@ impl Client {
                 &mut buf
             );
 
-            let _ = socket.send_to(&buf, SERVER_ADDR);
+            let _ = socket.send(&buf);
             println!("Sent Handshake Packet");
             
             // TODO: Validate SRC

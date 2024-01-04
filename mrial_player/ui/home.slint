@@ -5,6 +5,19 @@ import { VideoFunctions } from "video.slint";
 import { Footer } from "components/footer.slint";
 import { CreateServer } from "create_server.slint";
 
+export global HomePageAdapter {
+    in-out property <[IServer]> servers: [
+        {
+            ram: 8,
+            vcpu: 8,
+            storage: 512,
+            shareable: true, 
+            os: "macos",
+            name: "macbook_air_1990"
+        },
+    ];
+}
+
 component NavItem inherits Rectangle {
     in property <string> name;
     in property <bool> active;
@@ -49,25 +62,6 @@ component NavItem inherits Rectangle {
 
 export component HomeScreen inherits Screen {
     in-out property <int> nav_page: 1;
-
-    in property <[IServer]> servers: [
-        {
-            ram: 8,
-            vcpu: 8,
-            storage: 512,
-            shareable: true, 
-            os: "macos",
-            name: "macbook_air_1990"
-        },
-        {
-            ram: 24,
-            vcpu: 4,
-            storage: 40,
-            os: "ubuntu",
-            shareable: false,
-            name: "mahitm_compute"
-        }
-    ];
 
     HorizontalLayout {
         navbar := Rectangle {
@@ -143,13 +137,13 @@ export component HomeScreen inherits Screen {
                     spacing: 10px;
                     padding: 15px;
                     
-                    for server in servers: Server {
+                    for server in HomePageAdapter.servers: Server {
                         server: server;
     
                         cb => {
                             if (!server.shareable) {
                                 root.set_current_subpage(2);
-                                VideoFunctions.connect();
+                                VideoFunctions.connect(server.name);
                             } 
                         }
                     }
