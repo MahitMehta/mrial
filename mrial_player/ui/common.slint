@@ -91,6 +91,7 @@ export component MrialButton inherits Rectangle {
 
 export component MrialTextInput inherits Rectangle {
     in-out property <InputType> input-type <=> text_input.input-type;
+    in-out property <string> value <=> text_input.text;
 
     background: Theme.bg-primary-color;
     border-color: Theme.border_color;

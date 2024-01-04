@@ -4,8 +4,10 @@ import { VerticalBox, Button } from "std-widgets.slint";
 import { VideoScreen, VideoFunctions } from "video.slint";
 import { LoginScreen } from "login.slint";
 import { HomeScreen } from "home.slint";
+import { CreateServerFunctions } from "create_server.slint";
 
 export { VideoFunctions }
+export { CreateServerFunctions }
 
 export component MainWindow inherits Window {
     in-out property <int> page: 0;

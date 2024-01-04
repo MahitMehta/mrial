@@ -3,6 +3,7 @@ import { Button , VerticalBox } from "std-widgets.slint";
 import { Server, IServer } from "components/server.slint";
 import { VideoFunctions } from "video.slint";
 import { Footer } from "components/footer.slint";
+import { CreateServer } from "create_server.slint";
 
 component NavItem inherits Rectangle {
     in property <string> name;
@@ -109,7 +110,7 @@ export component HomeScreen inherits Screen {
                             width: 3px; 
                             height: 14px; 
                             border-radius: 2px;
-                            background:#3F5EFB;
+                            background: @linear-gradient(180deg,  rgba(255,166,0,1) 14.7%, rgba(255,99,97,1) 73%, rgba(255,99,97,1) 100%);
                         }
                     }
                     VerticalLayout {
@@ -157,37 +158,8 @@ export component HomeScreen inherits Screen {
                     padding: 15px;
                     y: (0 - nav_page) * -content.height; 
                     spacing: 10px;
-                    HorizontalLayout {
-                        spacing: 10px;
-                        VerticalLayout {
-                            spacing: 5px;
-                            Text {
-                                text: "IP Address";
-                            }
-                            MrialTextInput {
-                                input-type: InputType.text;
-                                width: 125px;
-                                height: 30px;
-                            }
-                        }
-                        VerticalLayout {
-                            spacing: 5px;
-                            Text {
-                                text: "Port";
-                            }
-                            MrialTextInput {
-                                width: 125px;
-                                height: 30px;
-                                input-type: InputType.number;
-                            }
-                        }
-                    }
-                    MrialButton {
-                        width: 125px;
-                        has-icon: true;
-                        icon:  @image-url("../assets/icons/server.svg");
-                        label: "Add Server";
-                    }
+                    
+                    CreateServer {}
                 }
             }            
             Footer {}
