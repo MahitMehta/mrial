@@ -69,12 +69,8 @@ impl VideoThread {
                 software::scaling::flag::Flags::LANCZOS
             ).unwrap();
 
-            let mut file = File::create("recording.h264").unwrap();
-
             loop {
                 let buf = receiver.recv().unwrap(); 
-                file.write(&buf).unwrap();
-
                 let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&buf);
   
                 match ffmpeg_decoder.send_packet(&pt) {
@@ -126,11 +122,11 @@ impl VideoThread {
             let nal_size = (self.nal.len() - 1) * PAYLOAD + self.nal.last().unwrap().len() - HEADER;
             if real_packet_size as usize != nal_size {
                 if real_packet_size as usize > nal_size {
-                    println!("Not Fixable");
+                    println!("Packet Dropped due to Mixup");
                     self.nal.clear();
                     return;
                 } else {
-                    println!("Fixable");
+                    println!("Packet Order Fixed");
                     let last_packet_id = parse_packet_id(self.nal.last().unwrap());
                     self.nal.retain(|packet| {
                         parse_packet_id(&packet) == last_packet_id
@@ -151,7 +147,9 @@ impl VideoThread {
             nalu.extend_from_slice(&packet[HEADER..]);
         }
         
-        // self.file.write_all(&self.nal).unwrap();
+        // let mut file = File::create("recording.h264").unwrap();
+        // file.write_all(&nalu).unwrap();
+
         self.channel.0.send(nalu).unwrap();
         self.nal.clear();    
     }
