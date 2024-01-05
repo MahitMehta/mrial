@@ -50,8 +50,11 @@ fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) 
 }
 
 fn main() {
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
+
     let app: MainWindow = MainWindow::new().unwrap();
     let app_weak = app.as_weak();
+    app_weak.unwrap().global::<GlobalVars>().set_app_version(VERSION.into());
 
     let mut client = Client::new();
     let conn_channel =  unbounded::<ConnectionAction>();
@@ -155,11 +158,11 @@ fn main() {
             }
 
             let (number_of_bytes, _) = client.recv_from(&mut buf).expect("Failed to Receive Packet");
-            let (packet_type, packets_remaining, _real_packet_size) = proto::parse_header(&buf);
+            let (packet_type, packets_remaining, real_packet_size) = proto::parse_header(&buf);
 
             match packet_type {
                 EPacketType::AUDIO => audio.play_audio_stream(&buf, number_of_bytes, packets_remaining),
-                EPacketType::NAL => video.packet(&buf, number_of_bytes, packets_remaining),
+                EPacketType::NAL => video.packet(&buf, number_of_bytes, packets_remaining, real_packet_size),
                 _ => {}
             }
         }     

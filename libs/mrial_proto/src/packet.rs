@@ -29,7 +29,7 @@ pub const PAYLOAD: usize = MTU - HEADER;
 // Packet Type = 1 byte
 // Packets Remaining = 2 byte
 // Real Packet Byte Size = 4 bytes // replace with packet number (2 bytes?)
-// 1 Byte is currently unoccupied in the header
+// Packet ID = 1 Byte
 
 // Payload Schema
 // variables sized unencrypted bytes (MAX = MTU - HEADER) 
@@ -44,6 +44,17 @@ pub fn write_header(
     buf[0] = packet_type as u8;
     buf[1..3].copy_from_slice(&packets_remaining.to_be_bytes());
     buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
+}
+
+#[inline]
+pub fn parse_packets_remaining(buf: &[u8]) -> u16 {
+    let packets_remaining_bytes: [u8; 2] = buf[1..3].try_into().unwrap();
+    u16::from_be_bytes(packets_remaining_bytes)
+}
+
+#[inline]
+pub fn parse_packet_id(buf: &[u8]) -> u8 {
+    buf[7]
 }
 
 #[inline]

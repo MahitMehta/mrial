@@ -6,8 +6,7 @@ use mrial_proto::*;
 
 use enigo::{
     Direction::{Press, Release},
-    Enigo, Key, Keyboard, Mouse, Settings,
-    {Axis::Horizontal, Axis::Vertical},
+    Enigo, Key, Keyboard, Settings,
 };
 use std::{
     collections::VecDeque,

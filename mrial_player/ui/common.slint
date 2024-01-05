@@ -16,6 +16,11 @@ export global Theme {
     out property <brush> bg_positive_brush: @linear-gradient( 99deg,  rgba(255,166,0,1) 14.7%, rgba(255,99,97,1) 73%, rgba(255,99,97,1) 100%);
 }
 
+export global GlobalVars {
+    in-out property <string> app_name: "Mrial";
+    in-out property <string> app_version;
+}
+
 export component Screen inherits Rectangle {
     callback back;
     callback set_current_subpage(int);

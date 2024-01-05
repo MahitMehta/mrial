@@ -6,10 +6,11 @@ import { LoginScreen } from "login.slint";
 import { HomeScreen, HomePageAdapter } from "home.slint";
 import { CreateServerFunctions } from "create_server.slint";
 import { IServer } from "components/server.slint";
+import { GlobalVars } from "common.slint";
 
+export { GlobalVars }
 export { VideoFunctions }
 export { CreateServerFunctions }
-
 export { HomePageAdapter }
 
 export component MainWindow inherits Window {
@@ -19,7 +20,7 @@ export component MainWindow inherits Window {
     min-width: 700px;
     min-height: 500px;
 
-    title: "MRIAL";
+    title: GlobalVars.app_name;
     padding: 0;
 
     forward-focus: key-handler;

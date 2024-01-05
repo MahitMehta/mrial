@@ -44,7 +44,7 @@ impl EventEmitter {
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub fn scroll(x: i32, y: i32) {
+    pub fn scroll(&self, x: i32, y: i32) {
         
     }
 }
