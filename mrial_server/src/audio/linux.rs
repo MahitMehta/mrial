@@ -12,11 +12,6 @@ use std::mem;
 
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
-    cursor_move: bool,
-}
-
-struct Opt {
-    target: Option<String>,
 }
 
 impl AudioController {
@@ -49,25 +44,13 @@ impl AudioController {
 
             let data = UserData {
                 format: Default::default(),
-                cursor_move: false,
             };
 
-            /* Create a simple stream, the simple stream manages the core and remote
-            * objects for you if you don't need to deal with them.
-            *
-            * If you plan to autoconnect your stream, you need to provide at least
-            * media, category and role properties.
-            *
-            * Pass your events and a user_data pointer as the last arguments. This
-            * will inform you about the stream state. The most important event
-            * you need to listen to is the process event where you need to produce
-            * the data.
-            */
             #[cfg(not(feature = "v0_3_44"))]
             let mut props = properties! {
                 *pw::keys::MEDIA_TYPE => "Audio",
                 *pw::keys::MEDIA_CATEGORY => "Capture",
-                *pw::keys::MEDIA_ROLE => "Music",
+                *pw::keys::MEDIA_ROLE => "Music"
             };
             // uncomment if you want to capture from the sink monitor ports
             props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
@@ -83,7 +66,7 @@ impl AudioController {
                     let Some(param) = param else {
                         return;
                     };
-                    // println!("Reached Here: {}", id);
+        
                     if id != pw::spa::param::ParamType::Format.as_raw() {
                         return;
                     }
@@ -137,16 +120,19 @@ impl AudioController {
                             let packets = (sample.len() as f64 / PAYLOAD as f64).ceil() as usize;
 
                             let mut buf = [0u8; MTU];
+                            write_static_header(
+                                EPacketType::AUDIO,
+                                sample.len().try_into().unwrap(),
+                                audio_packet_id,
+                                &mut buf
+                            );
+
                             for i in 0..sample.len() / PAYLOAD {
-                                write_header(
-                                    EPacketType::AUDIO, 
-                                    (packets - i - 1).try_into().unwrap(), 
-                                    sample.len().try_into().unwrap(), 
+                                write_packets_remaining(
+                                    (packets - i - 1).try_into().unwrap(),
                                     &mut buf
                                 );
                         
-                                buf[7] = audio_packet_id;
-                            
                                 let start = i * PAYLOAD;
                                 let addition = if start + PAYLOAD <= sample.len() { PAYLOAD } else { sample.len() - start };
                                 buf[HEADER..].copy_from_slice(&sample[start..start + addition]);

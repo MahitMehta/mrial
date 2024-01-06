@@ -81,6 +81,7 @@ impl Input {
             EPacketType::STATE, 
             0, 
             (packet::HEADER + input::PAYLOAD) as u32,
+            0,
             &mut buf
         );
 

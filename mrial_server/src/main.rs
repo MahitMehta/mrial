@@ -41,7 +41,7 @@ async fn main() {
         panic!("Invalid Handsake");
     }
 
-    write_header(EPacketType::SHOOK, 0, HEADER as u32, &mut buf);
+    write_header(EPacketType::SHOOK, 0, HEADER as u32, 0, &mut buf);
     socket
         .send_to(&buf[0..HEADER], src)
         .expect("Failed to send SHOOK");
@@ -66,7 +66,10 @@ async fn main() {
     let mut pic = Picture::from_param(&par).unwrap();
     let mut enc = x264::Encoder::open(&mut par).unwrap();
 
-    write_header(EPacketType::SHOOK, 0, HEADER as u32, &mut buf);
+    //let headers = enc.headers().unwrap();
+    //while mrial_proto::assembled_packet(packet, buf, number_of_bytes, packets_remaining)
+
+    write_header(EPacketType::SHOOK, 0, HEADER as u32, 0, &mut buf);
     socket.send_to(&buf[0..HEADER], src).expect("Failed to send SHOOK");
 
     let pool = ThreadPool::builder().pool_size(2).create().unwrap();
@@ -239,19 +242,25 @@ async fn main() {
                         let bitstream = nal.as_bytes();
                         // file.write(bitstream).unwrap();
                         //println!("Encoding Time: {}", start.elapsed().as_millis());
-
-                        // let first_bit = bitstream[0] >> 7; // bitstream[0] & 1;
-
+                        
                         let packets =
                             (bitstream.to_vec().len() as f64 / PAYLOAD as f64).ceil() as usize;
-                        buf[3..7].copy_from_slice(&(bitstream.to_vec().len() as u32).to_be_bytes());
-                        buf[0] = EPacketType::NAL as u8; // Move this outside of loop
-                        buf[7] = packet_id;
+
+                        write_static_header(
+                            EPacketType::NAL, 
+                            bitstream.to_vec().len().try_into().unwrap(), 
+                            packet_id, 
+                            &mut buf
+                        );
 
                         packet_id += 1;
 
                         for i in 0..packets {
-                            buf[1..3].copy_from_slice(&((packets - i - 1) as u16).to_be_bytes());
+                            write_packets_remaining(
+                                (packets - i - 1).try_into().unwrap(), 
+                                &mut buf
+                            );
+
                             let start = i * PAYLOAD;
                             let addition = if start + PAYLOAD <= bitstream.to_vec().len() {
                                 PAYLOAD
