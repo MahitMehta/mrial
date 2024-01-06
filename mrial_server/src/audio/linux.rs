@@ -12,11 +12,6 @@ use std::mem;
 
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
-    cursor_move: bool,
-}
-
-struct Opt {
-    target: Option<String>,
 }
 
 impl AudioController {
@@ -24,6 +19,14 @@ impl AudioController {
         AudioController {
 
         }
+    }
+
+    fn is_zero(buf: &[u8]) -> bool {
+        let (prefix, aligned, suffix) = unsafe { buf.align_to::<u128>() };
+    
+        prefix.iter().all(|&x| x == 0)
+            && suffix.iter().all(|&x| x == 0)
+            && aligned.iter().all(|&x| x == 0)
     }
 
     pub fn begin_transmission(&self, socket: UdpSocket, src: std::net::SocketAddr) {
@@ -41,30 +44,19 @@ impl AudioController {
 
             let data = UserData {
                 format: Default::default(),
-                cursor_move: false,
             };
 
-            /* Create a simple stream, the simple stream manages the core and remote
-            * objects for you if you don't need to deal with them.
-            *
-            * If you plan to autoconnect your stream, you need to provide at least
-            * media, category and role properties.
-            *
-            * Pass your events and a user_data pointer as the last arguments. This
-            * will inform you about the stream state. The most important event
-            * you need to listen to is the process event where you need to produce
-            * the data.
-            */
             #[cfg(not(feature = "v0_3_44"))]
             let mut props = properties! {
                 *pw::keys::MEDIA_TYPE => "Audio",
                 *pw::keys::MEDIA_CATEGORY => "Capture",
-                *pw::keys::MEDIA_ROLE => "Music",
+                *pw::keys::MEDIA_ROLE => "Music"
             };
             // uncomment if you want to capture from the sink monitor ports
             props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
 
             let stream = pw::stream::Stream::new(&core, "audio-capture", props).unwrap();
+            let mut audio_packet_id = 0u8; 
 
             let _listener = stream
                 .add_local_listener_with_user_data(data)
@@ -74,7 +66,7 @@ impl AudioController {
                     let Some(param) = param else {
                         return;
                     };
-                    // println!("Reached Here: {}", id);
+        
                     if id != pw::spa::param::ParamType::Format.as_raw() {
                         return;
                     }
@@ -116,39 +108,42 @@ impl AudioController {
                         let n_samples = data.chunk().size() / (mem::size_of::<f32>() as u32);
 
                         if let Some(samples) = data.data() {
-                            if samples[0] == 0 && samples[1] == 0 {
-                                if samples[2] != 0 {
-                                    println!("Next: {}", samples[2]);
+                            // TODO: find a better solution to detect if audio is not playings
+                            if AudioController::is_zero(&samples[0..64]) { 
+                                if samples[64] != 0 {
+                                    println!("Next: {}", samples[64]);
                                 } 
                                 return; 
-                            } // is this true? if first and second byte is 0 then no audio is playing...
-                            let buf = &samples[0..(n_samples * n_channels * 2) as usize]; 
-                            let packets = (buf.len() as f64 / 1024 as f64).ceil() as usize;
-
-                            for i in 0..buf.len()/1024 {
-                                let mut buf2 = [0u8; 1032];
-                                buf2[0] = EPacketType::AUDIO as u8; 
-                                buf2[1..3].copy_from_slice(&((packets - i - 1) as u16).to_be_bytes());
-                                buf2[3..7].copy_from_slice(&(buf.len() as i32).to_be_bytes());
-
-                                let start = i * 1024;
-                                let addition = if start + 1024 <= buf.len() { 1024 } else { buf.len() - start };
-                                buf2[8..1032].copy_from_slice(&buf[start..start+addition]);
-                                socket.send_to(&buf2, src).unwrap();// pass src in the future 
                             }
+ 
+                            let sample: &[u8] = &samples[0..(n_samples * n_channels * 2) as usize]; 
+                            let packets = (sample.len() as f64 / PAYLOAD as f64).ceil() as usize;
 
-                            
-                            //println!("Number of channels: {}", n_samples);
-                            //println!("captured {:?}", &samples[(n_samples * n_channels * 2) as usize]);
+                            let mut buf = [0u8; MTU];
+                            write_static_header(
+                                EPacketType::AUDIO,
+                                sample.len().try_into().unwrap(),
+                                audio_packet_id,
+                                &mut buf
+                            );
+
+                            for i in 0..sample.len() / PAYLOAD {
+                                write_packets_remaining(
+                                    (packets - i - 1).try_into().unwrap(),
+                                    &mut buf
+                                );
+                        
+                                let start = i * PAYLOAD;
+                                let addition = if start + PAYLOAD <= sample.len() { PAYLOAD } else { sample.len() - start };
+                                buf[HEADER..].copy_from_slice(&sample[start..start + addition]);
+                                socket.send_to(&buf, src).unwrap();// pass src in the future 
+                            }
+                            audio_packet_id += 1; 
                         }
                     }
                 })
                 .register().unwrap();
 
-            /* Make one parameter with the supported formats. The SPA_PARAM_EnumFormat
-            * id means that this is a format enumeration (of 1 value).
-            * We leave the channels and rate empty to accept the native graph
-            * rate and channels. */
             let mut audio_info = spa::param::audio::AudioInfoRaw::new();
             audio_info.set_format(spa::param::audio::AudioFormat::F32LE);
             let obj = pw::spa::pod::Object {
@@ -165,9 +160,6 @@ impl AudioController {
             .into_inner();
 
             let mut params = [Pod::from_bytes(&values).unwrap()];
-
-            /* Now connect this stream. We ask that our process function is
-            * called in a realtime thread. */
                     
             stream.connect(
                 spa::Direction::Input,
@@ -178,9 +170,6 @@ impl AudioController {
                 &mut params,
             ).unwrap();
 
-
-
-            // and wait while we let things run
             mainloop.run();
         });
     }
