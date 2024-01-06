@@ -1,27 +1,47 @@
 use super::HEADER;
 
+// State Payload:
+
+// 1 Byte for Control 
+// 1 Byte for Shift
+// 1 Byte for Alt
+// 1 Byte for Meta
+// 2 Bytes for X for click, first bit for right click
+// 2 Bytes for Y for click
+// 1 Byte for key pressed
+// 1 Byte for key released
+// 2 Bytes for X location
+// 2 Bytes for Y location
+// 1 Byte for mouse_move
+// 2 Bytes for X scroll delta
+// 2 Bytes for Y scroll delta
+
 pub const PAYLOAD : usize = 24; 
 
 #[inline]
 pub fn write_click(
-    x_percent: u16,
-    y_percent: u16,
-    clicked: bool,
+    x: f32,
+    y: f32,
+    width: usize,
+    height: usize,
     right: bool,
     buf: &mut [u8]
 ) {
-    if clicked {
-        buf[HEADER + 4..HEADER + 6].copy_from_slice(&x_percent.to_be_bytes());
-        buf[HEADER + 6..HEADER + 8].copy_from_slice(&y_percent.to_be_bytes());
-    } else {
-        buf[HEADER + 4..HEADER + 6].copy_from_slice(&[0; 2]);
-        buf[HEADER + 6..HEADER + 8].copy_from_slice(&[0; 2]);
-    }
+    let x_percent = (x / (width as f32) * 10000.0).round() as u16 + 1; 
+    let y_percent = (y / (height as f32)  * 10000.0).round() as u16 + 1;
 
+    buf[HEADER + 4..HEADER + 6].copy_from_slice(&x_percent.to_be_bytes());
+    buf[HEADER + 6..HEADER + 8].copy_from_slice(&y_percent.to_be_bytes());
+     
     if right {
         let mask = 1 << 7; 
         buf[HEADER + 4] = (buf[HEADER + 4] & !mask) | (1 << 7); 
     }
+}
+
+#[inline] 
+pub fn reset_click(buf: &mut [u8]) {
+    buf[HEADER + 4..HEADER + 8].copy_from_slice(&[0; 4]);
 }
 
 #[inline]
@@ -30,7 +50,7 @@ pub fn click_requested(buf: &[u8]) -> bool {
 }
 
 #[inline]
-pub fn parse_mouse_position(buf: &mut [u8], width: usize, height: usize) -> (i32, i32, bool) {
+pub fn parse_click(buf: &mut [u8], width: usize, height: usize) -> (i32, i32, bool) {
     let mut right_click = false; 
 
     if buf[HEADER + 4] >> 7 == 1 {
