@@ -4,8 +4,8 @@ use ffmpeg_next::{frame, software, format::Pixel };
 use kanal::{unbounded, Sender, Receiver};
 use mrial_proto::*;
 
-const W: usize = 1440; 
-const H: usize = 900;
+pub const W: usize = 1440; 
+pub const H: usize = 900;
 
 // should be max resolution of monitor
 const TARGET_WIDTH: usize = 1440; // 2560
@@ -56,7 +56,7 @@ impl VideoThread {
         
               // TODO: switch scalar depending on bitrate to reduce latency
             let mut lanczos_scalar = software::scaling::context::Context::get(
-                Pixel::YUVJ422P, 
+                Pixel::YUV444P, 
                 W as u32, 
                 H as u32, 
                 Pixel::RGB24, 
@@ -108,7 +108,6 @@ impl VideoThread {
             Some(nalu) => nalu,
             None => return
         };
-        
         // let mut file = File::create("recording.h264").unwrap();
         // file.write_all(&nalu).unwrap();
         self.channel.0.send(nalu).unwrap();

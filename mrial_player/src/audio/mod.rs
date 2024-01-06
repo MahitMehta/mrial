@@ -36,6 +36,9 @@ impl AudioClient {
     // }
 
     pub fn handle_latency_by_dropping(&mut self) {
+        if self.sink.len() <= 1 {
+            println!("Sink Buffer at {}", self.sink.len());
+        }
         if self.sink.len() > AUDIO_LATENCY_TOLERANCE {
             // println!("Correcting Latency by Skipping: {}", self.sink.len());
             for _ in 0..AUDIO_LATENCY_TOLERANCE - 1 {

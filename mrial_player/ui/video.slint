@@ -4,7 +4,7 @@ import { MrialButton, ButtonType } from "common.slint";
 
 export global VideoFunctions {
     pure callback mouse_move(/* x */ length, /* y */ length, /* pressed */ bool);
-    pure callback click(/* x */ length, /* y */ length);
+    pure callback click(/* x */ length, /* y */ length, /* button */ PointerEventButton);
     pure callback modifiers_pressed(/* control */ bool, /* shift */ bool, /* alt */ bool, /* meta */ bool);
     pure callback key_pressed(KeyEvent);
     pure callback key_released(KeyEvent);
@@ -37,16 +37,16 @@ export component VideoScreen inherits Screen {
                         } else {
                             control_panel.visible = true; 
                         }
-                    } else {
-                        VideoFunctions.click(touch.mouse-x, touch.mouse-y);
-                    }                    
+                    } 
                 }
                 scroll-event(event) => {
                     VideoFunctions.scroll(event.delta-x, event.delta-y);
                     accept
                 }
                 pointer-event(event) => {
-                   // debug(touch.mouse-x) // can use touch in combination with button right to detect right click
+                    if (event.kind == PointerEventKind.up) {
+                        VideoFunctions.click(touch.mouse-x, touch.mouse-y, event.button);
+                    }
 
                     if (touch.mouse-x > control_panel_button.x && 
                         touch.mouse-x < control_panel_button.x + control_panel_button.width && 
