@@ -203,9 +203,9 @@ async fn main() {
         }
     });
 
-    let mut timestamp = 1;
-
     // let mut file = std::fs::File::create("recording.h264").unwrap();
+
+    let mut frame_count = 1;
     let mut packet_id = 0;
 
     loop {
@@ -232,8 +232,8 @@ async fn main() {
                     let v_plane = pic.as_mut_slice(2).unwrap();
                     v_plane.copy_from_slice(yuv.u_422());
 
-                    pic = pic.set_timestamp(timestamp);
-                    timestamp += 1;
+                    pic = pic.set_timestamp(frame_count);
+                    frame_count += 1;
 
                     if let Some((nal, _, _)) = enc.encode(&pic).unwrap() {
                         let bitstream = nal.as_bytes();

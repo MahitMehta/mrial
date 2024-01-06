@@ -1,0 +1,54 @@
+import { VerticalBox } from "std-widgets.slint";
+import { MrialButton, MrialTextInput } from "common.slint";
+
+export global CreateServerFunctions {
+    pure callback add(/* server name */ string, /* ip address */ string, /* port */ string);
+}
+
+export component CreateServer inherits VerticalBox {
+    HorizontalLayout {
+        spacing: 10px;
+        VerticalLayout {
+            spacing: 5px;
+            Text {
+                text: "Server Name";
+            }
+            name := MrialTextInput {
+                input-type: InputType.text;
+                width: 125px;
+                height: 30px;
+            }
+        }
+        VerticalLayout {
+            spacing: 5px;
+            Text {
+                text: "IP Address";
+            }
+            ip_addr := MrialTextInput {
+                input-type: InputType.text;
+                width: 125px;
+                height: 30px;
+            }
+        }
+        VerticalLayout {
+            spacing: 5px;
+            Text {
+                text: "Port";
+            }
+            port := MrialTextInput {
+                width: 125px;
+                height: 30px;
+                input-type: InputType.number;
+            }
+        }
+    }
+    MrialButton {
+        width: 125px;
+        has-icon: true;
+        icon:  @image-url("../assets/icons/server.svg");
+        label: "Add Server";
+        clicked => {
+            CreateServerFunctions.add(name.value, ip-addr.value, port.value);
+        }
+    }
+}

@@ -3,9 +3,15 @@ import "../assets/fonts/Inknut_Antiqua/InknutAntiqua-Bold.ttf";
 import { VerticalBox, Button } from "std-widgets.slint";
 import { VideoScreen, VideoFunctions } from "video.slint";
 import { LoginScreen } from "login.slint";
-import { HomeScreen } from "home.slint";
+import { HomeScreen, HomePageAdapter } from "home.slint";
+import { CreateServerFunctions } from "create_server.slint";
+import { IServer } from "components/server.slint";
+import { GlobalVars } from "common.slint";
 
+export { GlobalVars }
 export { VideoFunctions }
+export { CreateServerFunctions }
+export { HomePageAdapter }
 
 export component MainWindow inherits Window {
     in-out property <int> page: 0;
@@ -14,20 +20,10 @@ export component MainWindow inherits Window {
     min-width: 700px;
     min-height: 500px;
 
-    title: "MRIAL";
+    title: GlobalVars.app_name;
     padding: 0;
 
     forward-focus: key-handler;
-    key-handler := FocusScope {
-        key-pressed(event) => {
-            VideoFunctions.key_pressed(event);
-            accept
-        }
-        key-released(event) => {
-            VideoFunctions.key-released(event);
-            accept
-        }
-    }
 
     LoginScreen {
         window-height: parent.height;
@@ -46,6 +42,16 @@ export component MainWindow inherits Window {
 
     VideoScreen {
         video-frame: root.video-frame;
+        key-handler := FocusScope {
+            key-pressed(event) => {
+                VideoFunctions.key_pressed(event);
+                accept
+            }
+            key-released(event) => {
+                VideoFunctions.key-released(event);
+                accept
+            }
+        }
 
         set_current_subpage(page) => { root.page = page }
         back => { root.page = 0 }

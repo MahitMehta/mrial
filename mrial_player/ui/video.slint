@@ -10,7 +10,7 @@ export global VideoFunctions {
     pure callback key_released(KeyEvent);
     pure callback scroll(/* x */ length, /* y */ length);
 
-    pure callback connect();
+    pure callback connect(/* server_id */ string);
     pure callback disconnect();
 }
 
@@ -22,7 +22,7 @@ export component VideoScreen inherits Screen {
         padding: 0;
         image := Image {
             width: 1440px;
-            image-rendering: ImageRendering.smooth;
+            image-rendering: ImageRendering.pixelated;
             height: 900px;
             padding: 0;
             touch := TouchArea {

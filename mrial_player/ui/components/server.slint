@@ -35,7 +35,9 @@ export struct IServer {
     storage: int,
     ram: int,
     os: string,
-    name: string
+    name: string,
+    address: string,
+    port: int,
 }
 
 export component Server inherits TouchArea {

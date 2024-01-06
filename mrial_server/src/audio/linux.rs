@@ -137,27 +137,25 @@ impl AudioController {
                                 
                             //     return; 
                             // } 
-                            let buf = &samples[0..(n_samples * n_channels * 2) as usize]; 
-                            let packets = (buf.len() as f64 / 1024 as f64).ceil() as usize;
+                            let sample: &[u8] = &samples[0..(n_samples * n_channels * 2) as usize]; 
+                            let packets = (sample.len() as f64 / PAYLOAD as f64).ceil() as usize;
 
-                            for i in 0..buf.len()/1024 {
-                                let mut buf2 = [0u8; 1032];
+                            for i in 0..sample.len() / PAYLOAD {
+                                let mut buf2 = [0u8; MTU];
+
+                                
                                 buf2[0] = EPacketType::AUDIO as u8; 
                                 buf2[1..3].copy_from_slice(&((packets - i - 1) as u16).to_be_bytes());
-                                buf2[3..7].copy_from_slice(&(buf.len() as i32).to_be_bytes());
+                                buf2[3..7].copy_from_slice(&(sample.len() as i32).to_be_bytes());
                                 buf2[7] = audio_packet_id;
                             
 
                                 let start = i * 1024;
-                                let addition = if start + 1024 <= buf.len() { 1024 } else { buf.len() - start };
-                                buf2[8..1032].copy_from_slice(&buf[start..start+addition]);
+                                let addition = if start + 1024 <= sample.len() { 1024 } else { sample.len() - start };
+                                buf2[8..1032].copy_from_slice(&sample[start..start+addition]);
                                 socket.send_to(&buf2, src).unwrap();// pass src in the future 
                             }
                             audio_packet_id += 1; 
-
-                            
-                            //println!("Number of channels: {}", n_samples);
-                            //println!("captured {:?}", &samples[(n_samples * n_channels * 2) as usize]);
                         }
                     }
                 })

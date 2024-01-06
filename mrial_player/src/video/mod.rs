@@ -8,20 +8,18 @@ const W: usize = 1440;
 const H: usize = 900;
 
 // should be max resolution of monitor
-const TARGET_WIDTH: usize = 2560; // 2560
-const TARGET_HEIGHT: usize = 1600; // 1600
+const TARGET_WIDTH: usize = 1440; // 2560
+const TARGET_HEIGHT: usize = 900; // 1600
 
 pub struct VideoThread {
-    nal: Vec<u8>,
-    // file: File,
+    packet_constructor: PacketConstructor,
     pub channel: (Sender<Vec<u8>>, Receiver<Vec<u8>>)
 }
 
 impl VideoThread {
     pub fn new() -> VideoThread {
         VideoThread {
-            nal: Vec::new(),
-            // file: File::create("recording.h264").unwrap(),
+            packet_constructor: PacketConstructor::new(),
             channel: unbounded()
         }
     }
@@ -69,17 +67,17 @@ impl VideoThread {
 
             loop {
                 let buf = receiver.recv().unwrap(); 
-
                 let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&buf);
+  
                 match ffmpeg_decoder.send_packet(&pt) {
                     Ok(_) => {
                         let mut yuv_frame = frame::Video::empty();
                         let mut rgb_frame = frame::Video::empty();
 
                         while ffmpeg_decoder.receive_frame(&mut yuv_frame).is_ok() {
-                            //let start = Instant::now();
+                            // let start = std::time::Instant::now();
                             lanczos_scalar.run(&yuv_frame, &mut rgb_frame).unwrap();
-                            //println!("Scaling: {:?}", start.elapsed());
+                            // println!("Scaling: {:?}", start.elapsed());
                             let rgb_buffer: &[u8] = rgb_frame.data(0);
                             let pixel_buffer = VideoThread::rgb_to_slint_pixel_buffer(rgb_buffer);
                         
@@ -89,11 +87,10 @@ impl VideoThread {
                                     // app_copy.unwrap().window().request_redraw(); // test if this actually improves smoothness
                             });
                         }
-
                     },
                     Err(e) => {
                         println!("Error Sending Packet: {}", e);
-                        conn_sender.send(super::ConnectionAction::Reconnect).unwrap();
+                       //  conn_sender.send(super::ConnectionAction::Reconnect).unwrap();
                     }
                 };
             }
@@ -105,14 +102,15 @@ impl VideoThread {
         &mut self, 
         buf: &[u8], 
         number_of_bytes: usize,
-        packets_remaining: u16, 
     ) {
-        if !assembled_packet(&mut self.nal, &buf, number_of_bytes, packets_remaining) {
-            return; 
-        }; 
+        let nalu = match self.packet_constructor.assemble_packet(
+            buf, number_of_bytes) {
+            Some(nalu) => nalu,
+            None => return
+        };
         
-        // self.file.write_all(&self.nal).unwrap();
-        self.channel.0.send(self.nal.clone()).unwrap();
-        self.nal.clear();    
+        // let mut file = File::create("recording.h264").unwrap();
+        // file.write_all(&nalu).unwrap();
+        self.channel.0.send(nalu).unwrap();
     }
 }
