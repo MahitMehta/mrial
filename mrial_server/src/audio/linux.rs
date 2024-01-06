@@ -127,33 +127,30 @@ impl AudioController {
                         if let Some(samples) = data.data() {
                             // TODO: find a better solution to detect if audio is not playings
                             if AudioController::is_zero(&samples[0..64]) { 
+                                if samples[64] != 0 {
+                                    println!("Next: {}", samples[64]);
+                                } 
                                 return; 
                             }
-                            // is this true? if first and second byte is 0 then no audio is playing...
-                            // if samples[0] == 0 && samples[1] == 0 && samples[2] == 0 {
-                            //     if samples[3] != 0 {
-                            //         println!("Next: {}", samples[3]);
-                            //     } 
-                                
-                            //     return; 
-                            // } 
+ 
                             let sample: &[u8] = &samples[0..(n_samples * n_channels * 2) as usize]; 
                             let packets = (sample.len() as f64 / PAYLOAD as f64).ceil() as usize;
 
+                            let mut buf = [0u8; MTU];
                             for i in 0..sample.len() / PAYLOAD {
-                                let mut buf2 = [0u8; MTU];
-
-                                
-                                buf2[0] = EPacketType::AUDIO as u8; 
-                                buf2[1..3].copy_from_slice(&((packets - i - 1) as u16).to_be_bytes());
-                                buf2[3..7].copy_from_slice(&(sample.len() as i32).to_be_bytes());
-                                buf2[7] = audio_packet_id;
+                                write_header(
+                                    EPacketType::AUDIO, 
+                                    (packets - i - 1).try_into().unwrap(), 
+                                    sample.len().try_into().unwrap(), 
+                                    &mut buf
+                                );
+                        
+                                buf[7] = audio_packet_id;
                             
-
-                                let start = i * 1024;
-                                let addition = if start + 1024 <= sample.len() { 1024 } else { sample.len() - start };
-                                buf2[8..1032].copy_from_slice(&sample[start..start+addition]);
-                                socket.send_to(&buf2, src).unwrap();// pass src in the future 
+                                let start = i * PAYLOAD;
+                                let addition = if start + PAYLOAD <= sample.len() { PAYLOAD } else { sample.len() - start };
+                                buf[HEADER..].copy_from_slice(&sample[start..start + addition]);
+                                socket.send_to(&buf, src).unwrap();// pass src in the future 
                             }
                             audio_packet_id += 1; 
                         }
@@ -161,10 +158,6 @@ impl AudioController {
                 })
                 .register().unwrap();
 
-            /* Make one parameter with the supported formats. The SPA_PARAM_EnumFormat
-            * id means that this is a format enumeration (of 1 value).
-            * We leave the channels and rate empty to accept the native graph
-            * rate and channels. */
             let mut audio_info = spa::param::audio::AudioInfoRaw::new();
             audio_info.set_format(spa::param::audio::AudioFormat::F32LE);
             let obj = pw::spa::pod::Object {
@@ -181,9 +174,6 @@ impl AudioController {
             .into_inner();
 
             let mut params = [Pod::from_bytes(&values).unwrap()];
-
-            /* Now connect this stream. We ask that our process function is
-            * called in a realtime thread. */
                     
             stream.connect(
                 spa::Direction::Input,
@@ -194,9 +184,6 @@ impl AudioController {
                 &mut params,
             ).unwrap();
 
-
-
-            // and wait while we let things run
             mainloop.run();
         });
     }

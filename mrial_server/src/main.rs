@@ -92,7 +92,7 @@ async fn main() {
         loop {
             let mut buf: [u8; MTU] = [0; MTU];
             let (_size, _src) = socket_clone.recv_from(&mut buf).unwrap();
-            let (packet_type, _packets_remaining, _) = mrial_proto::parse_header(&buf);
+            let packet_type = parse_packet_type(&buf);
 
             match packet_type {
                 EPacketType::SHAKE => {
