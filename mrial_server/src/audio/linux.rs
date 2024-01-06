@@ -26,6 +26,14 @@ impl AudioController {
         }
     }
 
+    fn is_zero(buf: &[u8]) -> bool {
+        let (prefix, aligned, suffix) = unsafe { buf.align_to::<u128>() };
+    
+        prefix.iter().all(|&x| x == 0)
+            && suffix.iter().all(|&x| x == 0)
+            && aligned.iter().all(|&x| x == 0)
+    }
+
     pub fn begin_transmission(&self, socket: UdpSocket, src: std::net::SocketAddr) {
         std::thread::spawn(move || {
             pw::init();
@@ -65,6 +73,7 @@ impl AudioController {
             props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
 
             let stream = pw::stream::Stream::new(&core, "audio-capture", props).unwrap();
+            let mut audio_packet_id = 0u8; 
 
             let _listener = stream
                 .add_local_listener_with_user_data(data)
@@ -116,12 +125,18 @@ impl AudioController {
                         let n_samples = data.chunk().size() / (mem::size_of::<f32>() as u32);
 
                         if let Some(samples) = data.data() {
-                            if samples[0] == 0 && samples[1] == 0 {
-                                if samples[2] != 0 {
-                                    println!("Next: {}", samples[2]);
-                                } 
+                            // TODO: find a better solution to detect if audio is not playings
+                            if AudioController::is_zero(&samples[0..64]) { 
                                 return; 
-                            } // is this true? if first and second byte is 0 then no audio is playing...
+                            }
+                            // is this true? if first and second byte is 0 then no audio is playing...
+                            // if samples[0] == 0 && samples[1] == 0 && samples[2] == 0 {
+                            //     if samples[3] != 0 {
+                            //         println!("Next: {}", samples[3]);
+                            //     } 
+                                
+                            //     return; 
+                            // } 
                             let buf = &samples[0..(n_samples * n_channels * 2) as usize]; 
                             let packets = (buf.len() as f64 / 1024 as f64).ceil() as usize;
 
@@ -130,12 +145,15 @@ impl AudioController {
                                 buf2[0] = EPacketType::AUDIO as u8; 
                                 buf2[1..3].copy_from_slice(&((packets - i - 1) as u16).to_be_bytes());
                                 buf2[3..7].copy_from_slice(&(buf.len() as i32).to_be_bytes());
+                                buf2[7] = audio_packet_id;
+                            
 
                                 let start = i * 1024;
                                 let addition = if start + 1024 <= buf.len() { 1024 } else { buf.len() - start };
                                 buf2[8..1032].copy_from_slice(&buf[start..start+addition]);
                                 socket.send_to(&buf2, src).unwrap();// pass src in the future 
                             }
+                            audio_packet_id += 1; 
 
                             
                             //println!("Number of channels: {}", n_samples);
