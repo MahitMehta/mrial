@@ -34,7 +34,7 @@ export component VideoScreen inherits Screen {
                     ) {
                         if (control-panel.visible) {
                             control_panel.visible = false; 
-                        } else {
+                        } else if (cp_button_attached == false) {
                             control_panel.visible = true; 
                         }
                     } 
@@ -44,24 +44,27 @@ export component VideoScreen inherits Screen {
                     accept
                 }
                 pointer-event(event) => {
-                    if (event.kind == PointerEventKind.up) {
-                        VideoFunctions.click(touch.mouse-x, touch.mouse-y, event.button);
-                    }
-
-                    if (touch.mouse-x > control_panel_button.x && 
-                        touch.mouse-x < control_panel_button.x + control_panel_button.width && 
-                        touch.mouse-y > control_panel_button.y && 
-                        touch.mouse-y < control_panel_button.y + control_panel_button.height &&
-                        event.kind == PointerEventKind.down
+                    if (touch.mouse-x >= control_panel_button.x && 
+                        touch.mouse-x <= control_panel_button.x + control_panel_button.width && 
+                        touch.mouse-y >= control_panel_button.y && 
+                        touch.mouse-y <= control_panel_button.y + control_panel_button.height
                     ) {
-                        cp_button_attached = true; 
-                    }
-
-                    if (event.kind == PointerEventKind.up) {
-                        cp_button_attached = false; 
+                        if (event.kind == PointerEventKind.up) {
+                            cp_button_attached = false; 
+                        }
+                        
+                    } else if (event.kind == PointerEventKind.up) {
+                        VideoFunctions.click(touch.mouse-x, touch.mouse-y, event.button);
                     }
                 }
                 moved => {
+                    if (touch.mouse-x >= control_panel_button.x && 
+                        touch.mouse-x <= control_panel_button.x + control_panel_button.width && 
+                        touch.mouse-y >= control_panel_button.y && 
+                        touch.mouse-y <= control_panel_button.y + control_panel_button.height && self.pressed) {
+                            cp-button-attached = true;
+                    }
+
                     if (cp-button-attached) {
                         control_panel_button.x = touch.mouse-x - control_panel_button.width / 2;
                         control_panel_button.y = touch.mouse-y - control_panel_button.height / 2;

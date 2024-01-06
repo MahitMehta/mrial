@@ -148,13 +148,42 @@ impl PacketConstructor {
     }
 
     #[inline]
+    fn get_cached_packet_size(cached_packets_id: &Vec<Vec<u8>>) -> usize {
+        let mut cached_packet_size = 0;
+        for packet in cached_packets_id {
+            cached_packet_size += packet.len() - HEADER;
+        }
+        cached_packet_size
+    }
+
+    #[inline]
     fn reconstruct_when_surplus(
         cached_packets: &mut HashMap<u8, Vec<Vec<u8>>>,
         packet_unit: &Vec<u8>,
         current_packet_id: u8
     ) {
-        todo!("Implement Surplus Reconstruction Method");
-    }
+        if !cached_packets.contains_key(&current_packet_id) { 
+            // ### DEBUG ###
+            {
+                println!(
+                    "No Cache for Previous Packet ID (Frame: {current_packet_id}) so dropped Packet Unit: {:?}", 
+                    parse_packets_remaining(packet_unit)
+                );
+            }
+            return; 
+        }
+
+        let real_packet_size = parse_real_packet_size(packet_unit);
+        let cache_packet_size = PacketConstructor::get_cached_packet_size(&cached_packets[&current_packet_id]);
+        let potential_packet_size = cache_packet_size + (packet_unit.len() - HEADER);
+        
+        if potential_packet_size == real_packet_size as usize {
+            println!("Will Reconstruct Packet");
+        } else {
+            println!("Caching for Future Reconstruction");
+            
+        }
+    }   
 
     #[inline]
     fn cache_packet(
@@ -177,7 +206,11 @@ impl PacketConstructor {
     // TODO: Find Method to Clear Cached Packets
     #[inline]
     fn filter_packet(&mut self) {
-        println!("Excess Packets Cached");
+        // ### DEBUG ###
+        {
+            println!("Filtering Packets");
+        }
+
         let last_packet_id = parse_packet_id(self.packet.last().unwrap()); 
 
         self.packet.retain(|packet_unit| {
@@ -190,6 +223,14 @@ impl PacketConstructor {
                         current_packet_id
                     );
                 } else {
+                     // ### DEBUG ###
+                    {
+                        println!(
+                            "Caching Packet Unit {:?} with Packet ID {}", 
+                            parse_packets_remaining(packet_unit),
+                            current_packet_id);
+                    }
+
                     PacketConstructor::cache_packet(
                         &mut self.cached_packets, 
                         packet_unit, 
@@ -249,7 +290,16 @@ impl PacketConstructor {
 
         if self.previous_subpacket_number != (packets_remaining + 1) as i16 && 
             self.previous_subpacket_number > 0 {
-            println!("Packet Order Mixup: {} -> {}", self.previous_subpacket_number, packets_remaining);
+            
+             // ### DEBUG ###
+             {
+                println!(
+                    "Packet Order Mixup: {} -> {}", 
+                    self.previous_subpacket_number,
+                    packets_remaining
+                );
+             }
+           
             self.order_mismatch = true; 
         } 
         self.previous_subpacket_number = packets_remaining as i16;
