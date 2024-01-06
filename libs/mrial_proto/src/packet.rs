@@ -40,15 +40,35 @@ pub const PAYLOAD: usize = MTU - HEADER;
 // println!("{}", since_the_epoch.subsec_millis());
 
 #[inline]
+pub fn write_static_header(
+    packet_type: EPacketType, 
+    real_packet_size: u32, 
+    packet_id: u8,
+    buf: &mut [u8]
+) {
+    buf[0] = packet_type as u8;
+    buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
+    buf[7] = packet_id;
+}
+
+#[inline]
+pub fn write_packets_remaining(
+    packets_remaining: u16, 
+    buf: &mut [u8]
+) {
+    buf[1..3].copy_from_slice(&packets_remaining.to_be_bytes());
+}
+
+#[inline]
 pub fn write_header(
     packet_type: EPacketType, 
     packets_remaining: u16, 
     real_packet_size: u32, 
+    packet_id: u8,
     buf: &mut [u8]
 ) {
-    buf[0] = packet_type as u8;
-    buf[1..3].copy_from_slice(&packets_remaining.to_be_bytes());
-    buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
+    write_static_header(packet_type, real_packet_size, packet_id, buf);
+    write_packets_remaining(packets_remaining, buf);
 }
 
 #[inline]

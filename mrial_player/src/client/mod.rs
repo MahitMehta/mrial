@@ -119,6 +119,7 @@ impl Client {
                 EPacketType::SHAKE, 
                 0, 
                 HEADER as u32,
+                0,
                 &mut buf
             );
 

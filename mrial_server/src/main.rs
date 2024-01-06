@@ -303,7 +303,7 @@ async fn main() {
         panic!("Invalid Handsake");
     }
 
-    write_header(EPacketType::SHOOK, 0, HEADER as u32, &mut buf);
+    write_header(EPacketType::SHOOK, 0, HEADER as u32, 0, &mut buf);
     socket
         .send_to(&buf[0..HEADER], src)
         .expect("Failed to send SHOOK");
@@ -337,7 +337,7 @@ async fn main() {
     //let headers = enc.headers().unwrap();
     //while mrial_proto::assembled_packet(packet, buf, number_of_bytes, packets_remaining)
 
-    write_header(EPacketType::SHOOK, 0, HEADER as u32, &mut buf);
+    write_header(EPacketType::SHOOK, 0, HEADER as u32, 0, &mut buf);
     socket.send_to(&buf[0..HEADER], src).expect("Failed to send SHOOK");
 
     //let mut file = File::create("fade.h264").unwrap();
