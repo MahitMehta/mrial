@@ -1,4 +1,4 @@
-use std::{thread, fs::File, io::Write};
+use std::thread;
 
 use ffmpeg_next::{frame, software, format::Pixel }; 
 use kanal::{unbounded, Sender, Receiver};
@@ -12,18 +12,14 @@ const TARGET_WIDTH: usize = 1440; // 2560
 const TARGET_HEIGHT: usize = 900; // 1600
 
 pub struct VideoThread {
-    nal: Vec<Vec<u8>>,
-    prev: i16,
-    incorrect_order: bool,
+    packet_constructor: PacketConstructor,
     pub channel: (Sender<Vec<u8>>, Receiver<Vec<u8>>)
 }
 
 impl VideoThread {
     pub fn new() -> VideoThread {
         VideoThread {
-            prev: -1,
-            incorrect_order: false,
-            nal: Vec::new(),
+            packet_constructor: PacketConstructor::new(),
             channel: unbounded()
         }
     }
@@ -106,51 +102,15 @@ impl VideoThread {
         &mut self, 
         buf: &[u8], 
         number_of_bytes: usize,
-        packets_remaining: u16, 
-        real_packet_size: u32
     ) {
-        if self.prev != (packets_remaining + 1) as i16 && self.prev > 0 {
-            println!("Packet Order Mixup: {} -> {}", self.prev, packets_remaining);
-            self.incorrect_order = true; 
-        } 
-        self.prev = packets_remaining as i16;
-
-        self.nal.push(buf[..number_of_bytes].to_vec());
-        if packets_remaining != 0 { return; }
-
-        if self.incorrect_order {
-            let nal_size = (self.nal.len() - 1) * PAYLOAD + self.nal.last().unwrap().len() - HEADER;
-            if real_packet_size as usize != nal_size {
-                if real_packet_size as usize > nal_size {
-                    println!("Packet Dropped due to Mixup");
-                    self.nal.clear();
-                    return;
-                } else {
-                    println!("Packet Order Fixed");
-                    let last_packet_id = parse_packet_id(self.nal.last().unwrap());
-                    self.nal.retain(|packet| {
-                        parse_packet_id(&packet) == last_packet_id
-                    })
-                }
-            } else {
-                self.nal.sort_by(|a, b| {
-                    let a_size = parse_packets_remaining(&a);
-                    let b_size = parse_packets_remaining(&b);
-                    b_size.cmp(&a_size)
-                })
-            }
-            self.incorrect_order = false;
-        }
-
-        let mut nalu = Vec::new();
-        for packet in &self.nal {
-            nalu.extend_from_slice(&packet[HEADER..]);
-        }
+        let nalu = match self.packet_constructor.assemble_packet(
+            buf, number_of_bytes) {
+            Some(nalu) => nalu,
+            None => return
+        };
         
         // let mut file = File::create("recording.h264").unwrap();
         // file.write_all(&nalu).unwrap();
-
         self.channel.0.send(nalu).unwrap();
-        self.nal.clear();    
     }
 }

@@ -4,17 +4,15 @@ mod video;
 mod input;
 mod storage; 
 
-use storage::{Servers, Storage, ServerState};
+use mrial_proto::*;
+
 use audio::AudioClient;
 use client::{Client, ConnectionState};
 use input::Input;
-use kanal::unbounded;
 use video::VideoThread; 
+use storage::{Servers, Storage};
 
-use mrial_proto::*;
-use mrial_proto as proto; 
-
-use std::alloc::System;
+use kanal::unbounded;
 use std::sync::{Mutex, Arc};
 use std::{thread, rc::Rc};
 use std::time::Duration;
@@ -158,11 +156,11 @@ fn main() {
             }
 
             let (number_of_bytes, _) = client.recv_from(&mut buf).expect("Failed to Receive Packet");
-            let (packet_type, packets_remaining, real_packet_size) = proto::parse_header(&buf);
+            let packet_type = parse_packet_type(&buf);
 
             match packet_type {
-                EPacketType::AUDIO => audio.play_audio_stream(&buf, number_of_bytes, packets_remaining),
-                EPacketType::NAL => video.packet(&buf, number_of_bytes, packets_remaining, real_packet_size),
+                EPacketType::AUDIO => audio.play_audio_stream(&buf, number_of_bytes),
+                EPacketType::NAL => video.packet(&buf, number_of_bytes),
                 _ => {}
             }
         }     

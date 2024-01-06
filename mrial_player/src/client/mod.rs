@@ -1,4 +1,4 @@
-use std::{time::Duration, net::UdpSocket, thread};
+use std::{time::Duration, net::{UdpSocket, SocketAddr}, thread};
 
 use mrial_proto::*; 
 
@@ -15,7 +15,7 @@ pub struct Client {
     state: ConnectionState
 }
 
-const CLIENT_ADDR: &'static str = "0.0.0.0:8080";
+const CLIENT_PORT: u16 = 8000;
 
 impl Client {
     pub fn new() -> Client {
@@ -36,7 +36,8 @@ impl Client {
 
     pub fn connect(&mut self) {
         if !self.socket_connected() && self.state == ConnectionState::Connecting {
-            let socket = UdpSocket::bind(CLIENT_ADDR).expect("Failed to Bind to Local Port");
+            let client_address = SocketAddr::from(([0, 0, 0, 0], CLIENT_PORT));
+            let socket = UdpSocket::bind(client_address).expect("Failed to Bind to Local Port");
             match socket.connect(&self.socket_address) {
                 Ok(_) => self.socket = Some(socket),
                 Err(_e) => {
@@ -124,7 +125,6 @@ impl Client {
             let _ = socket.send(&buf);
             println!("Sent Handshake Packet");
             
-            // TODO: Validate SRC
             let (_amt, _src) = match socket.recv_from(&mut buf) {
                 Ok(v) => v,
                 Err(_e) => return,
