@@ -1,5 +1,5 @@
 import { VerticalBox } from "std-widgets.slint";
-import { MrialButton, MrialTextInput } from "common.slint";
+import { MrialButton, MrialTextInput } from "../common.slint";
 
 export global CreateServerFunctions {
     pure callback add(/* server name */ string, /* ip address */ string, /* port */ string);
@@ -45,7 +45,7 @@ export component CreateServer inherits VerticalBox {
     MrialButton {
         width: 125px;
         has-icon: true;
-        icon:  @image-url("../assets/icons/server.svg");
+        icon:  @image-url("../../assets/icons/server.svg");
         label: "Add Server";
         clicked => {
             CreateServerFunctions.add(name.value, ip-addr.value, port.value);

@@ -36,11 +36,10 @@ fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) 
                 name: SharedString::from(server.name),
                 address: SharedString::from(server.address),
                 port: server.port.into(),
-                shareable: false,
-                os: SharedString::from("macos"),
-                ram: 8,
-                storage: 512,
-                vcpu: 8
+                os: SharedString::from("ubuntu"),
+                ram: 24,
+                storage: 40,
+                vcpu: 4
             });
         }
         app_weak.unwrap().global::<HomePageAdapter>().set_servers(slint_servers.into());
@@ -69,25 +68,34 @@ fn main() {
 
     slint::invoke_from_event_loop(move || {
         let conn_sender_clone = conn_sender.clone();
-        app_weak.unwrap().global::<VideoFunctions>().on_connect(move |name| {
+        app_weak.unwrap().global::<ServerFunctions>().on_connect(move |name| {
             *server_id_clone.lock().unwrap() = name.to_string(); 
             conn_sender_clone.send(ConnectionAction::Connect).unwrap();
         });
 
-        app_weak.unwrap().global::<VideoFunctions>().on_disconnect(move || {
+        app_weak.unwrap().global::<ServerFunctions>().on_disconnect(move || {
             conn_sender.send(ConnectionAction::Disconnect).unwrap();
         });
 
+        let app_weak_clone = app_weak.clone();
+        let mut server_state_create_clone = server_state_clone.try_clone();
         app_weak.unwrap().global::<CreateServerFunctions>().on_add(move |name, ip_addr, port| {
-            server_state_clone.add(
+            server_state_create_clone.add(
                 name.to_string(), 
                 ip_addr.to_string(),
                 port.parse::<u16>().unwrap()
             );
             
-            populate_servers(&server_state_clone, &app_weak);
-            server_state_clone.save().unwrap();
+            populate_servers(&server_state_create_clone, &app_weak_clone);
+            server_state_create_clone.save().unwrap();
         });
+
+        let app_weak_clone = app_weak.clone();
+        app_weak.unwrap().global::<ServerFunctions>().on_delete(move |name| {
+            server_state_clone.delete(name.to_string());
+            populate_servers(&server_state_clone, &app_weak_clone);
+            server_state_clone.save().unwrap();
+        });        
     }).unwrap();
 
     let app_weak = app.as_weak();

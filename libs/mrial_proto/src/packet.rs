@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 #[derive(Debug)]
 pub enum EPacketType {
     SHAKE = 0, 
@@ -108,7 +110,8 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
 pub struct PacketConstructor {
     packet: Vec<Vec<u8>>,
     previous_subpacket_number: i16,
-    order_mismatch: bool
+    order_mismatch: bool,
+    cached_packets: HashMap<u8, Vec<Vec<u8>>>
 }
 
 impl PacketConstructor {
@@ -116,26 +119,130 @@ impl PacketConstructor {
         Self {
             packet: Vec::new(),
             previous_subpacket_number: -1,
-            order_mismatch: false
+            order_mismatch: false,
+            cached_packets: HashMap::new()
         }
     }
 
     // TODO: Actually make this method functional.
     // Cache previously dropped/out of order messages and reassemble them
     #[inline]
-    fn reconstruct_packet(&mut self) -> bool {
-        println!("Entire Packet Dropped due to Mixup");
+    fn reconstruct_when_deficient(&mut self) -> bool {
+        let last_packet_id = parse_packet_id(self.packet.last().unwrap()); 
+        if let Some(_cached_packets) = self.cached_packets.get(&last_packet_id) {
+            println!("TODO: Append Found Cached Packets");
+        } else {
+            println!("Cached Packet Units for Potential Future Reconstruction");
+            // TODO: implement a way of clearing all packets that have an id in incoming cached packets
+
+            for packet in &self.packet {
+                PacketConstructor::cache_packet(
+                    &mut self.cached_packets, 
+                    packet, 
+                    parse_packet_id(packet)
+                );
+            }
+        }
+
         self.order_mismatch = false; 
         self.packet.clear();
         return false
     }
 
     #[inline]
+    fn get_cached_packet_size(cached_packets_id: &Vec<Vec<u8>>) -> usize {
+        let mut cached_packet_size = 0;
+        for packet in cached_packets_id {
+            cached_packet_size += packet.len() - HEADER;
+        }
+        cached_packet_size
+    }
+
+    #[inline]
+    fn reconstruct_when_surplus(
+        cached_packets: &mut HashMap<u8, Vec<Vec<u8>>>,
+        packet_unit: &Vec<u8>,
+        current_packet_id: u8
+    ) {
+        if !cached_packets.contains_key(&current_packet_id) { 
+            // ### DEBUG ###
+            {
+                println!(
+                    "No Cache for Previous Packet ID (Frame: {current_packet_id}) so dropped Packet Unit: {:?}", 
+                    parse_packets_remaining(packet_unit)
+                );
+            }
+            return; 
+        }
+
+        let real_packet_size = parse_real_packet_size(packet_unit);
+        let cache_packet_size = PacketConstructor::get_cached_packet_size(&cached_packets[&current_packet_id]);
+        let potential_packet_size = cache_packet_size + (packet_unit.len() - HEADER);
+        
+        if potential_packet_size == real_packet_size as usize {
+            println!("Will Reconstruct Packet");
+        } else {
+            println!("Caching for Future Reconstruction");
+            
+        }
+    }   
+
+    #[inline]
+    fn cache_packet(
+        cached_packets: &mut HashMap<u8, Vec<Vec<u8>>>,
+        packet_unit: &Vec<u8>,
+        current_packet_id: u8
+        ) {
+        if cached_packets.contains_key(&current_packet_id) {
+            cached_packets
+                .get_mut(&current_packet_id)
+                .unwrap()
+                .push(packet_unit.clone());
+       
+        } else {
+            cached_packets
+                .insert(current_packet_id, vec![packet_unit.clone()]);
+        }
+    } 
+
+    // TODO: Find Method to Clear Cached Packets
+    #[inline]
     fn filter_packet(&mut self) {
-        println!("Excess Packets Filtered");
-        let last_packet_id = parse_packet_id(self.packet.last().unwrap());
+        // ### DEBUG ###
+        {
+            println!("Filtering Packets");
+        }
+
+        let last_packet_id = parse_packet_id(self.packet.last().unwrap()); 
+
         self.packet.retain(|packet_unit| {
-            parse_packet_id(&packet_unit) == last_packet_id
+            let current_packet_id = parse_packet_id(&packet_unit); 
+            if  current_packet_id != last_packet_id {
+                if current_packet_id < last_packet_id {
+                    PacketConstructor::reconstruct_when_surplus(
+                        &mut self.cached_packets,
+                        packet_unit,
+                        current_packet_id
+                    );
+                } else {
+                     // ### DEBUG ###
+                    {
+                        println!(
+                            "Caching Packet Unit {:?} with Packet ID {}", 
+                            parse_packets_remaining(packet_unit),
+                            current_packet_id);
+                    }
+
+                    PacketConstructor::cache_packet(
+                        &mut self.cached_packets, 
+                        packet_unit, 
+                        current_packet_id
+                    );
+                }
+                return false;
+            }
+
+            true
         });
     }
 
@@ -152,7 +259,7 @@ impl PacketConstructor {
 
         let packet_size = (self.packet.len() - 1) * PAYLOAD + self.packet.last().unwrap().len() - HEADER;
         if real_packet_size > packet_size {
-            return self.reconstruct_packet();
+            return self.reconstruct_when_deficient();
         } else if real_packet_size < packet_size {
             self.filter_packet();
             
@@ -185,7 +292,16 @@ impl PacketConstructor {
 
         if self.previous_subpacket_number != (packets_remaining + 1) as i16 && 
             self.previous_subpacket_number > 0 {
-            println!("Packet Order Mixup: {} -> {}", self.previous_subpacket_number, packets_remaining);
+            
+             // ### DEBUG ###
+             {
+                println!(
+                    "Packet Order Mixup: {} -> {}", 
+                    self.previous_subpacket_number,
+                    packets_remaining
+                );
+             }
+           
             self.order_mismatch = true; 
         } 
         self.previous_subpacket_number = packets_remaining as i16;

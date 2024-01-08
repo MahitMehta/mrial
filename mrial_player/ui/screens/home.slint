@@ -1,21 +1,11 @@
-import { Screen, Theme , MrialButton, ButtonType , MrialTextInput} from "common.slint";
-import { Button , VerticalBox } from "std-widgets.slint";
-import { Server, IServer } from "components/server.slint";
-import { VideoFunctions } from "video.slint";
-import { Footer } from "components/footer.slint";
+import { Screen, Theme , MrialButton, ButtonType , MrialTextInput} from "../common.slint";
+import { Button , VerticalBox , ProgressIndicator} from "std-widgets.slint";
+import { Server, IServer, ServerFunctions } from "../components/server.slint";
+import { Footer } from "../components/footer.slint";
 import { CreateServer } from "create_server.slint";
 
 export global HomePageAdapter {
-    in-out property <[IServer]> servers: [
-        {
-            ram: 8,
-            vcpu: 8,
-            storage: 512,
-            shareable: true, 
-            os: "macos",
-            name: "macbook_air_1990"
-        },
-    ];
+    in-out property <[IServer]> servers: [];
 }
 
 component NavItem inherits Rectangle {
@@ -71,7 +61,7 @@ export component HomeScreen inherits Screen {
             VerticalLayout {
                 width: parent.width;
                 padding: 10px;
-                padding-top: 15px;
+                padding-top: 20px;
                 spacing: 15px;
 
                 MrialButton {
@@ -80,7 +70,7 @@ export component HomeScreen inherits Screen {
                     type: ButtonType.basic;
                     border-color: Theme.secondary-border-color;
                     border-width: 1px;
-                    icon:  @image-url("../assets/icons/plus.svg");
+                    icon:  @image-url("../../assets/icons/plus.svg");
                     has-icon: true;
                     clicked => { root.nav-page = 0; }
                 }
@@ -114,14 +104,14 @@ export component HomeScreen inherits Screen {
                             in property <int> nav_page: 1;
                             active: root.nav_page == self.nav-page;
                             name: "Servers";             
-                            icon: @image-url("../assets/icons/server_stack.svg");
+                            icon: @image-url("../../assets/icons/server_stack.svg");
                             clicked => { root.nav_page = self.nav-page; }
                         }
                         NavItem {
                             in property <int> nav_page: 2;
                             active: root.nav_page == self.nav-page;
                             name: "Hosting";
-                            icon: @image-url("../assets/icons/globe.svg");
+                            icon: @image-url("../../assets/icons/globe.svg");
                             clicked => { root.nav_page = self.nav-page; }
                         } 
                     }
@@ -136,15 +126,14 @@ export component HomeScreen inherits Screen {
                     y: (1 - nav_page) * content.height; 
                     spacing: 10px;
                     padding: 15px;
+                    padding-top: 20px;
                     
                     for server in HomePageAdapter.servers: Server {
                         server: server;
     
-                        cb => {
-                            if (!server.shareable) {
-                                root.set_current_subpage(2);
-                                VideoFunctions.connect(server.name);
-                            } 
+                        connect => {
+                            root.set_current_subpage(2);
+                            ServerFunctions.connect(server.name);
                         }
                     }
                 }

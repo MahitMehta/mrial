@@ -5,7 +5,9 @@ use kanal::{Sender, Receiver, unbounded};
 
 use mrial_proto::*; 
 use mrial_proto as proto;
+use slint::platform::PointerEventButton;
 use crate::client::Client;
+use crate::video::{W, H};
 
 use super::ComponentHandle;
 slint::include_modules!();
@@ -16,21 +18,6 @@ pub struct Input {
     channel:  (Sender<Vec<u8>>, Receiver<Vec<u8>>),
     connected: Arc<Mutex<bool>>,
 }
-
-// State Payload:
-// 1 Byte for Control 
-// 1 Byte for Shift
-// 1 Byte for Alt
-// 1 Byte for Meta
-// 2 Bytes for X for click
-// 2 Bytes for Y for click
-// 1 Byte for key pressed
-// 1 Byte for key released
-// 2 Bytes for X location
-// 2 Bytes for Y location
-// 1 Byte for mouse_move
-// 2 Bytes for X scroll delta
-// 2 Bytes for Y scroll delta
 
 impl Input {
     pub fn new() -> Self {
@@ -87,21 +74,24 @@ impl Input {
 
         let sender = self.channel.0.clone();
         let connected = Arc::clone(&self.connected);
+
         let _ = slint::invoke_from_event_loop(move || {
             let click_sender = sender.clone();
             let click_connected = connected.clone();
-            app_weak.unwrap().global::<KeyVideoFunctions>().on_click(move |x, y| {
-                if !*click_connected.lock().unwrap() { return; } 
-                let mut payload = [0; input::PAYLOAD];
 
-                let x_percent = (x / 1440f32 * 10000.0).round() as u16 + 1; 
-                let y_percent = (y / 900f32  * 10000.0).round() as u16 + 1;
-                
-                payload[4..6].copy_from_slice(&x_percent.to_be_bytes());
-                payload[6..8].copy_from_slice(&y_percent.to_be_bytes());
+            app_weak.unwrap().global::<KeyVideoFunctions>().on_click(move |x, y, button| {
+                if !*click_connected.lock().unwrap() { return; } 
+
+                input::write_click(
+                    x, 
+                    y, 
+                    W, // should be width of video element
+                    H,
+                    button == PointerEventButton::Right, 
+                    &mut buf);
     
-                buf[HEADER..HEADER + input::PAYLOAD].copy_from_slice(&payload);
                 click_sender.send(buf.to_vec()).unwrap();
+                input::reset_click(&mut buf);
             });
 
             let mouse_move_sender = sender.clone();

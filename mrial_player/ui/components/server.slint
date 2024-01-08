@@ -1,6 +1,30 @@
 import { Button , VerticalBox , GridBox } from "std-widgets.slint";
 import { Theme , MrialButton, ButtonType } from "../common.slint";
 
+export global ServerFunctions {
+    pure callback connect(/* server_id */ string);
+    pure callback disconnect();
+    pure callback delete(/* server_id */ string);
+}
+
+component ModifyServerIcon inherits TouchArea {
+    in-out property <image> source;
+    in-out property <color> color: Theme.text-primary-color;
+    in-out property <color> hover_color: Theme.text-primary-color;
+
+    mouse-cursor: MouseCursor.pointer;
+
+    Rectangle {
+        Image {
+            source: source;
+            width: 20px;
+            height: 20px;
+            colorize: root.has-hover ? hover-color : color;
+            animate colorize { duration: 150ms; }
+        }
+    }
+}
+
 component SpecBox inherits Rectangle{
     in property <length> container_width;
     in property <string> spec;
@@ -30,7 +54,6 @@ component SpecBox inherits Rectangle{
 }
 
 export struct IServer {
-    shareable: bool,
     vcpu: int,
     storage: int,
     ram: int,
@@ -41,15 +64,16 @@ export struct IServer {
 }
 
 export component Server inherits TouchArea {
-    callback cb();
+    callback connect();
+    callback name();
     
     in property <IServer> server;
     in property <length> container_width: 175px;
 
     width: container-width;
-    height: 225px;
+    height: 230px;
 
-    clicked => { cb(); }
+    clicked => { connect(); }
     mouse-cursor: MouseCursor.pointer;
 
     Rectangle { 
@@ -59,80 +83,150 @@ export component Server inherits TouchArea {
         border-radius: 10px;
         border-color: parent.has-hover ? Theme.secondary-border-color : Theme.border-color;   
         animate border-color { duration: 0.25s; }
+        Rectangle { 
+            z: 1;
+            height: 28px;
+            width: parent.width * 0.4;
+            x: parent.width / 2 - self.width / 2;
+            y: -self.height / 2;
+            border-radius: self.height / 2;
+            background: Theme.bg-secondary-color;
+            border-width: 2px;
+            border-color: Theme.secondary-border-color;
+            opacity: root.has-hover || server_options_ta.has-hover ? 1 : 0;
+            animate opacity { duration: 250ms; }
+
+            server_options_ta := TouchArea {
+                width: parent.width;
+                height: parent.height;
+                mouse-cursor: MouseCursor.pointer;
+            }
+
+            HorizontalLayout {
+                alignment: LayoutAlignment.center;
+                spacing: 5px;
+
+                ModifyServerIcon {
+                    source: @image-url("../../assets/icons/edit.svg");
+                    color: Theme.text-secondary-color;
+                    hover-color: Theme.text-secondary-color;
+                    clicked => { } 
+                }
+                ModifyServerIcon {
+                    source: @image-url("../../assets/icons/trash.svg");
+                    color: Theme.text-secondary-color;
+                    hover-color: Theme.red_color;
+                    clicked => { 
+                        ServerFunctions.delete(server.name);
+                    }
+
+                }
+            }
+        }
 
         VerticalLayout {
             width: parent.width;
-            padding: 10px;
+            padding-top: 5px;
             alignment: LayoutAlignment.center;
-            spacing: 10px;
-    
-            GridLayout {
+            spacing: 5px;
+
+            HorizontalLayout {
+                alignment: LayoutAlignment.center;
                 spacing: 5px;
-                Row {
+                opacity: root.has-hover ? 0 : 1;
+                animate opacity { duration: 150ms; }
+
+                Text {
+                    text: server.address + ":" + server.port;
+                    font-size: 10px;
+                    color: Theme.text-secondary-color;
+                    horizontal-alignment: TextHorizontalAlignment.center;
+                    vertical-alignment: TextVerticalAlignment.center;
+                }
+                VerticalLayout {
+                    alignment: LayoutAlignment.center;
                     Rectangle {
-                        width: container_width / 2 - 12.5px;
-                        height: 50px;
+                        width: 5px;
+                        height: 5px;
                         border-radius: 5px;
-                        background: Theme.bg-secondary-color;
+                        background: Theme.green-color;
+                    }
+                }
+            } 
+            VerticalLayout {
+                alignment: LayoutAlignment.center;
+                width: parent.width;
+                padding: 10px;
+                spacing: 10px;  
+                padding-top: 0px;
+
+                GridLayout {
+                    spacing: 5px;
+                    Row {
                         Rectangle {
-                            width: 45px;
-                            height: 45px;
+                            width: container_width / 2 - 12.5px;
+                            height: 50px;
                             border-radius: 5px;
-                            clip: true;
-                            
-                            Image {
-                                init => {
-                                    if (server.os == "ubuntu") {
-                                        self.source =  @image-url("../../assets/os/ubuntu.png");
-                                    } else if (server.os == "macos") {
-                                        self.source =  @image-url("../../assets/os/macos.png");
+                            background: Theme.bg-secondary-color;
+                            Rectangle {
+                                width: 45px;
+                                height: 45px;
+                                border-radius: 5px;
+                                clip: true;
+                                
+                                Image {
+                                    init => {
+                                        if (server.os == "ubuntu") {
+                                            self.source =  @image-url("../../assets/os/ubuntu.png");
+                                        } else if (server.os == "macos") {
+                                            self.source =  @image-url("../../assets/os/macos.png");
+                                        }
                                     }
+                                    image-fit: ImageFit.contain;
+                                    width: parent.width;
+                                    height: parent.height;
                                 }
-                                image-fit: ImageFit.contain;
-                                width: parent.width;
-                                height: parent.height;
                             }
                         }
+                        SpecBox {
+                            container_width: container_width;
+                            spec: server.vcpu;
+                            spec_label: "vCPU";
+                        }
                     }
-                    SpecBox {
-                        container_width: container_width;
-                        spec: server.vcpu;
-                        spec_label: "vCPU";
+                    Row {
+                        SpecBox {
+                            container_width: container_width;
+                            spec: server.storage;
+                            spec_label: "GB Storage";
+                        }
+                        SpecBox {
+                            container_width: container_width;
+                            spec: server.ram;
+                            spec_label: "GB RAM";
+                        }
                     }
                 }
-                Row {
-                    SpecBox {
-                        container_width: container_width;
-                        spec: server.storage;
-                        spec_label: "GB Storage";
+                VerticalLayout {
+                    spacing: 5px;
+                    Text {
+                        text: server.name;
+                        font-size: 16px;
+                        font-weight: 600;
                     }
-                    SpecBox {
-                        container_width: container_width;
-                        spec: server.ram;
-                        spec_label: "GB RAM";
+                    Text {
+                        text: "Decentralized";
+                        font-size: 12px;
+                        color: Theme.text-secondary-color;
                     }
                 }
-            }
-    
-            VerticalLayout {
-                spacing: 5px;
-                Text {
-                    text: server.name;
-                    font-size: 16px;
-                    font-weight: 600;
+        
+                MrialButton {
+                    width: container-width - 10px * 2;
+                    label: "Connect";
+                    type: ButtonType.gradient;
+                    clicked => { connect(); }
                 }
-                Text {
-                    text: "Decentralized";
-                    font-size: 12px;
-                    color: Theme.text-secondary-color;
-                }
-            }
-    
-            MrialButton {
-                width: container-width - 10px * 2;
-                label: server.shareable ? "Share" : "Connect";
-                type: server.shareable ? ButtonType.positive : ButtonType.gradient;
-                clicked => { cb(); }
             }
         }
     } 
