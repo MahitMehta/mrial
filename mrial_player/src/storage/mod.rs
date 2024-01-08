@@ -1,4 +1,4 @@
-use std::{fs::{File, OpenOptions}, path::Path, error::Error, io::{BufReader, Write}};
+use std::{fs::{File, OpenOptions}, path::Path, error::Error, io::{BufReader, Write}, sync::{Arc, Mutex}};
 use serde::{Deserialize, Serialize};
 use serde_json;
 
@@ -25,28 +25,39 @@ pub trait Storage<T: serde::de::DeserializeOwned> {
 }
 
 pub struct Servers {
-    state: Option<ServerState>,
+    state: Arc<Mutex<Option<ServerState>>>,
     db_path: String
 }
 
 impl Servers {
     pub fn new() -> Self {
         Servers {
-            state: None,
+            state: Arc::new(Mutex::new(None)),
             db_path: "./db/servers.json".to_string()
         }
     }
 
     pub fn get_servers(&self) -> Option<Vec<Server>> {
-        if let Some(state) = &self.state {
+        if let Some(state) = self.state.lock().unwrap().as_ref() {
             return Some(state.servers.clone());
         }
        
         None
     }
 
+    pub fn delete(&mut self, server_id: String) {
+        if let Some(state) = self.state.lock().unwrap().as_mut() {
+            for (index, server) in state.servers.iter().enumerate() {
+                if server.name == server_id {
+                    state.servers.remove(index);
+                    break;
+                }
+            }
+        }
+    }
+
     pub fn find_server(&self, server_id: String) -> Option<Server> {
-        if let Some(state) = &self.state {
+        if let Some(state) = self.state.lock().unwrap().as_ref() {
             for server in &state.servers {
                 if server.name == server_id {
                     return Some(server.clone());
@@ -65,7 +76,7 @@ impl Servers {
     }
 
     pub fn add(&mut self, name: String, address: String, port: u16) {
-        if let Some(state) = &mut self.state {
+        if let Some(state) = self.state.lock().unwrap().as_mut() {
             // TODO: display duplicate server error in slint
             for server in &state.servers {
                 if server.name == name {
@@ -88,7 +99,7 @@ impl Storage<ServerState> for Servers {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(_) => {
-                self.state = Some(ServerState {
+                *self.state.lock().unwrap() = Some(ServerState {
                     servers: Vec::new()
                 });
                 return Ok(())
@@ -98,7 +109,7 @@ impl Storage<ServerState> for Servers {
         let reader = BufReader::new(file);
     
         let state: StorageWrapper<ServerState> = serde_json::from_reader(reader)?;
-        self.state = Some(state.data);
+        *self.state.lock().unwrap() = Some(state.data);
 
         Ok(())
     }
@@ -112,7 +123,7 @@ impl Storage<ServerState> for Servers {
             .unwrap();
 
         let value = StorageWrapper { 
-            data: self.state.clone().unwrap() 
+            data: self.state.lock().unwrap().clone().unwrap() 
         };
 
         let json = serde_json::to_string(&value)?;

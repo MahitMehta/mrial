@@ -1,6 +1,7 @@
-import { Screen, Theme } from "./common.slint";
+import { Screen, Theme } from "../common.slint";
 import { VerticalBox, Button } from "std-widgets.slint";
-import { MrialButton, ButtonType } from "common.slint";
+import { MrialButton, ButtonType } from "../common.slint";
+import { ServerFunctions } from "../components/server.slint";
 
 export global VideoFunctions {
     pure callback mouse_move(/* x */ length, /* y */ length, /* pressed */ bool);
@@ -9,9 +10,6 @@ export global VideoFunctions {
     pure callback key_pressed(KeyEvent);
     pure callback key_released(KeyEvent);
     pure callback scroll(/* x */ length, /* y */ length);
-
-    pure callback connect(/* server_id */ string);
-    pure callback disconnect();
 }
 
 export component VideoScreen inherits Screen {
@@ -34,7 +32,7 @@ export component VideoScreen inherits Screen {
                     ) {
                         if (control-panel.visible) {
                             control_panel.visible = false; 
-                        } else if (cp_button_attached == false) {
+                        } else { // if (cp_button_attached == false) {
                             control_panel.visible = true; 
                         }
                     } 
@@ -86,7 +84,7 @@ export component VideoScreen inherits Screen {
                     y: 0px;
                     width: parent.width;
                     height: parent.height;
-                    border-radius: 10px;
+                    border-radius: 15px;
                     border-width: 1px;
                     border-color: Theme.bg-secondary-color;
                     background: Theme.bg-primary-color;
@@ -97,7 +95,7 @@ export component VideoScreen inherits Screen {
                             label: "Disconnect";
                             type: ButtonType.negative;
                             clicked => {
-                                VideoFunctions.disconnect();
+                                ServerFunctions.disconnect();
                                 root.set_current_subpage(1);
                             }
                         }

@@ -1,16 +1,19 @@
 import "../assets/fonts/Inknut_Antiqua/InknutAntiqua-Bold.ttf";
 
 import { VerticalBox, Button } from "std-widgets.slint";
-import { VideoScreen, VideoFunctions } from "video.slint";
-import { LoginScreen } from "login.slint";
-import { HomeScreen, HomePageAdapter } from "home.slint";
-import { CreateServerFunctions } from "create_server.slint";
-import { IServer } from "components/server.slint";
+import { VideoScreen, VideoFunctions } from "screens/video.slint";
+import { LoginScreen } from "screens/login.slint";
+import { HomeScreen, HomePageAdapter } from "screens/home.slint";
+import { CreateServerFunctions } from "screens/create_server.slint";
+import { IServer, ServerFunctions } from "components/server.slint";
 import { GlobalVars } from "common.slint";
 
 export { GlobalVars }
-export { VideoFunctions }
-export { CreateServerFunctions }
+export { 
+    VideoFunctions, 
+    ServerFunctions, 
+    CreateServerFunctions 
+}
 export { HomePageAdapter }
 
 export component MainWindow inherits Window {
@@ -37,6 +40,7 @@ export component MainWindow inherits Window {
         back => { root.page = 0 }
         set_current_subpage(page) => { root.page = page }
         x: (1 - root.page) * (parent.width + parent.x + 2px);
+        opacity: root.page == 0 ? 0 : 1;
         animate x { duration: 500ms; easing: ease-in-out; }
     }
 
@@ -56,6 +60,7 @@ export component MainWindow inherits Window {
         set_current_subpage(page) => { root.page = page }
         back => { root.page = 0 }
         x: (2 - root.page) * (parent.width + parent.x + 2px);
+        opacity: root.page == 0 ? 0 : 1;
         animate x { duration: 500ms; easing: ease-in-out; }
     }
 }

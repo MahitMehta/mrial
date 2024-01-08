@@ -1,6 +1,6 @@
-import { Screen, MrialTextInput , MrialButton} from "common.slint";
+import { Screen, MrialTextInput , MrialButton} from "../common.slint";
 import { VerticalBox , Button , HorizontalBox} from "std-widgets.slint";
-import { Footer } from "components/footer.slint";
+import { Footer } from "../components/footer.slint";
 
 export component LoginScreen inherits Screen {
     in property <length> window_height;
@@ -10,7 +10,7 @@ export component LoginScreen inherits Screen {
         alignment: LayoutAlignment.space-between;
         padding: 0;
         Image {
-            source: @image-url("../assets/your_name.jpeg");
+            source: @image-url("../../assets/your_name.jpeg");
             Rectangle {
                 x: parent.width / 2 - self.width / 2;
                 y: window_height / 2 - self.height / 2;
