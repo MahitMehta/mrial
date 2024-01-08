@@ -1,4 +1,6 @@
-use super::AudioController;
+use crate::conn::Connections;
+
+use super::{AudioController, AudioEncoder};
 use mrial_proto::*;
 
 use std::net::UdpSocket;
@@ -15,8 +17,8 @@ struct UserData {
 }
 
 impl AudioController {
-    pub fn new() -> AudioController {
-        AudioController {
+    pub fn new() -> Self {
+        Self {
 
         }
     }
@@ -29,7 +31,7 @@ impl AudioController {
             && aligned.iter().all(|&x| x == 0)
     }
 
-    pub fn begin_transmission(&self, socket: UdpSocket, src: std::net::SocketAddr) {
+    pub fn begin_transmission(&self, conn: Connections) {
         std::thread::spawn(move || {
             pw::init();
 
@@ -57,6 +59,7 @@ impl AudioController {
 
             let stream = pw::stream::Stream::new(&core, "audio-capture", props).unwrap();
             let mut audio_packet_id = 0u8; 
+            let encoder = AudioEncoder::new(2, 16, 48000);
 
             let _listener = stream
                 .add_local_listener_with_user_data(data)
@@ -117,9 +120,17 @@ impl AudioController {
                             }
  
                             let sample: &[u8] = &samples[0..(n_samples * n_channels * 2) as usize]; 
-                            let packets = (sample.len() as f64 / PAYLOAD as f64).ceil() as usize;
 
+                            // let i32_slice = unsafe {
+                            //     std::slice::from_raw_parts(
+                            //         sample.as_ptr() as *const i32, 
+                            //         sample.len() / std::mem::size_of::<i32>()
+                            //     )
+                            // };
+
+                            let packets = (sample.len() as f64 / PAYLOAD as f64).ceil() as usize;
                             let mut buf = [0u8; MTU];
+
                             write_static_header(
                                 EPacketType::AUDIO,
                                 sample.len().try_into().unwrap(),
@@ -136,7 +147,7 @@ impl AudioController {
                                 let start = i * PAYLOAD;
                                 let addition = if start + PAYLOAD <= sample.len() { PAYLOAD } else { sample.len() - start };
                                 buf[HEADER..].copy_from_slice(&sample[start..start + addition]);
-                                socket.send_to(&buf, src).unwrap();// pass src in the future 
+                                conn.broadcast(&buf); 
                             }
                             audio_packet_id += 1; 
                         }

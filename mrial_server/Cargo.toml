@@ -16,6 +16,7 @@ enigo = "0.2.0-rc2"
 cfg-if = "0.1"
 mrial_proto = { path = "../libs/mrial_proto" }
 spin_sleep = "1.1.1"
+flacenc = { version = "0.3.1" }
 
 [target."cfg(target_os = \"linux\")".dependencies] 
 libyuv-sys = { path = "../libs/libyuv-sys" }

@@ -2,10 +2,11 @@
 
 mod audio;
 mod events;
-mod encoder; 
+mod video; 
+mod conn; 
 
-use encoder::yuv::YUVBuffer;
-use mrial_proto::*;
+use video::yuv::YUVBuffer;
+use mrial_proto::{*, input::{click_requested, parse_click, mouse_move_requested}};
 
 use enigo::{
     Direction::{Press, Release},
@@ -25,26 +26,30 @@ use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use scrap::{Capturer, Display};
 use x264::{Param, Picture};
 
+use crate::conn::Connections;
+
 #[tokio::main]
 async fn main() {
     use std::io::ErrorKind::WouldBlock;
 
     let socket: UdpSocket =
-        UdpSocket::bind("0.0.0.0:8554").expect("Failed to Bind to 0.0.0.0:8554");
+        UdpSocket::bind("0.0.0.0:8554").expect("Failed to Bind UdpSocket to Port");
+
+    let conn = Connections::new(socket.try_clone().unwrap());
     let mut buf: [u8; MTU] = [0; MTU];
 
-    let Ok((_len, src)) = socket.recv_from(&mut buf) else {
-        panic!("Failed!");
-    };
+    // let Ok((_len, src)) = socket.recv_from(&mut buf) else {
+    //     panic!("Failed!");
+    // };
 
-    if buf[0] != EPacketType::SHAKE as u8 {
-        panic!("Invalid Handsake");
-    }
+    // if buf[0] != EPacketType::SHAKE as u8 {
+    //     panic!("Invalid Handsake");
+    // }
 
-    write_header(EPacketType::SHOOK, 0, HEADER as u32, 0, &mut buf);
-    socket
-        .send_to(&buf[0..HEADER], src)
-        .expect("Failed to send SHOOK");
+    // write_header(EPacketType::SHOOK, 0, HEADER as u32, 0, &mut buf);
+    // socket
+    //     .send_to(&buf[0..HEADER], src)
+    //     .expect("Failed to send SHOOK");
 
     let display: Display = Display::primary().unwrap();
     let mut capturer = Capturer::new(display).unwrap();
@@ -53,15 +58,15 @@ async fn main() {
     const H: usize = 900;
 
 
-    let mut par = Param::default_preset("superfast", "zerolatency").unwrap();
+    let mut par = Param::default_preset("ultrafast", "zerolatency").unwrap();
     par = par.param_parse("repeat_headers", "1").unwrap();
-    par = par.set_csp(7); // 12 = i444, 7 = i422
+    par = par.set_csp(12); // 12 = 444, 7 = 422
     par = par.set_dimension(H, W);
-    par = par.set_fullrange(1);
+    // par = par.set_fullrange(1); // not needed for 444
     par = par.param_parse("annexb", "1").unwrap();
     par = par.param_parse("bframes", "0").unwrap();
-    par = par.param_parse("crf", "17").unwrap();
-    par = par.apply_profile("high422").unwrap(); // high444
+    par = par.param_parse("crf", "20").unwrap();
+    par = par.apply_profile("high444").unwrap(); // high444
 
     let mut pic = Picture::from_param(&par).unwrap();
     let mut enc = x264::Encoder::open(&mut par).unwrap();
@@ -69,10 +74,7 @@ async fn main() {
     //let headers = enc.headers().unwrap();
     //while mrial_proto::assembled_packet(packet, buf, number_of_bytes, packets_remaining)
 
-    write_header(EPacketType::SHOOK, 0, HEADER as u32, 0, &mut buf);
-    socket.send_to(&buf[0..HEADER], src).expect("Failed to send SHOOK");
-
-    let pool = ThreadPool::builder().pool_size(2).create().unwrap();
+    let pool = ThreadPool::builder().pool_size(1).create().unwrap();
     let mut yuv_handles: VecDeque<RemoteHandle<YUVBuffer>> = VecDeque::new();
 
     let rowlen: usize = 4 * W * H;
@@ -81,12 +83,13 @@ async fn main() {
     let mut fps = Instant::now();
 
     let audio_controller = AudioController::new();
-    audio_controller.begin_transmission(socket.try_clone().unwrap(), src);
+    audio_controller.begin_transmission(conn.clone());
 
-    let attempt_reconnect = Arc::new(Mutex::new(false));
+    // let attempt_reconnect = Arc::new(Mutex::new(false));
 
-    let attempt_reconnect_clone = Arc::clone(&attempt_reconnect);
+    // let attempt_reconnect_clone = Arc::clone(&attempt_reconnect);
     let socket_clone = socket.try_clone().unwrap();
+    let mut conn_clone = conn.clone();
     let _state = thread::spawn(move || {
         let mouse = mouse_rs::Mouse::new(); // requires package install on linux (libxdo-dev)
         let mut enigo = Enigo::new(&Settings::default()).unwrap();
@@ -94,47 +97,42 @@ async fn main() {
 
         loop {
             let mut buf: [u8; MTU] = [0; MTU];
-            let (_size, _src) = socket_clone.recv_from(&mut buf).unwrap();
+            let (_size, src) = socket_clone.recv_from(&mut buf).unwrap();
             let packet_type = parse_packet_type(&buf);
 
             match packet_type {
                 EPacketType::SHAKE => {
-                    *attempt_reconnect_clone.lock().unwrap() = true;
+                    // *attempt_reconnect_clone.lock().unwrap() = true;
+                    conn_clone.add_client(src);
+                }
+                EPacketType::DISCONNECT => {
+                    conn_clone.remove_client(src);
                 }
                 EPacketType::STATE => {
-                    // double check this validation is correct for detecting a click
-                    if buf[HEADER + 5] != 0 && buf[HEADER + 7] != 0 {
-                        let x_percent =
-                            u16::from_be_bytes(buf[HEADER + 4..HEADER + 6].try_into().unwrap()) - 1;
-                        let y_percent =
-                            u16::from_be_bytes(buf[HEADER + 6..HEADER + 8].try_into().unwrap()) - 1;
-
-                        let x = (x_percent as f32 / 10000.0 * W as f32).round() as i32;
-                        let y = (y_percent as f32 / 10000.0 * H as f32).round() as i32;
-
+                    if click_requested(&buf) {
+                        let (x, y, right) = parse_click(&mut buf, W, H);
                         let _ = mouse.move_to(x, y);
-                        let _ = mouse.click(&mouse_rs::types::keys::Keys::LEFT);
-                        // println!("Click: {}, {}", x, y);
+                        if right {
+                            let _ = mouse.click(&mouse_rs::types::keys::Keys::RIGHT);
+                        } else {
+                            let _ = mouse.click(&mouse_rs::types::keys::Keys::LEFT);
+                        }                        
                     }
-                    if buf[HEADER + 10] != 0 && buf[HEADER + 12] != 0 {
+                    if mouse_move_requested(&buf) {
                         let x_percent =
                             u16::from_be_bytes(buf[HEADER + 10..HEADER + 12].try_into().unwrap()) - 1;
                         let y_percent =
                             u16::from_be_bytes(buf[HEADER + 12..HEADER + 14].try_into().unwrap()) - 1;
 
-                        let x = (x_percent as f32 / 10000.0 * W as f32).round() as i32;
+                        let x: i32 = (x_percent as f32 / 10000.0 * W as f32).round() as i32;
                         let y = (y_percent as f32 / 10000.0 * H as f32).round() as i32;
 
                         let _ = mouse.move_to(x, y);
 
-                        // handle right mouse button too
+                        // TODO: handle right mouse button too
                         if buf[HEADER + 14] == 1 {
                             let _ = mouse.press(&mouse_rs::types::keys::Keys::LEFT);
-                        } else {
-                            //let _ = mouse.release(&mouse_rs::types::keys::Keys::LEFT);
-                        }
-
-                        // println!("Click: {}, {}", x, y);
+                        } 
                     }
                     if buf[HEADER + 15] != 0 || buf[HEADER + 17] != 0 {
                         let x_delta = i16::from_be_bytes(buf[HEADER + 14..HEADER + 16].try_into().unwrap());
@@ -200,9 +198,7 @@ async fn main() {
                     }
                 }
                 _ => {}
-            }
-
-            
+            }            
         }
     });
 
@@ -212,13 +208,19 @@ async fn main() {
     let mut packet_id = 0;
 
     loop {
+        if !conn.has_clients() {
+            std::thread::sleep(Duration::from_millis(1000));
+            println!("Awaiting Client Connection");
+            continue
+        }
+
         let sleep = Instant::now();
         match capturer.frame() {
             Ok(frame) => {
                 let data = frame.chunks(rowlen).next().unwrap().to_vec();
 
                 let cvt_rgb_yuv = async move {
-                    let yuv = YUVBuffer::with_bgra_for_422(W, H, &data);
+                    let yuv = YUVBuffer::with_bgra_for_444(W, H, &data);
                     yuv
                 };
                 yuv_handles.push_back(pool.spawn_with_handle(cvt_rgb_yuv).unwrap());
@@ -231,19 +233,19 @@ async fn main() {
                     let y_plane = pic.as_mut_slice(0).unwrap();
                     y_plane.copy_from_slice(yuv.y());
                     let u_plane = pic.as_mut_slice(1).unwrap();
-                    u_plane.copy_from_slice(yuv.v_422());
+                    u_plane.copy_from_slice(yuv.u_444());
                     let v_plane = pic.as_mut_slice(2).unwrap();
-                    v_plane.copy_from_slice(yuv.u_422());
+                    v_plane.copy_from_slice(yuv.v_444());
 
+           
                     pic = pic.set_timestamp(frame_count);
                     frame_count += 1;
 
                     if let Some((nal, _, _)) = enc.encode(&pic).unwrap() {
                         let bitstream = nal.as_bytes();
                         // file.write(bitstream).unwrap();
-                        //println!("Encoding Time: {}", start.elapsed().as_millis());
-                        
-                        let packets =
+                        // println!("Encoding Time: {}", start.elapsed().as_millis());
+                         let packets =
                             (bitstream.to_vec().len() as f64 / PAYLOAD as f64).ceil() as usize;
 
                         write_static_header(
@@ -269,9 +271,8 @@ async fn main() {
                             };
                             buf[HEADER..addition + HEADER]
                                 .copy_from_slice(&bitstream.to_vec()[start..(addition + start)]);
-                            socket
-                                .send_to(&buf[0..addition + HEADER], src)
-                                .expect("Failed to send NAL Unit");
+
+                            conn.broadcast(&buf[0..addition + HEADER]);
                         }
                         frames += 1;
                     }
@@ -290,15 +291,15 @@ async fn main() {
                         fps = Instant::now();
                     }
 
-                    if *attempt_reconnect.lock().unwrap() {
-                        println!("Reconnecting...");
-                        enc = x264::Encoder::open(&mut par).unwrap();
-                        buf[0] = EPacketType::SHOOK as u8;
-                        socket
-                            .send_to(&buf[0..HEADER], src)
-                            .expect("Failed to send NAL Unit");
-                        *attempt_reconnect.lock().unwrap() = false;
-                    }
+                    // if *attempt_reconnect.lock().unwrap() {
+                    //     println!("Reconnecting...");
+                    //     enc = x264::Encoder::open(&mut par).unwrap();
+                    //     buf[0] = EPacketType::SHOOK as u8;
+                    //     socket
+                    //         .send_to(&buf[0..HEADER], src)
+                    //         .expect("Failed to send NAL Unit");
+                    //     *attempt_reconnect.lock().unwrap() = false;
+                    // }
                 }
             }
             Err(ref e) if e.kind() == WouldBlock => {

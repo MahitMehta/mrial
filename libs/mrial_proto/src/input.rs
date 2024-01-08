@@ -30,7 +30,7 @@ pub fn click_requested(buf: &[u8]) -> bool {
 }
 
 #[inline]
-pub fn parse_mouse_position(buf: &mut [u8], width: usize, height: usize) -> (i32, i32, bool) {
+pub fn parse_click(buf: &mut [u8], width: usize, height: usize) -> (i32, i32, bool) {
     let mut right_click = false; 
 
     if buf[HEADER + 4] >> 7 == 1 {
@@ -46,4 +46,9 @@ pub fn parse_mouse_position(buf: &mut [u8], width: usize, height: usize) -> (i32
     let y = (y_percent as f32 / 10000.0 * height as f32).round() as i32;
 
     (x, y, right_click)
+}
+
+#[inline]
+pub fn mouse_move_requested(buf: &[u8]) -> bool {
+    buf[HEADER + 10] != 0 || buf[HEADER + 12] != 0
 }

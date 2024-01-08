@@ -1,3 +1,7 @@
+mod encoder;
+
+pub use self::encoder::*; 
+
 cfg_if::cfg_if! {
     if #[cfg(target_os = "linux")] {
         mod linux; 
@@ -14,5 +18,4 @@ cfg_if::cfg_if! {
 }
 
 pub struct AudioController {
-
 }

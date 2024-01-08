@@ -175,12 +175,12 @@ impl YUVBuffer {
         &self.yuv[base_v..]
     }
 
-    fn u_444(&self) -> &[u8] {
+    pub fn u_444(&self) -> &[u8] {
         let base_u = self.width * self.height;
         &self.yuv[base_u..base_u + base_u]
     }
 
-    fn v_444(&self) -> &[u8] {
+    pub fn v_444(&self) -> &[u8] {
         let base_u = self.width * self.height;
         let base_v = base_u + base_u;
         &self.yuv[base_v..]
