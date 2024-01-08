@@ -52,6 +52,15 @@ impl Client {
     }
 
     pub fn disconnect(&mut self) {
+        let mut buf = [0u8; HEADER];
+        write_header(
+            EPacketType::DISCONNECT,
+            0, 
+            HEADER.try_into().unwrap(),
+            0, 
+            &mut buf);
+        let _ = self.socket.as_ref().unwrap().send(&buf);
+
         self.socket = None;
         self.state = ConnectionState::Disconnected;
     }
