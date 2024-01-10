@@ -1,18 +1,22 @@
-use std::{time::Duration, net::{UdpSocket, SocketAddr}, thread};
+use std::{
+    net::{SocketAddr, UdpSocket},
+    thread,
+    time::Duration,
+};
 
-use mrial_proto::*; 
+use mrial_proto::*;
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum ConnectionState {
     Disconnected,
     Connecting,
-    Connected
+    Connected,
 }
 
 pub struct Client {
     socket_address: String,
     socket: Option<UdpSocket>,
-    state: ConnectionState
+    state: ConnectionState,
 }
 
 const CLIENT_PORT: u16 = 8000;
@@ -22,7 +26,7 @@ impl Client {
         Client {
             socket_address: String::new(),
             socket: None,
-            state: ConnectionState::Disconnected
+            state: ConnectionState::Disconnected,
         }
     }
 
@@ -55,10 +59,11 @@ impl Client {
         let mut buf = [0u8; HEADER];
         write_header(
             EPacketType::DISCONNECT,
-            0, 
+            0,
             HEADER.try_into().unwrap(),
-            0, 
-            &mut buf);
+            0,
+            &mut buf,
+        );
         let _ = self.socket.as_ref().unwrap().send(&buf);
 
         self.socket = None;
@@ -86,21 +91,29 @@ impl Client {
             return Client {
                 socket_address: self.socket_address.clone(),
                 socket: Some(socket),
-                state: self.state.clone()
-            }
-        } 
+                state: self.state.clone(),
+            };
+        }
 
         return Client {
             socket_address: self.socket_address.clone(),
             socket: None,
-            state: ConnectionState::Disconnected
-        }
+            state: ConnectionState::Disconnected,
+        };
     }
 
     #[inline]
-    pub fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, std::net::SocketAddr), std::io::Error> {
+    pub fn recv_from(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<(usize, std::net::SocketAddr), std::io::Error> {
         match &self.socket {
-            None => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Socket Not Initialized")),
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Socket Not Initialized",
+                ))
+            }
             Some(socket) => {
                 let (amt, src) = socket.recv_from(buf)?;
                 return Ok((amt, src));
@@ -111,7 +124,12 @@ impl Client {
     #[inline]
     pub fn send(&self, buf: &[u8]) -> Result<usize, std::io::Error> {
         match &self.socket {
-            None => return Err(std::io::Error::new(std::io::ErrorKind::Other, "Socket Not Initialized")),
+            None => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Socket Not Initialized",
+                ))
+            }
             Some(socket) => {
                 let amt = socket.send(buf)?;
                 return Ok(amt);
@@ -121,29 +139,27 @@ impl Client {
 
     pub fn send_handshake(&mut self) {
         if let Some(socket) = &self.socket {
-            let _ = socket.set_read_timeout(Some(Duration::from_millis(1000))).expect("Failed to Set Timeout");
+            let _ = socket
+                .set_read_timeout(Some(Duration::from_millis(1000)))
+                .expect("Failed to Set Timeout");
             let mut buf: [u8; HEADER] = [0; HEADER];
-            
-            write_header(
-                EPacketType::SHAKE, 
-                0, 
-                HEADER as u32,
-                0,
-                &mut buf
-            );
+
+            write_header(EPacketType::SHAKE, 0, HEADER as u32, 0, &mut buf);
 
             let _ = socket.send(&buf);
             println!("Sent Handshake Packet");
-            
+
             let (_amt, _src) = match socket.recv_from(&mut buf) {
                 Ok(v) => v,
                 Err(_e) => return,
             };
-    
+
             if buf[0] == EPacketType::SHOOK as u8 {
                 println!("Received Handshake Packet");
-                let _ = socket.set_read_timeout(Some(Duration::from_millis(5000))).expect("Failed to Set Timeout");
-            }         
+                let _ = socket
+                    .set_read_timeout(Some(Duration::from_millis(5000)))
+                    .expect("Failed to Set Timeout");
+            }
 
             self.state = ConnectionState::Connected;
         }
