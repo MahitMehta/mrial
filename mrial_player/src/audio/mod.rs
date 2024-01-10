@@ -36,9 +36,13 @@ impl AudioClient {
     // }
 
     pub fn handle_latency_by_dropping(&mut self) {
-        if self.sink.len() <= 1 {
+        if self.sink.len() == 0 {
             println!("Sink Buffer at {}", self.sink.len());
+            // self.sink.set_volume(0f32);
+        } else {
+            // self.sink.set_volume(1f32);
         }
+
         if self.sink.len() > AUDIO_LATENCY_TOLERANCE {
             // println!("Correcting Latency by Skipping: {}", self.sink.len());
             for _ in 0..AUDIO_LATENCY_TOLERANCE - 1 {
@@ -65,8 +69,8 @@ impl AudioClient {
         };
 
         let audio_buf = SamplesBuffer::new(2, 48000, f32_slice);
-
-        self.sink.append(audio_buf);
+        
         self.handle_latency_by_dropping();
+        self.sink.append(audio_buf);
     }
 }

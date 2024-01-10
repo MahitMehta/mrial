@@ -1,15 +1,10 @@
-use std::net::UdpSocket;
+use crate::conn::Connections;
 
-use super::AudioController;
+use super::{AudioController, IAudioController};
 
-impl AudioController {
-    pub fn new() -> AudioController {
-        AudioController {
 
-        }
-    }
-
-    pub fn begin_transmission(&self, socket: UdpSocket, src: std::net::SocketAddr) {
+impl IAudioController for AudioController {
+    fn begin_transmission(&self, conn: Connections) {
         
     }
 }

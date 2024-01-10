@@ -134,7 +134,6 @@ fn main() {
         input.capture(app_weak.clone());
 
         loop {
-            // TODO: avoid performing this computation in the stream loop
             if !client.connected() || conn_channel.1.len() > 0 {
                 match conn_channel.1.try_recv_realtime().unwrap() {
                     None => {
@@ -189,7 +188,7 @@ fn main() {
 
             match packet_type {
                 EPacketType::AUDIO => audio.play_audio_stream(&buf, number_of_bytes),
-                EPacketType::NAL => video.packet(&buf, number_of_bytes),
+                EPacketType::NAL => video.packet(&buf, &client, number_of_bytes),
                 _ => {}
             }
         }
