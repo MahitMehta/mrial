@@ -8,6 +8,7 @@ pub enum EPacketType {
     STATE = 3,
     AUDIO = 4,
     DISCONNECT = 5,
+    PING = 6,
     InternalEOL = 13
 }
 
@@ -20,6 +21,7 @@ impl From<u8> for EPacketType {
             3 => EPacketType::STATE,
             4 => EPacketType::AUDIO,
             5 => EPacketType::DISCONNECT,
+            6 => EPacketType::PING,
             13 => EPacketType::InternalEOL,
             _ => panic!("Invalid Packet Type")
         }

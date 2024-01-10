@@ -1,22 +1,24 @@
-use std::{collections::HashMap, net::{SocketAddr, UdpSocket}, sync::{Mutex, Arc, RwLock}};
+use std::{collections::HashMap, net::{SocketAddr, UdpSocket}, sync::{Mutex, Arc, RwLock}, time::{SystemTime, UNIX_EPOCH}};
 
 use mrial_proto::packet::*;
 
 pub struct Client {
-    last_ping: u64,
+    last_ping: SystemTime,
     src: SocketAddr
 }
+
+const ALIVE_TOLERANCE: u64 = 6; // seconds
 
 impl Client {
     pub fn new(src: SocketAddr) -> Self {
         Self {
             src,
-            last_ping: 0
+            last_ping: SystemTime::now()
         }
     }
 
     pub fn is_alive(&self) -> bool {
-        true
+        self.last_ping.elapsed().unwrap().as_secs() < ALIVE_TOLERANCE  
     }
 }
 
@@ -32,7 +34,24 @@ impl Connections {
             socket,
         }
     }
+    
+    pub fn ping_client(&self, src: SocketAddr) {
+        let src_str: String = src.to_string();
+        if self.clients.read().unwrap().contains_key(&src_str) {
+            let current = SystemTime::now();
 
+            self.clients.write()
+            .unwrap()
+            .get_mut(&src_str)
+            .unwrap().last_ping = current;
+        }
+    }
+    
+    pub fn  filter_clients(&self) {
+        let mut clients = self.clients.write().unwrap();
+        clients.retain(|_, client| client.is_alive());
+    }
+    
     pub fn has_clients(&self) -> bool {
         self.clients.read().unwrap().len() > 0
     }
@@ -42,9 +61,12 @@ impl Connections {
         self.clients.write().unwrap().remove(&src_str);
     }
 
-    pub fn add_client(&mut self, src: SocketAddr) {
+    pub fn add_client(&mut self, src: SocketAddr, headers: &[u8]) {
         let src_str = src.to_string();
-        println!("Adding client: {}", src_str);
+        // ### DEBUG ###
+        {
+            println!("Adding client: {}", src_str);
+        }
         
         self.clients.write().unwrap().insert(src_str, Client::new(src));
         let mut buf = [0u8; HEADER];
@@ -56,6 +78,17 @@ impl Connections {
             &mut buf
         );
         self.socket.send_to(&buf, src).unwrap();
+
+        let mut buf = [0u8; MTU];
+        write_header(
+            EPacketType::NAL, 
+            0, 
+            HEADER.try_into().unwrap(), 
+            0, 
+            &mut buf
+        );
+        buf[HEADER..HEADER + headers.len()].copy_from_slice(headers);
+        self.socket.send_to(&buf[0..HEADER + headers.len()], src).unwrap();
     }
 
     #[inline]
