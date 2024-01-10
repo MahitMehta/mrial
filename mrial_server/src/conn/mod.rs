@@ -1,13 +1,11 @@
 use std::{collections::HashMap, net::{SocketAddr, UdpSocket}, sync::{Mutex, Arc, RwLock}, time::{SystemTime, UNIX_EPOCH}};
 
-use mrial_proto::packet::*;
+use mrial_proto::{packet::*, SERVER_PING_TOLERANCE};
 
 pub struct Client {
     last_ping: SystemTime,
     src: SocketAddr
 }
-
-const ALIVE_TOLERANCE: u64 = 6; // seconds
 
 impl Client {
     pub fn new(src: SocketAddr) -> Self {
@@ -18,7 +16,7 @@ impl Client {
     }
 
     pub fn is_alive(&self) -> bool {
-        self.last_ping.elapsed().unwrap().as_secs() < ALIVE_TOLERANCE  
+        self.last_ping.elapsed().unwrap().as_secs() < SERVER_PING_TOLERANCE  
     }
 }
 

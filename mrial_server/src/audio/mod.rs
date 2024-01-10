@@ -1,6 +1,24 @@
 mod encoder;
 
+use crate::conn::Connections;
+
 pub use self::encoder::*; 
+
+pub trait IAudioController {
+    fn begin_transmission(&self, conn: Connections);  
+} 
+
+pub struct AudioController {
+    
+}
+
+impl AudioController {
+    pub fn new() -> AudioController {
+        AudioController {
+
+        }
+    }
+}
 
 cfg_if::cfg_if! {
     if #[cfg(target_os = "linux")] {
@@ -15,7 +33,4 @@ cfg_if::cfg_if! {
     } else {
         //TODO: Fallback implementation.
     }
-}
-
-pub struct AudioController {
 }

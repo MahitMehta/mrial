@@ -4,6 +4,8 @@ use ffmpeg_next::{frame, software, format::Pixel };
 use kanal::{unbounded, Sender, Receiver};
 use mrial_proto::*;
 
+use crate::client::Client;
+
 pub const W: usize = 1440; 
 pub const H: usize = 900;
 
@@ -13,14 +15,28 @@ const TARGET_HEIGHT: usize = 900; // 1600
 
 pub struct VideoThread {
     packet_constructor: PacketConstructor,
-    pub channel: (Sender<Vec<u8>>, Receiver<Vec<u8>>)
+    clock: std::time::Instant,
+    pub channel: (Sender<Vec<u8>>, Receiver<Vec<u8>>),
+    ping_buf: [u8; HEADER]
 }
 
 impl VideoThread {
     pub fn new() -> VideoThread {
+        let mut ping_buf = [0u8; HEADER];
+
+        write_header(
+            crate::EPacketType::PING, 
+            0, 
+            HEADER.try_into().unwrap(), 
+            0, 
+            &mut ping_buf
+        );
+
         VideoThread {
             packet_constructor: PacketConstructor::new(),
-            channel: unbounded()
+            clock: std::time::Instant::now(),
+            channel: unbounded(),
+            ping_buf
         }
     }
 
@@ -73,7 +89,7 @@ impl VideoThread {
                     Ok(_) => {
                         let mut yuv_frame = frame::Video::empty();
                         let mut rgb_frame = frame::Video::empty();
-
+                       
                         while ffmpeg_decoder.receive_frame(&mut yuv_frame).is_ok() {
                             // let start = std::time::Instant::now();
                             lanczos_scalar.run(&yuv_frame, &mut rgb_frame).unwrap();
@@ -101,6 +117,7 @@ impl VideoThread {
     pub fn packet(
         &mut self, 
         buf: &[u8], 
+        client: &Client,
         number_of_bytes: usize,
     ) {
         let nalu = match self.packet_constructor.assemble_packet(
@@ -108,8 +125,15 @@ impl VideoThread {
             Some(nalu) => nalu,
             None => return
         };
+
         // let mut file = File::create("recording.h264").unwrap();
         // file.write_all(&nalu).unwrap();
         self.channel.0.send(nalu).unwrap();
+
+        // TODO: Possibly remove this computation from the main thread
+        if self.clock.elapsed().as_secs() > CLIENT_PING_FREQUENCY {
+            self.clock = std::time::Instant::now();
+            client.send(&self.ping_buf).unwrap();
+        } 
     }
 }

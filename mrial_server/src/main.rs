@@ -23,7 +23,7 @@ use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use scrap::{Capturer, Display};
 use x264::{Param, Picture};
 
-use crate::{conn::Connections, events::EventsThread};
+use crate::{conn::Connections, events::EventsThread, audio::IAudioController};
 
 #[tokio::main]
 async fn main() {

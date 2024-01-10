@@ -144,7 +144,6 @@ impl Client {
                 println!("Received Handshake Packet");
                 let _ = socket.set_read_timeout(Some(Duration::from_millis(5000))).expect("Failed to Set Timeout");
             }         
-
             self.state = ConnectionState::Connected;
         }
     }

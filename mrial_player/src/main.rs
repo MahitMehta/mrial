@@ -115,7 +115,6 @@ fn main() {
         input.capture(app_weak.clone());
 
         loop {
-            // TODO: avoid performing this computation in the stream loop
             if !client.connected() || conn_channel.1.len() > 0 {
                 match conn_channel.1.try_recv_realtime().unwrap() {
                     None => {   
@@ -162,13 +161,13 @@ fn main() {
                     }
                 }
             }
-
-            let (number_of_bytes, _) = client.recv_from(&mut buf).expect("Failed to Receive Packet");
+         
+            let (number_of_bytes, _) = client.recv_from(&mut buf).unwrap();
             let packet_type = parse_packet_type(&buf);
 
             match packet_type {
                 EPacketType::AUDIO => audio.play_audio_stream(&buf, number_of_bytes),
-                EPacketType::NAL => video.packet(&buf, number_of_bytes),
+                EPacketType::NAL => video.packet(&buf, &client, number_of_bytes),
                 _ => {}
             }
         }     

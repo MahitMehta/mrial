@@ -16,13 +16,7 @@ struct UserData {
     format: spa::param::audio::AudioInfoRaw,
 }
 
-impl AudioController {
-    pub fn new() -> Self {
-        Self {
-
-        }
-    }
-
+impl IAudioController for AudioController {
     fn is_zero(buf: &[u8]) -> bool {
         let (prefix, aligned, suffix) = unsafe { buf.align_to::<u128>() };
     
@@ -31,7 +25,7 @@ impl AudioController {
             && aligned.iter().all(|&x| x == 0)
     }
 
-    pub fn begin_transmission(&self, conn: Connections) {
+    fn begin_transmission(&self, conn: Connections) {
         std::thread::spawn(move || {
             pw::init();
 
