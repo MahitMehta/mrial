@@ -71,9 +71,9 @@ impl EventsEmitter {
         
     }
 
-    pub fn input(&mut self, buf: &mut [u8]) {
+    pub fn input(&mut self, buf: &mut [u8], width: usize, height: usize) {
         if click_requested(&buf) {
-            let (x, y, right) = parse_click(buf, 1440, 900);
+            let (x, y, right) = parse_click(buf, width, height);
 
             let _ = &self.mouse.move_to(x, y);
             if right {
@@ -183,8 +183,6 @@ impl EventsThread {
     
                 match packet_type {
                     EPacketType::SHAKE => {
-                        // *attempt_reconnect_clone.lock().unwrap() = true;
-                        
                         // TODO: Need to requery headers from encoder
                         conn.add_client(src, &headers);
                     }
@@ -195,7 +193,7 @@ impl EventsThread {
                         conn.remove_client(src);
                     }
                     EPacketType::STATE => {
-                        emitter.input(&mut buf);
+                        emitter.input(&mut buf, 1440, 900);
                     }
                     _ => {}
                 }            

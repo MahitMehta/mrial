@@ -7,7 +7,6 @@ use mrial_proto::*;
 use mrial_proto as proto;
 use slint::platform::PointerEventButton;
 use crate::client::Client;
-use crate::video::{W, H};
 
 use super::ComponentHandle;
 slint::include_modules!();
@@ -29,7 +28,7 @@ impl Input {
 
     pub fn send_loop<'a>(&mut self, client: &'a Client) {
         *self.connected.lock().unwrap() = client.connected(); 
-        let mut inner_client = client.try_clone();
+        let mut inner_client = client.clone();
 
         let receiver = self.channel.1.clone();
         let connected_clone = Arc::clone(&self.connected);
@@ -61,8 +60,13 @@ impl Input {
 
     pub fn capture(
         &self, 
-        app_weak: slint::Weak<super::slint_generatedMainWindow::MainWindow>
+        app_weak: slint::Weak<super::slint_generatedMainWindow::MainWindow>,
+        client: Client
     ) {
+        // TODO: don't store, make access to these values dynamic
+        let width: usize = client.get_width(); 
+        let height = client.get_height();
+
         let mut buf = [0; packet::HEADER + input::PAYLOAD];
         proto::write_header(
             EPacketType::STATE, 
@@ -85,8 +89,8 @@ impl Input {
                 input::write_click(
                     x, 
                     y, 
-                    W, // should be width of video element
-                    H,
+                    width, // TODO: should be width of video element
+                    height,
                     button == PointerEventButton::Right, 
                     &mut buf);
     
@@ -100,8 +104,8 @@ impl Input {
                 if !*mouse_move_connected.lock().unwrap() { return; }
                 let mut payload = [0; input::PAYLOAD];
 
-                let x_percent = (x / 1440f32 * 10000.0).round() as u16 + 1; 
-                let y_percent = (y / 900f32 * 10000.0).round() as u16 + 1;
+                let x_percent = (x / (width as f32) * 10000.0).round() as u16 + 1; 
+                let y_percent = (y / (height as f32) * 10000.0).round() as u16 + 1;
                 
                 payload[10..12].copy_from_slice(&x_percent.to_be_bytes());
                 payload[12..14].copy_from_slice(&y_percent.to_be_bytes());

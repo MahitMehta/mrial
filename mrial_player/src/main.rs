@@ -4,6 +4,7 @@ mod video;
 mod input;
 mod storage; 
 
+use i_slint_backend_winit::WinitWindowAccessor;
 use mrial_proto::*;
 
 use audio::AudioClient;
@@ -13,10 +14,13 @@ use video::VideoThread;
 use storage::{Servers, Storage};
 
 use kanal::unbounded;
+use winit::raw_window_handle::HasWindowHandle;
 use std::sync::{Mutex, Arc};
 use std::{thread, rc::Rc};
 use std::time::Duration;
 use slint::{ComponentHandle, SharedString, VecModel};
+
+use crate::client::ClientMetaData;
 
 slint::include_modules!();
 
@@ -47,13 +51,34 @@ fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) 
 }
 
 fn main() {
-    const VERSION: &str = env!("CARGO_PKG_VERSION");
+    let backend = i_slint_backend_winit::Backend::new().unwrap();
+    let _ = slint::platform::set_platform(Box::new(backend));
 
     let app: MainWindow = MainWindow::new().unwrap();
     let app_weak = app.as_weak();
+    
+    let (width, height) = app.window().with_winit_window(|winit_window: &winit::window::Window| {
+        let monitor = winit_window.primary_monitor().unwrap(); 
+        let scale_factor = monitor.scale_factor();
+        let size = monitor.size();
+        let width = (size.width as f64 / scale_factor) as usize;
+        let height =  (size.height as f64 / scale_factor) as usize;
+        
+        (width, height)
+    }).unwrap();
+
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
     app_weak.unwrap().global::<GlobalVars>().set_app_version(VERSION.into());
 
-    let mut client = Client::new();
+    app.window().on_close_requested(|| {
+        println!("Close Requested"); // send disconnect packet
+        slint::CloseRequestResponse::HideWindow
+    });
+
+    let mut client = Client::new(ClientMetaData {
+        width,
+        height
+    });
     let conn_channel =  unbounded::<ConnectionAction>();
     let conn_sender = conn_channel.0.clone();
     
@@ -109,10 +134,10 @@ fn main() {
 
         let mut video = VideoThread::new();
         let video_conn_sender = conn_channel.0.clone();
-        video.begin_decoding(app_weak.clone(), video_conn_sender);
+        video.begin_decoding(app_weak.clone(), video_conn_sender, client.clone());
 
         let mut input = Input::new();
-        input.capture(app_weak.clone());
+        input.capture(app_weak.clone(), client.clone());
 
         loop {
             if !client.connected() || conn_channel.1.len() > 0 {
