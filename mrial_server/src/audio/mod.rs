@@ -31,6 +31,6 @@ cfg_if::cfg_if! {
         mod macos;
         pub use self::macos::*;
     } else {
-        //TODO: Fallback implementation.
+        compile_error!("Unsupported OS");
     }
 }

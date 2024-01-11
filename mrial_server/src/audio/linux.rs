@@ -1,9 +1,8 @@
 use crate::conn::Connections;
 
-use super::{AudioController, AudioEncoder};
+use super::{AudioController, AudioEncoder, IAudioController};
 use mrial_proto::*;
 
-use std::net::UdpSocket;
 use pipewire as pw;
 use pw::spa::WritableDict;
 use pw::spa::format::{MediaType, MediaSubtype};
@@ -16,7 +15,7 @@ struct UserData {
     format: spa::param::audio::AudioInfoRaw,
 }
 
-impl IAudioController for AudioController {
+impl AudioController {
     fn is_zero(buf: &[u8]) -> bool {
         let (prefix, aligned, suffix) = unsafe { buf.align_to::<u128>() };
     
@@ -25,6 +24,9 @@ impl IAudioController for AudioController {
             && aligned.iter().all(|&x| x == 0)
     }
 
+}
+
+impl IAudioController for AudioController {
     fn begin_transmission(&self, conn: Connections) {
         std::thread::spawn(move || {
             pw::init();

@@ -171,9 +171,7 @@ impl EventsThread {
 
     pub fn run(&self, socket: UdpSocket, conn: &mut Connections, headers: Vec<u8>) {
         let mut conn = conn.clone();
-
         let _ = thread::spawn(move || {
-            
             let mut emitter = EventsEmitter::new();
 
             loop {
@@ -183,8 +181,6 @@ impl EventsThread {
     
                 match packet_type {
                     EPacketType::SHAKE => {
-                        // *attempt_reconnect_clone.lock().unwrap() = true;
-                        
                         // TODO: Need to requery headers from encoder
                         conn.add_client(src, &headers);
                     }

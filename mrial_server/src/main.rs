@@ -12,8 +12,6 @@ use mrial_proto::*;
 use std::{
     collections::VecDeque,
     net::UdpSocket,
-    sync::{Arc, Mutex},
-    thread,
     time::{Duration, Instant}, io::Write,
 };
 
@@ -36,14 +34,10 @@ async fn main() {
     let mut buf: [u8; MTU] = [0; MTU];
 
     let display: Display = Display::primary().unwrap();
-
-
     let mut capturer = Capturer::new(display).unwrap();
-
+    
     let width = capturer.width();
     let height = capturer.height();
-
-   
 
     let mut par = Param::default_preset("ultrafast", "zerolatency").unwrap();
     par = par.param_parse("repeat_headers", "1").unwrap();
@@ -102,7 +96,7 @@ async fn main() {
                     yuv
                 };
                 yuv_handles.push_back(pool.spawn_with_handle(cvt_rgb_yuv).unwrap());
-
+  
                 // set to 1 to increase FPS at the cost of latency, or 0  for the opposite effect
                 if yuv_handles.len() > 0 {
                     //let start = Instant::now();
@@ -162,25 +156,10 @@ async fn main() {
                         fps_time = Instant::now();
                     }
 
-                    // replace possibly with spin-sleep: https://github.com/alexheretic/spin-sleep
                     if sleep.elapsed().as_millis() > 0 && sleep.elapsed().as_millis() < 16 {
                         let delay = 16 - sleep.elapsed().as_millis();
-                        
-                        // std::thread::sleep(Duration::from_millis(delay as u64));
                         spin_sleep::sleep(Duration::from_millis(delay as u64));
                     }
-
-                    
-
-                    // if *attempt_reconnect.lock().unwrap() {
-                    //     println!("Reconnecting...");
-                    //     enc = x264::Encoder::open(&mut par).unwrap();
-                    //     buf[0] = EPacketType::SHOOK as u8;
-                    //     socket
-                    //         .send_to(&buf[0..HEADER], src)
-                    //         .expect("Failed to send NAL Unit");
-                    //     *attempt_reconnect.lock().unwrap() = false;
-                    // }
                 }
             }
             Err(ref e) if e.kind() == WouldBlock => {
