@@ -163,10 +163,10 @@ async fn main() {
                 }
             }
             Err(ref e) if e.kind() == WouldBlock => {
-                // Wait for the frame.
+                
             }
             Err(_) => {
-                // We're done here.
+                println!("Error Capturing Frame.");
                 break;
             }
         }

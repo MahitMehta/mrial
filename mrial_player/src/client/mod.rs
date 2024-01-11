@@ -1,29 +1,45 @@
-use std::{time::Duration, net::{UdpSocket, SocketAddr}, thread};
+use std::{time::Duration, net::{UdpSocket, SocketAddr}, thread, sync::{RwLock, Arc}};
 
 use mrial_proto::*; 
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ConnectionState {
     Disconnected,
     Connecting,
     Connected
 }
 
+#[derive(Debug)]
+pub struct ClientMetaData {
+    pub width: usize,
+    pub height: usize
+}
+
 pub struct Client {
     socket_address: String,
     socket: Option<UdpSocket>,
-    state: ConnectionState
+    state: ConnectionState,
+    meta: Arc::<RwLock<ClientMetaData>>
 }
 
 const CLIENT_PORT: u16 = 8000;
 
 impl Client {
-    pub fn new() -> Client {
+    pub fn new(meta: ClientMetaData) -> Client {
         Client {
             socket_address: String::new(),
             socket: None,
-            state: ConnectionState::Disconnected
+            state: ConnectionState::Disconnected,
+            meta: Arc::new(RwLock::new(meta))
         }
+    }
+
+    pub fn get_width(&self) -> usize {
+        self.meta.read().unwrap().width
+    }
+
+    pub fn get_height(&self) -> usize {
+        self.meta.read().unwrap().height
     }
 
     pub fn set_socket_address(&mut self, ip_addr: String, port: u16) {
@@ -80,20 +96,22 @@ impl Client {
         return self.socket_connected() && self.state == ConnectionState::Connected;
     }
 
-    pub fn try_clone(&self) -> Client {
+    pub fn clone(&self) -> Client {
         if let Some(socket) = &self.socket {
             let socket = socket.try_clone().unwrap();
             return Client {
                 socket_address: self.socket_address.clone(),
                 socket: Some(socket),
-                state: self.state.clone()
+                state: self.state,
+                meta: self.meta.clone()
             }
         } 
 
         return Client {
             socket_address: self.socket_address.clone(),
             socket: None,
-            state: ConnectionState::Disconnected
+            state: ConnectionState::Disconnected,
+            meta: self.meta.clone()
         }
     }
 
