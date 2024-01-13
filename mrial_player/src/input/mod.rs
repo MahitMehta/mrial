@@ -100,11 +100,11 @@ impl Input {
                         width, // TODO: should be width of video element
                         height,
                         button == PointerEventButton::Right,
-                        &mut buf,
+                        &mut buf[HEADER..],
                     );
 
                     click_sender.send(buf.to_vec()).unwrap();
-                    input::reset_click(&mut buf);
+                    input::reset_click(&mut buf[HEADER..]);
                 });
 
             let mouse_move_sender = sender.clone();

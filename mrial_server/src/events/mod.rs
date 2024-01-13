@@ -82,81 +82,81 @@ impl EventsEmitter {
         }
         if mouse_move_requested(&buf) {
             let x_percent =
-                u16::from_be_bytes(buf[HEADER + 10..HEADER + 12].try_into().unwrap()) - 1;
+                u16::from_be_bytes(buf[10..12].try_into().unwrap()) - 1;
             let y_percent =
-                u16::from_be_bytes(buf[HEADER + 12..HEADER + 14].try_into().unwrap()) - 1;
+                u16::from_be_bytes(buf[12..14].try_into().unwrap()) - 1;
 
-            let x: i32 = (x_percent as f32 / 10000.0 * 1440 as f32).round() as i32;
-            let y = (y_percent as f32 / 10000.0 * 900 as f32).round() as i32;
+            let x: i32 = (x_percent as f32 / 10000.0 * width as f32).round() as i32;
+            let y = (y_percent as f32 / 10000.0 * height as f32).round() as i32;
 
             let _ = &self.mouse.move_to(x, y);
 
             // TODO: handle right mouse button too
-            if buf[HEADER + 14] == 1 {
+            if buf[14] == 1 {
                 let _ = &self
                     .enigo
                     .button(enigo::Button::Left, enigo::Direction::Press);
             }
         }
-        if buf[HEADER + 15] != 0 || buf[HEADER + 17] != 0 {
-            let x_delta = i16::from_be_bytes(buf[HEADER + 14..HEADER + 16].try_into().unwrap());
-            let y_delta = i16::from_be_bytes(buf[HEADER + 16..HEADER + 18].try_into().unwrap());
+        if buf[15] != 0 || buf[17] != 0 {
+            let x_delta = i16::from_be_bytes(buf[14..16].try_into().unwrap());
+            let y_delta = i16::from_be_bytes(buf[16..18].try_into().unwrap());
 
             if cfg!(target_os = "linux") {
                 self.scroll(x_delta as i32, y_delta as i32);
             }
         }
 
-        if buf[HEADER] == 1 {
+        if buf[0] == 1 {
             self.enigo.key(Key::Control, Press).unwrap();
-        } else if buf[HEADER] == 2 {
+        } else if buf[0] == 2 {
             self.enigo.key(Key::Control, Release).unwrap();
         }
-        if buf[HEADER + 1] == 1 {
+        if buf[1] == 1 {
             self.enigo.key(Key::Shift, Press).unwrap();
-        } else if buf[HEADER + 1] == 2 {
+        } else if buf[1] == 2 {
             self.enigo.key(Key::Shift, Release).unwrap();
         }
 
-        if buf[HEADER + 2] == 1 {
+        if buf[2] == 1 {
             self.enigo.key(Key::Alt, Press).unwrap();
-        } else if buf[HEADER + 2] == 2 {
+        } else if buf[2] == 2 {
             self.enigo.key(Key::Alt, Release).unwrap();
         }
 
-        if buf[HEADER + 3] == 1 {
+        if buf[3] == 1 {
             self.enigo.key(Key::Meta, Press).unwrap();
-        } else if buf[HEADER + 3] == 2 {
+        } else if buf[3] == 2 {
             self.enigo.key(Key::Meta, Release).unwrap();
         }
 
-        if buf[HEADER + 8] != 0 {
-            if buf[HEADER + 8] == 32 {
+        if buf[8] != 0 {
+            if buf[8] == 32 {
                 self.enigo.key(Key::Space, enigo::Direction::Click).unwrap();
-            } else if buf[HEADER + 8] == 8 {
+            } else if buf[8] == 8 {
                 self.enigo.key(Key::Backspace, Press).unwrap();
-            } else if buf[HEADER + 8] == 10 {
+            } else if buf[8] == 10 {
                 self.enigo
                     .key(Key::Return, enigo::Direction::Click)
                     .unwrap();
-            } else if buf[HEADER + 8] >= 33 {
+            } else if buf[8] >= 33 {
                 // add ascii range check
 
                 self.enigo
-                    .key(Key::Unicode((buf[HEADER + 8]) as char), Press)
+                    .key(Key::Unicode((buf[8]) as char), Press)
                     .unwrap();
             }
         }
 
-        if buf[HEADER + 9] != 0 {
-            if buf[HEADER + 9] == 32 {
+        if buf[9] != 0 {
+            if buf[9] == 32 {
                 self.enigo.key(Key::Space, Release).unwrap();
-            } else if buf[HEADER + 9] == 8 {
+            } else if buf[9] == 8 {
                 self.enigo.key(Key::Backspace, Release).unwrap();
-            } else if buf[HEADER + 9] >= 33 {
+            } else if buf[9] >= 33 {
                 // add ascii range check
                 self.enigo
-                    .key(Key::Unicode((buf[HEADER + 9]) as char), Release)
+                    .key(Key::Unicode((buf[9]) as char), Release)
                     .unwrap();
             }
         }
@@ -200,7 +200,7 @@ impl EventsThread {
                         }
                     }
                     EPacketType::STATE => {
-                        emitter.input(&mut buf, 1440, 900);
+                        emitter.input(&mut buf[HEADER..], 1440, 900);
                     }
                     _ => {}
                 }
