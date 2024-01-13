@@ -10,7 +10,7 @@ use mrial_proto::{input::*, packet::*};
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
 
-use super::{conn::Connection, ServerActions};
+use super::{conn::Connection, VideoServerActions};
 
 pub struct EventsEmitter {
     enigo: Enigo,
@@ -174,14 +174,14 @@ impl EventsThread {
         &self,
         conn: &mut Connection,
         headers: Vec<u8>,
-        server_channel_sender: Sender<ServerActions>,
+        video_server_ch_sender: Sender<VideoServerActions>,
     ) {
         let mut conn = conn.clone();
         let _ = thread::spawn(move || {
             let mut emitter = EventsEmitter::new();
 
             loop {
-                let mut buf: [u8; MTU] = [0; MTU];
+                let mut buf = [0u8; MTU];
                 let (_size, src) = conn.recv_from(&mut buf).unwrap();
                 let packet_type = parse_packet_type(&buf);
 
@@ -191,12 +191,14 @@ impl EventsThread {
                         conn.add_client(src, &headers);
                     }
                     EPacketType::PING => {
-                        conn.ping_client(src);
+                        conn.client_pinged(src);
                     }
                     EPacketType::DISCONNECT => {
                         conn.remove_client(src);
                         if !conn.has_clients() {
-                            server_channel_sender.send(ServerActions::Inactive).unwrap();
+                            video_server_ch_sender
+                                .send(VideoServerActions::Inactive)
+                                .unwrap();
                         }
                     }
                     EPacketType::STATE => {
