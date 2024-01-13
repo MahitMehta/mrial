@@ -1,6 +1,17 @@
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use libyuv_sys::{ARGBToI444, ARGBToJ420};
 
+pub enum EColorSpace {
+    YUV444 = 12,
+    YUV422 = 7
+}
+
+impl Into<usize> for EColorSpace {
+    fn into(self) -> usize {
+        self as usize
+    }
+}
+
 pub struct YUVBuffer {
     yuv: Vec<u8>,
     width: usize,
@@ -26,7 +37,7 @@ impl YUVBuffer {
         rval.read_bgra_for_420(bgra);
         rval
     }
-    
+
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub fn with_bgra_for_422(width: usize, height: usize, bgra: &[u8]) -> Self {
         let mut rval = Self {

@@ -1,55 +1,65 @@
-use std::{collections::HashMap, net::{SocketAddr, UdpSocket}, sync::{Arc, RwLock}, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    collections::HashMap,
+    net::{SocketAddr, UdpSocket},
+    sync::{Arc, RwLock},
+    time::SystemTime,
+};
 
 use mrial_proto::{packet::*, SERVER_PING_TOLERANCE};
 
+const SERVER_DEFAULT_PORT : u16 = 8554; 
+
 pub struct Client {
     last_ping: SystemTime,
-    src: SocketAddr
+    src: SocketAddr,
 }
 
 impl Client {
     pub fn new(src: SocketAddr) -> Self {
         Self {
             src,
-            last_ping: SystemTime::now()
+            last_ping: SystemTime::now(),
         }
     }
 
     pub fn is_alive(&self) -> bool {
-        self.last_ping.elapsed().unwrap().as_secs() < SERVER_PING_TOLERANCE  
+        self.last_ping.elapsed().unwrap().as_secs() < SERVER_PING_TOLERANCE
     }
 }
 
-pub struct Connections {
+pub struct Connection {
     clients: Arc<RwLock<HashMap<String, Client>>>,
     socket: UdpSocket,
 }
 
-impl Connections {
-    pub fn new(socket: UdpSocket) -> Self {
+impl Connection {
+    pub fn new() -> Self {
+        let server_address = SocketAddr::from(([0, 0, 0, 0], SERVER_DEFAULT_PORT));
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
-            socket,
+            socket: UdpSocket::bind(server_address).expect("Failed to Establish UdpSocket"),
         }
     }
-    
+
     pub fn ping_client(&self, src: SocketAddr) {
         let src_str: String = src.to_string();
         if self.clients.read().unwrap().contains_key(&src_str) {
             let current = SystemTime::now();
 
-            self.clients.write()
-            .unwrap()
-            .get_mut(&src_str)
-            .unwrap().last_ping = current;
+            self.clients
+                .write()
+                .unwrap()
+                .get_mut(&src_str)
+                .unwrap()
+                .last_ping = current;
         }
     }
-    
-    pub fn  filter_clients(&self) {
+
+    pub fn filter_clients(&self) {
         let mut clients = self.clients.write().unwrap();
         clients.retain(|_, client| client.is_alive());
     }
-    
+
     pub fn has_clients(&self) -> bool {
         self.clients.read().unwrap().len() > 0
     }
@@ -65,28 +75,27 @@ impl Connections {
         {
             println!("Adding client: {}", src_str);
         }
-        
-        self.clients.write().unwrap().insert(src_str, Client::new(src));
+
+        self.clients
+            .write()
+            .unwrap()
+            .insert(src_str, Client::new(src));
         let mut buf = [0u8; HEADER];
         write_header(
-            EPacketType::SHOOK, 
-            0, 
-            HEADER.try_into().unwrap(), 
-            0, 
-            &mut buf
+            EPacketType::SHOOK,
+            0,
+            HEADER.try_into().unwrap(),
+            0,
+            &mut buf,
         );
         self.socket.send_to(&buf, src).unwrap();
 
         let mut buf = [0u8; MTU];
-        write_header(
-            EPacketType::NAL, 
-            0, 
-            HEADER.try_into().unwrap(), 
-            0, 
-            &mut buf
-        );
+        write_header(EPacketType::NAL, 0, HEADER.try_into().unwrap(), 0, &mut buf);
         buf[HEADER..HEADER + headers.len()].copy_from_slice(headers);
-        self.socket.send_to(&buf[0..HEADER + headers.len()], src).unwrap();
+        self.socket
+            .send_to(&buf[0..HEADER + headers.len()], src)
+            .unwrap();
     }
 
     #[inline]
@@ -96,10 +105,14 @@ impl Connections {
         }
     }
 
+    pub fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
+        self.socket.recv_from(buf)
+    }
+
     pub fn clone(&self) -> Self {
         Self {
             clients: self.clients.clone(),
-            socket: self.socket.try_clone().unwrap()
+            socket: self.socket.try_clone().unwrap(),
         }
     }
 }

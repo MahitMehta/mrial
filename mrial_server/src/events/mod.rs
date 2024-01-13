@@ -1,15 +1,16 @@
-use std::{net::UdpSocket, thread};
+use std::thread;
 
 use enigo::{
     Direction::{Press, Release},
-    Enigo, Key, Keyboard, Settings, Mouse
+    Enigo, Key, Keyboard, Mouse, Settings,
 };
+use kanal::Sender;
 use mrial_proto::{input::*, packet::*};
 
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
 
-use crate::conn::Connections;
+use super::{conn::Connection, ServerActions};
 
 pub struct EventsEmitter {
     enigo: Enigo,
@@ -25,12 +26,10 @@ impl EventsEmitter {
         use std::time::Duration;
 
         let mouse = mouse_rs::Mouse::new(); // requires package install on linux (libxdo-dev)
-        let uinput = mouse_keyboard_input::VirtualDevice::new(
-            Duration::new(0.040 as u64, 
-                0), 2000
-            ).unwrap();
+        let uinput =
+            mouse_keyboard_input::VirtualDevice::new(Duration::new(0.040 as u64, 0), 2000).unwrap();
         let enigo = Enigo::new(&Settings::default()).unwrap();
-            
+
         Self {
             enigo,
             mouse,
@@ -45,31 +44,26 @@ impl EventsEmitter {
         let mouse = mouse_rs::Mouse::new(); // requires package install on linux (libxdo-dev)
         let enigo = Enigo::new(&Settings::default()).unwrap();
 
-        Self {
-            mouse,
-            enigo
-        }
+        Self { mouse, enigo }
     }
 
     // sudo apt install libudev-dev libevdev-dev libhidapi-dev
     // sudo usermod -a -G input user
     // sudo reboot
-    
+
     #[cfg(target_os = "linux")]
     pub fn scroll(&mut self, x: i32, y: i32) {
         if x != 0 {
             let _ = &self.uinput.scroll_x(-x * 3);
         }
-        
+
         if y != 0 {
             let _ = &self.uinput.scroll_y(-y * 3);
         }
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub fn scroll(&self, x: i32, y: i32) {
-        
-    }
+    pub fn scroll(&self, x: i32, y: i32) {}
 
     pub fn input(&mut self, buf: &mut [u8], width: usize, height: usize) {
         if click_requested(&buf) {
@@ -77,10 +71,14 @@ impl EventsEmitter {
 
             let _ = &self.mouse.move_to(x, y);
             if right {
-                let _ = &self.enigo.button(enigo::Button::Right, enigo::Direction::Click);
+                let _ = &self
+                    .enigo
+                    .button(enigo::Button::Right, enigo::Direction::Click);
             } else {
-                let _ = &self.enigo.button(enigo::Button::Left, enigo::Direction::Click);
-            }                        
+                let _ = &self
+                    .enigo
+                    .button(enigo::Button::Left, enigo::Direction::Click);
+            }
         }
         if mouse_move_requested(&buf) {
             let x_percent =
@@ -95,8 +93,10 @@ impl EventsEmitter {
 
             // TODO: handle right mouse button too
             if buf[HEADER + 14] == 1 {
-                let _ = &self.enigo.button(enigo::Button::Left, enigo::Direction::Press);
-            } 
+                let _ = &self
+                    .enigo
+                    .button(enigo::Button::Left, enigo::Direction::Press);
+            }
         }
         if buf[HEADER + 15] != 0 || buf[HEADER + 17] != 0 {
             let x_delta = i16::from_be_bytes(buf[HEADER + 14..HEADER + 16].try_into().unwrap());
@@ -113,7 +113,7 @@ impl EventsEmitter {
             self.enigo.key(Key::Control, Release).unwrap();
         }
         if buf[HEADER + 1] == 1 {
-            self. enigo.key(Key::Shift, Press).unwrap();
+            self.enigo.key(Key::Shift, Press).unwrap();
         } else if buf[HEADER + 1] == 2 {
             self.enigo.key(Key::Shift, Release).unwrap();
         }
@@ -136,7 +136,9 @@ impl EventsEmitter {
             } else if buf[HEADER + 8] == 8 {
                 self.enigo.key(Key::Backspace, Press).unwrap();
             } else if buf[HEADER + 8] == 10 {
-                self.enigo.key(Key::Return, enigo::Direction::Click).unwrap();
+                self.enigo
+                    .key(Key::Return, enigo::Direction::Click)
+                    .unwrap();
             } else if buf[HEADER + 8] >= 33 {
                 // add ascii range check
 
@@ -161,24 +163,28 @@ impl EventsEmitter {
     }
 }
 
-pub struct EventsThread {
-}
+pub struct EventsThread {}
 
 impl EventsThread {
     pub fn new() -> Self {
         Self {}
     }
 
-    pub fn run(&self, socket: UdpSocket, conn: &mut Connections, headers: Vec<u8>) {
+    pub fn run(
+        &self,
+        conn: &mut Connection,
+        headers: Vec<u8>,
+        server_channel_sender: Sender<ServerActions>,
+    ) {
         let mut conn = conn.clone();
         let _ = thread::spawn(move || {
             let mut emitter = EventsEmitter::new();
 
             loop {
                 let mut buf: [u8; MTU] = [0; MTU];
-                let (_size, src) = socket.recv_from(&mut buf).unwrap();
+                let (_size, src) = conn.recv_from(&mut buf).unwrap();
                 let packet_type = parse_packet_type(&buf);
-    
+
                 match packet_type {
                     EPacketType::SHAKE => {
                         // TODO: Need to requery headers from encoder
@@ -189,12 +195,15 @@ impl EventsThread {
                     }
                     EPacketType::DISCONNECT => {
                         conn.remove_client(src);
+                        if !conn.has_clients() {
+                            server_channel_sender.send(ServerActions::Inactive).unwrap();
+                        }
                     }
                     EPacketType::STATE => {
                         emitter.input(&mut buf, 1440, 900);
                     }
                     _ => {}
-                }            
+                }
             }
         });
     }

@@ -20,17 +20,18 @@ impl AudioEncoder {
     pub fn encode(&self, samples: &[i32]) {
         println!("Block {}", self.encoder.block_sizes[0]);
         let source = flacenc::source::MemSource::from_samples(
-            samples, 
-            self.channels, 
-            self.bits_per_sample, 
-            self.sample_rate
+            samples,
+            self.channels,
+            self.bits_per_sample,
+            self.sample_rate,
         );
-        
+
         let flac_stream = flacenc::encode_with_fixed_block_size(
-            &self.encoder, 
-            source, 
-            self.encoder.block_sizes[0]
-        ).expect("Audio Encoding failed.");
+            &self.encoder,
+            source,
+            self.encoder.block_sizes[0],
+        )
+        .expect("Audio Encoding failed.");
 
         println!("count: {}", flac_stream.frame_count());
     }
