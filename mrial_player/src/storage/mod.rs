@@ -1,6 +1,12 @@
-use std::{fs::{File, OpenOptions}, path::Path, error::Error, io::{BufReader, Write}, sync::{Arc, Mutex}};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::{
+    error::Error,
+    fs::{File, OpenOptions},
+    io::{BufReader, Write},
+    path::Path,
+    sync::{Arc, Mutex},
+};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Server {
@@ -16,7 +22,7 @@ pub struct ServerState {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct StorageWrapper<T> {
-    data: T
+    data: T,
 }
 
 pub trait Storage<T: serde::de::DeserializeOwned> {
@@ -26,14 +32,14 @@ pub trait Storage<T: serde::de::DeserializeOwned> {
 
 pub struct Servers {
     state: Arc<Mutex<Option<ServerState>>>,
-    db_path: String
+    db_path: String,
 }
 
 impl Servers {
     pub fn new() -> Self {
         Servers {
             state: Arc::new(Mutex::new(None)),
-            db_path: "./db/servers.json".to_string()
+            db_path: "./db/servers.json".to_string(),
         }
     }
 
@@ -41,7 +47,7 @@ impl Servers {
         if let Some(state) = self.state.lock().unwrap().as_ref() {
             return Some(state.servers.clone());
         }
-       
+
         None
     }
 
@@ -71,7 +77,7 @@ impl Servers {
     pub fn try_clone(&self) -> Servers {
         Servers {
             state: self.state.clone(),
-            db_path: self.db_path.clone()
+            db_path: self.db_path.clone(),
         }
     }
 
@@ -80,7 +86,7 @@ impl Servers {
             // TODO: display duplicate server error in slint
             for server in &state.servers {
                 if server.name == name {
-                    return; 
+                    return;
                 }
             }
 
@@ -100,14 +106,14 @@ impl Storage<ServerState> for Servers {
             Ok(file) => file,
             Err(_) => {
                 *self.state.lock().unwrap() = Some(ServerState {
-                    servers: Vec::new()
+                    servers: Vec::new(),
                 });
-                return Ok(())
+                return Ok(());
             }
         };
 
         let reader = BufReader::new(file);
-    
+
         let state: StorageWrapper<ServerState> = serde_json::from_reader(reader)?;
         *self.state.lock().unwrap() = Some(state.data);
 
@@ -122,8 +128,8 @@ impl Storage<ServerState> for Servers {
             .open(&self.db_path)
             .unwrap();
 
-        let value = StorageWrapper { 
-            data: self.state.lock().unwrap().clone().unwrap() 
+        let value = StorageWrapper {
+            data: self.state.lock().unwrap().clone().unwrap(),
         };
 
         let json = serde_json::to_string(&value)?;

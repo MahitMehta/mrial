@@ -1,26 +1,23 @@
-mod audio; 
-mod client; 
-mod video; 
+mod audio;
+mod client;
 mod input;
-mod storage; 
-
-use i_slint_backend_winit::WinitWindowAccessor;
-use mrial_proto::*;
+mod storage;
+mod video;
 
 use audio::AudioClient;
-use client::{Client, ConnectionState};
+use client::{Client, ClientMetaData, ConnectionState};
 use input::Input;
-use video::VideoThread; 
+use mrial_proto::*;
 use storage::{Servers, Storage};
+use video::VideoThread;
 
-use kanal::unbounded;
-use winit::raw_window_handle::HasWindowHandle;
-use std::sync::{Mutex, Arc};
-use std::{thread, rc::Rc};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use slint::{ComponentHandle, SharedString, VecModel};
+use std::{rc::Rc, thread};
 
-use crate::client::ClientMetaData;
+use i_slint_backend_winit::WinitWindowAccessor;
+use kanal::unbounded;
+use slint::{ComponentHandle, SharedString, VecModel};
 
 slint::include_modules!();
 
@@ -29,10 +26,10 @@ pub enum ConnectionAction {
     Disconnect,
     Connect,
     Reconnect,
-    Handshake
+    Handshake,
 }
 
-fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) {    
+fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) {
     if let Some(servers) = server_state.get_servers() {
         let slint_servers = Rc::new(VecModel::default());
         for server in servers {
@@ -43,10 +40,13 @@ fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) 
                 os: SharedString::from("ubuntu"),
                 ram: 24,
                 storage: 40,
-                vcpu: 4
+                vcpu: 4,
             });
         }
-        app_weak.unwrap().global::<HomePageAdapter>().set_servers(slint_servers.into());
+        app_weak
+            .unwrap()
+            .global::<HomePageAdapter>()
+            .set_servers(slint_servers.into());
     }
 }
 
@@ -56,32 +56,35 @@ fn main() {
 
     let app: MainWindow = MainWindow::new().unwrap();
     let app_weak = app.as_weak();
-    
-    let (width, height) = app.window().with_winit_window(|winit_window: &winit::window::Window| {
-        let monitor = winit_window.primary_monitor().unwrap(); 
-        let scale_factor = monitor.scale_factor();
-        let size = monitor.size();
-        let width = (size.width as f64 / scale_factor) as usize;
-        let height =  (size.height as f64 / scale_factor) as usize;
-        
-        (width, height)
-    }).unwrap();
+
+    let (width, height) = app
+        .window()
+        .with_winit_window(|winit_window: &winit::window::Window| {
+            let monitor = winit_window.primary_monitor().unwrap();
+            let scale_factor = monitor.scale_factor();
+            let size = monitor.size();
+            let width = (size.width as f64 / scale_factor) as usize;
+            let height = (size.height as f64 / scale_factor) as usize;
+
+            (width, height)
+        })
+        .unwrap();
 
     const VERSION: &str = env!("CARGO_PKG_VERSION");
-    app_weak.unwrap().global::<GlobalVars>().set_app_version(VERSION.into());
+    app_weak
+        .unwrap()
+        .global::<GlobalVars>()
+        .set_app_version(VERSION.into());
 
     app.window().on_close_requested(|| {
         println!("Close Requested"); // send disconnect packet
         slint::CloseRequestResponse::HideWindow
     });
 
-    let mut client = Client::new(ClientMetaData {
-        width,
-        height
-    });
-    let conn_channel =  unbounded::<ConnectionAction>();
+    let mut client = Client::new(ClientMetaData { width, height });
+    let conn_channel = unbounded::<ConnectionAction>();
     let conn_sender = conn_channel.0.clone();
-    
+
     let mut server_state = Servers::new();
     server_state.load().unwrap();
     let mut server_state_clone = server_state.try_clone();
@@ -93,48 +96,61 @@ fn main() {
 
     slint::invoke_from_event_loop(move || {
         let conn_sender_clone = conn_sender.clone();
-        app_weak.unwrap().global::<ServerFunctions>().on_connect(move |name| {
-            *server_id_clone.lock().unwrap() = name.to_string(); 
-            conn_sender_clone.send(ConnectionAction::Connect).unwrap();
-        });
+        app_weak
+            .unwrap()
+            .global::<ServerFunctions>()
+            .on_connect(move |name| {
+                *server_id_clone.lock().unwrap() = name.to_string();
+                conn_sender_clone.send(ConnectionAction::Connect).unwrap();
+            });
 
-        app_weak.unwrap().global::<ServerFunctions>().on_disconnect(move || {
-            conn_sender.send(ConnectionAction::Disconnect).unwrap();
-        });
+        app_weak
+            .unwrap()
+            .global::<ServerFunctions>()
+            .on_disconnect(move || {
+                conn_sender.send(ConnectionAction::Disconnect).unwrap();
+            });
 
         let app_weak_clone = app_weak.clone();
         let mut server_state_create_clone = server_state_clone.try_clone();
-        app_weak.unwrap().global::<CreateServerFunctions>().on_add(move |name, ip_addr, port| {
-            server_state_create_clone.add(
-                name.to_string(), 
-                ip_addr.to_string(),
-                port.parse::<u16>().unwrap()
-            );
-            
-            populate_servers(&server_state_create_clone, &app_weak_clone);
-            server_state_create_clone.save().unwrap();
-        });
+        app_weak
+            .unwrap()
+            .global::<CreateServerFunctions>()
+            .on_add(move |name, ip_addr, port| {
+                server_state_create_clone.add(
+                    name.to_string(),
+                    ip_addr.to_string(),
+                    port.parse::<u16>().unwrap(),
+                );
+
+                populate_servers(&server_state_create_clone, &app_weak_clone);
+                server_state_create_clone.save().unwrap();
+            });
 
         let app_weak_clone = app_weak.clone();
-        app_weak.unwrap().global::<ServerFunctions>().on_delete(move |name| {
-            server_state_clone.delete(name.to_string());
-            populate_servers(&server_state_clone, &app_weak_clone);
-            server_state_clone.save().unwrap();
-        });        
-    }).unwrap();
+        app_weak
+            .unwrap()
+            .global::<ServerFunctions>()
+            .on_delete(move |name| {
+                server_state_clone.delete(name.to_string());
+                populate_servers(&server_state_clone, &app_weak_clone);
+                server_state_clone.save().unwrap();
+            });
+    })
+    .unwrap();
 
     let app_weak = app.as_weak();
 
     let _conn: thread::JoinHandle<_> = thread::spawn(move || {
         let mut buf: [u8; MTU] = [0; MTU];
-       
+
         let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
         let sink = rodio::Sink::try_new(&handle).unwrap();
         let mut audio = AudioClient::new(sink);
 
         let mut video = VideoThread::new();
         let video_conn_sender = conn_channel.0.clone();
-        video.begin_decoding(app_weak.clone(), video_conn_sender, client.clone());
+        video.run(app_weak.clone(), video_conn_sender, client.clone());
 
         let mut input = Input::new();
         input.capture(app_weak.clone(), client.clone());
@@ -142,21 +158,21 @@ fn main() {
         loop {
             if !client.connected() || conn_channel.1.len() > 0 {
                 match conn_channel.1.try_recv_realtime().unwrap() {
-                    None => {   
-                        if !client.connected() { 
+                    None => {
+                        if !client.connected() {
                             thread::sleep(Duration::from_millis(25));
                             continue;
                         }
                     }
                     Some(ConnectionAction::Connect) => {
-                        let server_id = server_id.lock().unwrap().clone(); 
+                        let server_id = server_id.lock().unwrap().clone();
                         if let Some(server) = server_state.find_server(server_id) {
                             client.set_socket_address(server.address, server.port);
                         }
 
                         client.set_state(ConnectionState::Connecting);
                         conn_channel.0.send(ConnectionAction::Handshake).unwrap();
-                        continue
+                        continue;
                     }
                     Some(ConnectionAction::Handshake) => {
                         client.connect();
@@ -165,15 +181,15 @@ fn main() {
                             ConnectionState::Connected => input.send_loop(&client),
                             ConnectionState::Connecting => {
                                 conn_channel.0.send(ConnectionAction::Handshake).unwrap();
-                                continue
+                                continue;
                             }
-                            _ => continue
+                            _ => continue,
                         }
                     }
                     Some(ConnectionAction::Reconnect) => {
                         client.connect();
                         if !client.connected() {
-                            continue
+                            continue;
                         }
                     }
                     Some(ConnectionAction::Disconnect) => {
@@ -186,7 +202,7 @@ fn main() {
                     }
                 }
             }
-         
+
             let (number_of_bytes, _) = client.recv_from(&mut buf).unwrap();
             let packet_type = parse_packet_type(&buf);
 
@@ -195,8 +211,8 @@ fn main() {
                 EPacketType::NAL => video.packet(&buf, &client, number_of_bytes),
                 _ => {}
             }
-        }     
+        }
     });
-     
+
     app.run().unwrap();
 }
