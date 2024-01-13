@@ -6,7 +6,6 @@ use std::{
 };
 
 use mrial_proto::*;
-use serde::de::value::Error;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ConnectionState {
@@ -152,15 +151,21 @@ impl Client {
             }
         }
     }
-
+    
     pub fn send_handshake(&mut self) {
         if let Some(socket) = &self.socket {
             let _ = socket
                 .set_read_timeout(Some(Duration::from_millis(1000)))
                 .expect("Failed to Set Timeout");
-            let mut buf: [u8; HEADER] = [0; HEADER];
+            let mut buf = [0u8; HEADER + HANDSHAKE_PAYLOAD];
 
             write_header(EPacketType::SHAKE, 0, HEADER as u32, 0, &mut buf);
+
+            let meta = self.meta.read().unwrap();
+            write_handshake_payload(&mut buf[HEADER..], EHandshakePayload { 
+                width: meta.width.try_into().unwrap(),
+                height: meta.height.try_into().unwrap()
+            });
 
             let _ = socket.send(&buf);
             println!("Sent Handshake Packet");
