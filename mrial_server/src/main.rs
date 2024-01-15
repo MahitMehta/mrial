@@ -49,7 +49,11 @@ async fn main() {
     par = par.param_parse("repeat_headers", "1").unwrap();
     par = par.set_csp(12); // 12 = 444, 7 = 422
     par = par.set_dimension(height, width);
-    // par = par.set_fullrange(1); // not needed for 444
+   
+    if cfg!(target_os = "windows") {
+        par = par.set_fullrange(1); // not needed for 444 with libyuv
+    }
+
     par = par.param_parse("annexb", "1").unwrap();
     par = par.param_parse("bframes", "0").unwrap();
     par = par.param_parse("crf", "20").unwrap();
@@ -96,7 +100,7 @@ async fn main() {
         match capturer.frame() {
             Ok(frame) => {
                 let data = frame.chunks(rowlen).next().unwrap().to_vec();
-
+                
                 let cvt_rgb_yuv = async move {
                     let yuv = YUVBuffer::with_bgra_for_444(width, height, &data);
                     yuv
@@ -104,10 +108,9 @@ async fn main() {
                 yuv_handles.push_back(pool.spawn_with_handle(cvt_rgb_yuv).unwrap());
 
                 // set to 1 to increase FPS at the cost of latency, or 0  for the opposite effect
-                if yuv_handles.len() > 0 {
-                    //let start = Instant::now();
+                if yuv_handles.len() > 1 {
                     let yuv = yuv_handles.pop_front().unwrap().await;
-
+                   
                     let y_plane = pic.as_mut_slice(0).unwrap();
                     y_plane.copy_from_slice(yuv.y());
                     let u_plane = pic.as_mut_slice(1).unwrap();
@@ -118,7 +121,6 @@ async fn main() {
            
                     pic = pic.set_timestamp(frame_count);
                     frame_count += 1;
-
                     if let Some((nal, _, _)) = enc.encode(&pic).unwrap() {
                         let bitstream = nal.as_bytes();
                         // file.write(bitstream).unwrap();
@@ -163,12 +165,12 @@ async fn main() {
                     }
 
                     // replace possibly with spin-sleep: https://github.com/alexheretic/spin-sleep
-                    if sleep.elapsed().as_millis() > 0 && sleep.elapsed().as_millis() < 16 {
-                        let delay = 16 - sleep.elapsed().as_millis();
+                    // if sleep.elapsed().as_millis() > 0 && sleep.elapsed().as_millis() < 16 {
+                    //     let delay = 16 - sleep.elapsed().as_millis();
                         
-                        // std::thread::sleep(Duration::from_millis(delay as u64));
-                        spin_sleep::sleep(Duration::from_millis(delay as u64));
-                    }
+                    //     // std::thread::sleep(Duration::from_millis(delay as u64));
+                    //     spin_sleep::sleep(Duration::from_millis(delay as u64));
+                    // }
 
                     
 

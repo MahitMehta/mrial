@@ -26,6 +26,18 @@ impl YUVBuffer {
         rval.read_bgra_for_420(bgra);
         rval
     }
+
+    #[cfg(target_os = "windows")]
+    pub fn with_bgra_for_444(width: usize, height: usize, bgra: &[u8]) -> Self {
+        let mut rval = Self {
+            yuv: vec![0u8; 3 * width * height],
+            width,
+            height,
+        };
+
+        rval.read_bgra_for_444(bgra);
+        rval
+    }
     
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub fn with_bgra_for_422(width: usize, height: usize, bgra: &[u8]) -> Self {
@@ -86,6 +98,28 @@ impl YUVBuffer {
 
     #[cfg(target_os = "windows")]
     pub fn read_bgra_for_422(&mut self, bgra: &[u8]) {}
+
+    #[cfg(target_os = "windows")]
+    pub fn read_bgra_for_444(&mut self, bgra: &[u8]) {
+        let width = self.width;
+        let height = self.height;
+
+        let plane = width * height;
+
+        let pixel = |x: usize, y: usize| -> (f32, f32, f32) {
+            let base_pos = (x + y * width) * 4;
+            (bgra[base_pos] as f32, bgra[base_pos + 1] as f32, bgra[base_pos + 2] as f32)
+        };
+
+        for x in 0..width {
+            for y in 0..height {
+                let bgr = pixel(x, y);
+                self.yuv[x + y * width] = (0.299000 * bgr.2 + 0.587000 * bgr.1 + 0.114000 * bgr.0) as u8;
+                self.yuv[plane + x + y * width] = (-0.168736 * bgr.2 + -0.331264 * bgr.1 + 0.500000 * bgr.0 + 128.0) as u8;
+                self.yuv[plane * 2 + x + y * width] = (0.500000 * bgr.2 + -0.418688 * bgr.1 + -0.081312 * bgr.0 + 128.0) as u8;
+            }
+        }
+    }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub fn read_bgra_for_420(&mut self, bgra: &[u8]) {
