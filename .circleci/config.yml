@@ -1,0 +1,66 @@
+version: 2.1
+
+jobs:   
+  build_player_win: 
+    macos: 
+      xcode: 15.1.0
+    steps: 
+      - checkout:
+          path: mrial_player
+      - restore_cache:
+          keys:
+            - v2-cargo-mrial-player-cache-{{ arch }} # {{ checksum "Cargo.lock" }}
+      - run: 
+          name: Install Rust
+          command: |
+            brew install rust
+      - run: 
+          name: Install FFmpeg
+          command: |
+            brew install ffmpeg
+      - run: 
+          name: Build 
+          command: | 
+            cargo build --release
+      - persist_to_workspace:
+          root: ./target/release
+          paths:
+            - mrial_player
+      - save_cache:
+          paths:
+            - /home/circleci/.cargo/registry
+            - /home/circleci/.cargo/bin
+            - /home/circleci/.cargo/.crates.toml
+            -  /home/circleci/.cargo/.crates2.json
+            - target
+          key: v2-cargo-mrial-player-cache-{{ arch }} # {{ checksum "Cargo.lock" }}
+  publish-github-release:
+    docker:
+      - image: cibuilds/github:0.10
+    steps:
+      - attach_workspace:
+          at: ./target/release
+      - run:
+          name: "Publish Release on GitHub"
+          command: |
+            ghr -t ${GITHUB_TOKEN} -u ${CIRCLE_PROJECT_USERNAME} -r ${CIRCLE_PROJECT_REPONAME} -c ${CIRCLE_SHA1} -delete ${CIRCLE_TAG} mrial_player
+workflows:
+  build_and_release: 
+    jobs: 
+      - build_player_win:
+          filters:
+            tags:
+              only:
+                - /v.*/
+            branches:
+              ignore: /.*/
+      - publish-github-release:
+          filters:
+            tags:
+              only:
+                - /v.*/
+            branches:
+              ignore: /.*/
+          context: gh_secrets
+          requires: 
+            - build_player_win

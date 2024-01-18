@@ -92,11 +92,7 @@ impl VideoThread {
                 };
 
                 let mut yuv_frame = frame::Video::empty();
-                let mut rgb_frame = frame::Video::new(
-                    Pixel::RGB24,
-                    client.get_meta().width as u32,
-                    client.get_meta().height as u32,
-                );
+                let mut rgb_frame = frame::Video::empty();
 
                 while ffmpeg_decoder.receive_frame(&mut yuv_frame).is_ok() {
                     if lanczos_scalar.is_none() {
