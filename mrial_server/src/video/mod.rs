@@ -9,35 +9,60 @@ use std::{
     collections::VecDeque,
     fs::File,
     io::{ErrorKind::WouldBlock, Write},
-    time::{Duration, Instant},
+    time::{Duration, Instant}, sync::RwLockReadGuard
 };
-use x264::{Param, Picture};
+use x264::{Param, Picture, Encoder};
 use yuv::YUVBuffer;
 
-use crate::{conn::Connection, events::EventsThread};
+use crate::{conn::{Connection, ServerMetaData}, events::EventsThread};
 
 use self::yuv::EColorSpace;
 
 #[derive(PartialEq)]
 pub enum VideoServerActions {
     Inactive,
+    ConfigUpdate
 }
 
 pub struct VideoServerThread {
+    conn: Connection,
     file: Option<File>,
-
+    capturer: Capturer,
     frame_count: i64,
     packet_id: u8,
     buf: [u8; MTU],
+    row_len: usize,
+
+    par: Param,
+    encoder: Encoder
 }
 
 impl VideoServerThread {
-    pub fn new() -> Self {
+    pub fn new(conn: Connection) -> Self {
+        let display: Display = Display::primary().unwrap();
+        let capturer = Capturer::new(display).unwrap();
+
+        conn.set_dimensions(
+            capturer.width(), 
+            capturer.height()
+        );
+
+        let row_len = 4 * conn.get_meta().width * conn.get_meta().width;
+
+        let mut par: Param = VideoServerThread::get_parameters(conn.get_meta());
+        let encoder = x264::Encoder::open(&mut par).unwrap();
+
         Self {
+            conn,
+            row_len,
             file: None,
+            capturer,
             frame_count: 0,
             packet_id: 1,
             buf: [0u8; MTU],
+
+            par,
+            encoder
         }
     }
 
@@ -49,20 +74,52 @@ impl VideoServerThread {
         }
     }
 
-    #[inline]
-    pub async fn run(&mut self, conn: &mut Connection) {
-        let (ch_sender, ch_receiver) = unbounded::<VideoServerActions>();
+    #[cfg(target_os = "linux")]
+    fn update_display_resolution(&self, width: usize, height: usize) -> Result<bool, xrandr::XrandrError> {
+        use xrandr::{XHandle, ScreenResources};
 
-        let display: Display = Display::primary().unwrap();
-        let mut capturer = Capturer::new(display).unwrap();
+        let mut handle = XHandle::open().unwrap();
+        let mon1 = &handle.monitors()?[0];
 
-        let width = capturer.width();
-        let height = capturer.height();
+        if mon1.width_px == width.try_into().unwrap() && 
+            mon1.height_px == height.try_into().unwrap() {
+            return Ok(false);
+        }
 
+        let res = ScreenResources::new(&mut handle)?;
+        
+        let requested_mode = res.modes.iter().find(|m| {
+            m.width == width.try_into().unwrap() && 
+            m.height == height.try_into().unwrap()
+        });
+        
+        // TODO: Handle the possibility the mode doesn't exist
+        if let Some(mode) = requested_mode {
+            handle.set_mode(
+                &mon1.outputs[0], 
+                &mode
+            )?;
+            return Ok(true);
+        }
+
+        Ok(false)
+    }
+
+    #[cfg(target_os = "windows")]
+    fn update_display_resolution(&self, width: usize, height: usize) -> Result<(), std::io::Error> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    fn update_display_resolution(&self, width: usize, height: usize) -> Result<(), std::io::Error> {
+        Ok(())
+    }
+
+    fn get_parameters(meta: RwLockReadGuard<'_, ServerMetaData>) -> Param {
         let mut par = Param::default_preset("ultrafast", "zerolatency").unwrap();
 
         par = par.set_csp(EColorSpace::YUV444.into());
-        par = par.set_dimension(height, width);
+        par = par.set_dimension(meta.height, meta.width);
         if cfg!(target_os = "windows") {
             par = par.set_fullrange(1);
         }
@@ -73,41 +130,79 @@ impl VideoServerThread {
         par = par.param_parse("crf", "20").unwrap();
         par = par.apply_profile("high444").unwrap();
 
-        let mut pic = Picture::from_param(&par).unwrap();
-        let mut encoder = x264::Encoder::open(&mut par).unwrap();
+        par
+    }
 
+    #[inline]
+    pub async fn run(&mut self) {
+        let (ch_sender, ch_receiver) = unbounded::<VideoServerActions>();
+
+        let mut pic = Picture::from_param(&self.par).unwrap();
+      
         let pool = ThreadPool::builder().pool_size(1).create().unwrap();
         let mut yuv_handles: VecDeque<RemoteHandle<YUVBuffer>> = VecDeque::new();
-
-        let rowlen: usize = 4 * width * height;
 
         let mut frames = 0u8;
         let mut fps_time = Instant::now();
 
-        let headers = encoder.get_headers().unwrap();
+        let headers = self.encoder.get_headers().unwrap();
 
         let events = EventsThread::new();
-        events.run(conn, headers.as_bytes().to_vec(), ch_sender.clone());
+        events.run(
+            &mut self.conn, 
+            headers.as_bytes().to_vec(), 
+            ch_sender.clone()
+        );
 
         loop {
-            if ch_receiver.len() > 0 {
+            while ch_receiver.len() > 0 {
                 match ch_receiver.try_recv_realtime().unwrap() {
                     Some(VideoServerActions::Inactive) => {
-                        encoder = x264::Encoder::open(&mut par).unwrap();
+                        self.encoder = x264::Encoder::open(&mut self.par).unwrap();
+                    
                     }
-                    None => {}
+                    Some(VideoServerActions::ConfigUpdate) => {
+                        let requested_width = self.conn.get_meta().width;
+                        let requested_height = self.conn.get_meta().height;
+
+                        match self.update_display_resolution(requested_width, requested_height) {
+                            Ok(_) => {},
+                            Err(e) => {
+                                println!("Error updating display resolution: {}", e);
+                            }
+                        }
+           
+                        let display = Display::primary().unwrap();
+                        self.capturer = Capturer::new(display).unwrap();
+
+                        self.conn.set_dimensions(
+                            self.capturer.width(), 
+                            self.capturer.height()
+                        );
+
+                        self.par = VideoServerThread::get_parameters(self.conn.get_meta());
+                        
+                        self.encoder = x264::Encoder::open(&mut self.par).unwrap();
+                        pic = Picture::from_param(&self.par).unwrap();
+
+                        yuv_handles.clear();
+                    }
+                    None => { break; }
                 }
             }
 
-            if !conn.has_clients() {
+            if !self.conn.has_clients() {
                 std::thread::sleep(Duration::from_millis(250));
                 continue;
             }
 
             let sleep = Instant::now();
-            match capturer.frame() {
+            let width = self.capturer.width();
+            let height = self.capturer.height();
+
+            match self.capturer.frame() {
                 Ok(frame) => {
-                    let bgra_frame = frame.chunks(rowlen).next().unwrap().to_vec();
+                    let bgra_frame = frame.chunks(self.row_len).next().unwrap().to_vec();
 
                     let cvt_rgb_yuv = async move {
                         let yuv = YUVBuffer::with_bgra_for_444(width, height, &bgra_frame);
@@ -130,7 +225,7 @@ impl VideoServerThread {
                         pic = pic.set_timestamp(self.frame_count);
                         self.frame_count += 1;
 
-                        if let Some((nal, _, _)) = encoder.encode(&pic).unwrap() {
+                        if let Some((nal, _, _)) = self.encoder.encode(&pic).unwrap() {
                             let bitstream = nal.as_bytes();
 
                             let packets = (bitstream.len() as f64 / PAYLOAD as f64).ceil() as usize;
@@ -159,13 +254,13 @@ impl VideoServerThread {
                                 self.buf[HEADER..addition + HEADER]
                                     .copy_from_slice(&bitstream[start..(addition + start)]);
 
-                                conn.broadcast(&self.buf[0..addition + HEADER]);
+                                self.conn.broadcast(&self.buf[0..addition + HEADER]);
                             }
                             frames += 1;
                         }
 
                         if fps_time.elapsed().as_millis() > 1000 && frames > 0 {
-                            conn.filter_clients();
+                            self.conn.filter_clients();
                             println!(
                                 "FPS: {}",
                                 frames as f32 / fps_time.elapsed().as_secs() as f32

@@ -27,9 +27,15 @@ impl Client {
     }
 }
 
+pub struct ServerMetaData {
+    pub width: usize,
+    pub height: usize,
+}
+
 pub struct Connection {
     clients: Arc<RwLock<HashMap<String, Client>>>,
-    socket: UdpSocket,
+    meta: Arc<RwLock<ServerMetaData>>,
+    socket: UdpSocket
 }
 
 impl Connection {
@@ -37,8 +43,21 @@ impl Connection {
         let server_address = SocketAddr::from(([0, 0, 0, 0], SERVER_DEFAULT_PORT));
         Self {
             clients: Arc::new(RwLock::new(HashMap::new())),
+            meta: Arc::new(RwLock::new(ServerMetaData {
+                width: 0,
+                height: 0,
+            })),
             socket: UdpSocket::bind(server_address).expect("Failed to Establish UdpSocket"),
         }
+    }
+
+    pub fn get_meta(&self) -> std::sync::RwLockReadGuard<'_, ServerMetaData> {
+        self.meta.read().unwrap()
+    }
+
+    pub fn set_dimensions(&self, width: usize, height: usize) {
+        self.meta.write().unwrap().width = width;
+        self.meta.write().unwrap().height = height;
     }
 
     #[inline]
@@ -116,6 +135,7 @@ impl Connection {
     pub fn clone(&self) -> Self {
         Self {
             clients: self.clients.clone(),
+            meta: self.meta.clone(),
             socket: self.socket.try_clone().unwrap(),
         }
     }

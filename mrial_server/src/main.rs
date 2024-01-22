@@ -13,9 +13,9 @@ use video::{VideoServerActions, VideoServerThread};
 async fn main() {
     let mut conn: Connection = Connection::new();
 
+    let mut video_server = VideoServerThread::new(conn.clone());
     let audio_server = AudioServerThread::new();
-    audio_server.run(conn.clone());
 
-    let mut video_server = VideoServerThread::new();
-    video_server.run(&mut conn).await;
+    audio_server.run(conn);
+    video_server.run().await;
 }

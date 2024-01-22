@@ -5,7 +5,7 @@ use enigo::{
     Enigo, Key, Keyboard, Mouse, Settings,
 };
 use kanal::Sender;
-use mrial_proto::{input::*, packet::*};
+use mrial_proto::{input::*, packet::*, parse_handshake_payload};
 
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
@@ -181,12 +181,20 @@ impl EventsThread {
             let mut emitter = EventsEmitter::new();
 
             loop {
-                let mut buf = [0u8; MTU];
+                let mut buf: [u8; 1032] = [0u8; MTU];
                 let (_size, src) = conn.recv_from(&mut buf).unwrap();
                 let packet_type = parse_packet_type(&buf);
 
                 match packet_type {
                     EPacketType::SHAKE => {
+                        let meta = parse_handshake_payload(&mut buf[HEADER..]);
+                        conn.set_dimensions(
+                            meta.width.try_into().unwrap(), 
+                            meta.height.try_into().unwrap()
+                        );
+                        video_server_ch_sender
+                            .send(VideoServerActions::ConfigUpdate)
+                            .unwrap();
                         // TODO: Need to requery headers from encoder
                         conn.add_client(src, &headers);
                     }
