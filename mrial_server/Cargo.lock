@@ -774,26 +774,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b5e6163cb8c49088c2c36f57875e58ccd8c87c7427f7fbd50ea6710b2f3f2e8f"
 
 [[package]]
-name = "mahitm-rd-x11"
-version = "0.1.0"
-dependencies = [
- "cfg-if 0.1.10",
- "enigo",
- "flacenc",
- "futures",
- "kanal",
- "libyuv-sys",
- "mouse-keyboard-input",
- "mouse-rs",
- "mrial_proto",
- "pipewire",
- "scrap",
- "spin_sleep",
- "tokio",
- "x264",
-]
-
-[[package]]
 name = "malloc_buf"
 version = "0.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -891,6 +871,26 @@ dependencies = [
 [[package]]
 name = "mrial_proto"
 version = "0.1.0"
+
+[[package]]
+name = "mrial_server"
+version = "0.1.0"
+dependencies = [
+ "cfg-if 0.1.10",
+ "enigo",
+ "flacenc",
+ "futures",
+ "kanal",
+ "libyuv-sys",
+ "mouse-keyboard-input",
+ "mouse-rs",
+ "mrial_proto",
+ "pipewire",
+ "scrap",
+ "spin_sleep",
+ "tokio",
+ "x264",
+]
 
 [[package]]
 name = "nix"

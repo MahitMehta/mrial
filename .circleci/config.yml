@@ -1,59 +1,197 @@
 version: 2.1
 
+orbs:
+  win: circleci/windows@5.0 
+
 jobs:   
-  build_player_win: 
-    macos: 
-      xcode: 15.1.0
+  build_linux_arm64:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: arm.large
     steps: 
-      - checkout:
-          path: mrial_player
+      - checkout
+      - run: git submodule sync
+      - run: git submodule update --init
       - restore_cache:
           keys:
-            - v2-cargo-mrial-player-cache-{{ arch }} # {{ checksum "Cargo.lock" }}
+            - v4-cargo-mrial-player-cache-{{ arch }}-{{ checksum "mrial_player/Cargo.lock" }}
       - run: 
           name: Install Rust
           command: |
-            brew install rust
+            curl -o rustup https://sh.rustup.rs
+            bash rustup -y
+            rm ~/.gitconfig
       - run: 
-          name: Install FFmpeg
+          name: Install Dependencies
           command: |
-            brew install ffmpeg
+            sudo apt update
+            sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libclang-dev clang llvm-dev
+      # - run:
+      #     name: Build Server
+      #     command: |
+      #       cd mrial_server
+      #       cargo build --release
+      - run:
+          name: Build Player
+          command: |
+            cd mrial_player
+            cargo build --release
+      - run: 
+          name: Package
+          command: |
+            mkdir dist
+            mkdir -p mrial_arm64/bin
+            cp mrial_player/target/release/mrial_player mrial_arm64/bin/
+            # cp mrial_server/target/release/mrial_server mrial_arm64/bin/
+            zip -r mrial_arm64.zip mrial_arm64
+            mv mrial_arm64.zip dist/
+      - persist_to_workspace:
+          root: ./dist
+          paths:
+            - ./
+      - save_cache:
+          paths:
+            - ~/.cargo/
+            - ./mrial_player/target
+          #  - ./mrial_server/target
+          key: v4-cargo-mrial-player-cache-{{ arch }}-{{ checksum "mrial_player/Cargo.lock" }}
+  build_macos: 
+    macos: 
+      xcode: 15.1.0
+    environment:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+    steps: 
+      - checkout
+      - run: git submodule sync
+      - run: git submodule update --init
+      - restore_cache:
+          keys:
+            - v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "mrial_player/Cargo.lock" }}
+      - run: 
+          name: Install Rust
+          command: |
+            curl -o rustup https://sh.rustup.rs
+            bash rustup -y
+            rm ~/.gitconfig
+      - run: 
+          name: Install Dependencies
+          command: |
+            brew install yasm ffmpeg x264 cmake
+      - run: 
+          name: Build Player
+          command: | 
+            cd mrial_player
+            cargo build --release
+      - run :
+          name: Build Server
+          command: |
+            cd mrial_server
+            cargo build --release
+      - run: 
+          name: Package
+          command: |
+            mkdir dist
+            mkdir -p mrial_macos/bin
+            cp mrial_player/target/release/mrial_player mrial_macos/bin/
+            cp mrial_server/target/release/mrial_server mrial_macos/bin/
+            zip -r mrial_macos.zip mrial_macos
+            mv mrial_macos.zip dist/
+      - persist_to_workspace:
+          root: ./dist
+          paths:
+            - ./
+      - save_cache:
+          paths:
+            - ~/.cargo/
+            - ./mrial_player/target
+            - ./mrial_server/target
+          key: v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "mrial_player/Cargo.lock" }}
+  build_win:
+    executor: 
+      name: win/default 
+      size: large
+    environment:
+      FFMPEG_DOWNLOAD_URL: "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z"
+    steps:
+      - checkout
+      - restore_cache:
+          keys:
+            - v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "mrial_player/Cargo.lock" }}
+      - run: 
+          name: Install Rust
+          command: |
+            curl -o rustup https://sh.rustup.rs
+            bash rustup -y
+            rm ~/.gitconfig
+      - run: 
+          name: Install Dependencies
+          command: |
+            $VCINSTALLDIR = $(& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath)
+            New-Item $Profile.CurrentUserAllHosts -Force  
+            SETX LIBCLANG_PATH "${VCINSTALLDIR}\VC\Tools\LLVM\x64\bin`n"
+            Invoke-WebRequest "${env:FFMPEG_DOWNLOAD_URL}" -OutFile ffmpeg-release-full-shared.7z
+            7z x ffmpeg-release-full-shared.7z
+            mkdir ffmpeg
+            mv ffmpeg-*/* ffmpeg/
+            SETX FFMPEG_DIR "${pwd}\ffmpeg`n"
+            Add-Content -Path $Profile.CurrentUserAllHosts -Value '$env:PATH = "${pwd}\ffmpeg\bin;$env:PATH"'
       - run: 
           name: Build 
           command: | 
+            cd mrial_player
             cargo build --release
+      - run: 
+          name: Package
+          command: |
+            mkdir dist
+            mkdir -p mrial_win/bin
+            cp mrial_player/target/release/mrial_player.exe mrial_win/bin/
+            zip -r mrial_win.zip mrial_win
+            mv mrial_win.zip dist/
       - persist_to_workspace:
-          root: ./target/release
+          root: ./dist
           paths:
-            - mrial_player
+            - ./
       - save_cache:
           paths:
-            - /home/circleci/.cargo/registry
-            - /home/circleci/.cargo/bin
-            - /home/circleci/.cargo/.crates.toml
-            -  /home/circleci/.cargo/.crates2.json
-            - target
-          key: v2-cargo-mrial-player-cache-{{ arch }} # {{ checksum "Cargo.lock" }}
+            - ./mrial_player/target
+            - ./mrial_server/target
+          key: v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "mrial_player/Cargo.lock" }}
+
   publish-github-release:
     docker:
       - image: cibuilds/github:0.10
     steps:
       - attach_workspace:
-          at: ./target/release
+          at: ./dist
       - run:
           name: "Publish Release on GitHub"
           command: |
-            ghr -t ${GITHUB_TOKEN} -u ${CIRCLE_PROJECT_USERNAME} -r ${CIRCLE_PROJECT_REPONAME} -c ${CIRCLE_SHA1} -delete ${CIRCLE_TAG} mrial_player
+            ghr -t ${GITHUB_TOKEN} -u ${CIRCLE_PROJECT_USERNAME} -r ${CIRCLE_PROJECT_REPONAME} -c ${CIRCLE_SHA1} -delete ${CIRCLE_TAG} ./dist/
 workflows:
   build_and_release: 
     jobs: 
-      - build_player_win:
+      - build_linux_arm64:
           filters:
             tags:
               only:
                 - /v.*/
             branches:
               ignore: /.*/
+      - build_macos:
+          filters:
+            tags:
+              only:
+                - /v.*/
+            branches:
+              ignore: /.*/
+      # - build_win:
+      #     filters:
+      #       tags:
+      #         only:
+      #           - /v.*/
+      #       branches:
+      #         ignore: /.*/
       - publish-github-release:
           filters:
             tags:
@@ -61,6 +199,8 @@ workflows:
                 - /v.*/
             branches:
               ignore: /.*/
-          context: gh_secrets
+          context: mrial_gh
           requires: 
-            - build_player_win
+            - build_linux_arm64
+            - build_macos
+          # - build_win

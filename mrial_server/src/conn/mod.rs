@@ -7,7 +7,7 @@ use std::{
 
 use mrial_proto::{packet::*, SERVER_PING_TOLERANCE};
 
-const SERVER_DEFAULT_PORT : u16 = 8554; 
+const SERVER_DEFAULT_PORT: u16 = 8554;
 
 pub struct Client {
     last_ping: SystemTime,
@@ -41,7 +41,8 @@ impl Connection {
         }
     }
 
-    pub fn ping_client(&self, src: SocketAddr) {
+    #[inline]
+    pub fn client_pinged(&self, src: SocketAddr) {
         let src_str: String = src.to_string();
         if self.clients.read().unwrap().contains_key(&src_str) {
             let current = SystemTime::now();
@@ -55,11 +56,13 @@ impl Connection {
         }
     }
 
+    #[inline]
     pub fn filter_clients(&self) {
         let mut clients = self.clients.write().unwrap();
         clients.retain(|_, client| client.is_alive());
     }
 
+    #[inline]
     pub fn has_clients(&self) -> bool {
         self.clients.read().unwrap().len() > 0
     }
@@ -105,6 +108,7 @@ impl Connection {
         }
     }
 
+    #[inline]
     pub fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
         self.socket.recv_from(buf)
     }

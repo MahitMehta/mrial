@@ -1,6 +1,6 @@
 use crate::conn::Connection;
 
-use super::{AudioController, AudioEncoder, IAudioController};
+use super::{AudioEncoder, AudioServerThread, IAudioController};
 use mrial_proto::*;
 
 use pipewire as pw;
@@ -15,7 +15,7 @@ struct UserData {
     format: spa::param::audio::AudioInfoRaw,
 }
 
-impl AudioController {
+impl AudioServerThread {
     fn is_zero(buf: &[u8]) -> bool {
         let (prefix, aligned, suffix) = unsafe { buf.align_to::<u128>() };
 
@@ -25,8 +25,8 @@ impl AudioController {
     }
 }
 
-impl IAudioController for AudioController {
-    fn begin_transmission(&self, conn: Connection) {
+impl IAudioController for AudioServerThread {
+    fn run(&self, conn: Connection) {
         std::thread::spawn(move || {
             pw::init();
 
@@ -106,7 +106,7 @@ impl IAudioController for AudioController {
 
                         if let Some(samples) = data.data() {
                             // TODO: find a better solution to detect if audio is not playings
-                            if AudioController::is_zero(&samples[0..64]) {
+                            if AudioServerThread::is_zero(&samples[0..64]) {
                                 if samples[64] != 0 {
                                     println!("Next: {}", samples[64]);
                                 }
