@@ -1,0 +1,8 @@
+[workspace]
+
+members = [
+    "mrial_player",
+    "mrial_server"
+]
+
+exclude = [ "libs" ]

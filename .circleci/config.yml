@@ -14,7 +14,7 @@ jobs:
       - run: git submodule update --init
       - restore_cache:
           keys:
-            - v4-cargo-mrial-player-cache-{{ arch }}-{{ checksum "mrial_player/Cargo.lock" }}
+            - v4-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run: 
           name: Install Rust
           command: |
@@ -25,12 +25,12 @@ jobs:
           name: Install Dependencies
           command: |
             sudo apt update
-            sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libclang-dev clang llvm-dev
-      # - run:
-      #     name: Build Server
-      #     command: |
-      #       cd mrial_server
-      #       cargo build --release
+            sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libclang-dev clang llvm-dev libasound2-dev
+      - run:
+          name: Build Server
+          command: |
+            cd mrial_server
+            cargo build --release
       - run:
           name: Build Player
           command: |
@@ -41,8 +41,8 @@ jobs:
           command: |
             mkdir dist
             mkdir -p mrial_arm64/bin
-            cp mrial_player/target/release/mrial_player mrial_arm64/bin/
-            # cp mrial_server/target/release/mrial_server mrial_arm64/bin/
+            target/release/mrial_player mrial_arm64/bin/
+            target/release/mrial_server mrial_arm64/bin/
             zip -r mrial_arm64.zip mrial_arm64
             mv mrial_arm64.zip dist/
       - persist_to_workspace:
@@ -52,9 +52,8 @@ jobs:
       - save_cache:
           paths:
             - ~/.cargo/
-            - ./mrial_player/target
-          #  - ./mrial_server/target
-          key: v4-cargo-mrial-player-cache-{{ arch }}-{{ checksum "mrial_player/Cargo.lock" }}
+            - target
+          key: v4-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
   build_macos: 
     macos: 
       xcode: 15.1.0
@@ -66,7 +65,7 @@ jobs:
       - run: git submodule update --init
       - restore_cache:
           keys:
-            - v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "mrial_player/Cargo.lock" }}
+            - v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run: 
           name: Install Rust
           command: |
@@ -92,8 +91,8 @@ jobs:
           command: |
             mkdir dist
             mkdir -p mrial_macos/bin
-            cp mrial_player/target/release/mrial_player mrial_macos/bin/
-            cp mrial_server/target/release/mrial_server mrial_macos/bin/
+            cp target/release/mrial_player mrial_macos/bin/
+            cp target/release/mrial_server mrial_macos/bin/
             zip -r mrial_macos.zip mrial_macos
             mv mrial_macos.zip dist/
       - persist_to_workspace:
@@ -103,9 +102,8 @@ jobs:
       - save_cache:
           paths:
             - ~/.cargo/
-            - ./mrial_player/target
-            - ./mrial_server/target
-          key: v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "mrial_player/Cargo.lock" }}
+            - target
+          key: v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
   build_win:
     executor: 
       name: win/default 
@@ -116,7 +114,7 @@ jobs:
       - checkout
       - restore_cache:
           keys:
-            - v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "mrial_player/Cargo.lock" }}
+            - v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run: 
           name: Install Rust
           command: |
@@ -145,7 +143,7 @@ jobs:
           command: |
             mkdir dist
             mkdir -p mrial_win/bin
-            cp mrial_player/target/release/mrial_player.exe mrial_win/bin/
+            cp target/release/mrial_player.exe mrial_win/bin/
             zip -r mrial_win.zip mrial_win
             mv mrial_win.zip dist/
       - persist_to_workspace:
@@ -154,9 +152,8 @@ jobs:
             - ./
       - save_cache:
           paths:
-            - ./mrial_player/target
-            - ./mrial_server/target
-          key: v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "mrial_player/Cargo.lock" }}
+            - target
+          key: v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
 
   publish-github-release:
     docker:
@@ -177,21 +174,24 @@ workflows:
               only:
                 - /v.*/
             branches:
-              ignore: /.*/
+              only: 
+                - master
       - build_macos:
           filters:
             tags:
               only:
                 - /v.*/
             branches:
-              ignore: /.*/
+              only: 
+                - master
       # - build_win:
       #     filters:
       #       tags:
       #         only:
       #           - /v.*/
       #       branches:
-      #         ignore: /.*/
+      #         only: 
+      #           - master
       - publish-github-release:
           filters:
             tags:
