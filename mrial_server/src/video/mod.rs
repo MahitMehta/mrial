@@ -269,8 +269,8 @@ impl VideoServerThread {
                             fps_time = Instant::now();
                         }
 
-                        if sleep.elapsed().as_millis() > 0 && sleep.elapsed().as_millis() < 16 {
-                            let delay = 16 - sleep.elapsed().as_millis();
+                        if sleep.elapsed().as_millis() > 0 && sleep.elapsed().as_millis() < 33 {
+                            let delay = 33 - sleep.elapsed().as_millis();
                             spin_sleep::sleep(Duration::from_millis(delay as u64));
                         }
                     }
