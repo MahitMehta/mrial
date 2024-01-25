@@ -25,7 +25,7 @@ jobs:
           name: Install Dependencies
           command: |
             sudo apt update
-            sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libclang-dev clang llvm-dev libasound2-dev
+            sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev
       - run:
           name: Build Server
           command: |

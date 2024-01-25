@@ -2,6 +2,7 @@
 name = "mrial_player"
 version = "0.1.0"
 edition = "2021"
+authors = ["Mahit Mehta", "Marco Ngai"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
