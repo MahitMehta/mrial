@@ -2771,7 +2771,6 @@ dependencies = [
 [[package]]
 name = "libspa"
 version = "0.7.2"
-source = "git+https://gitlab.freedesktop.org/pipewire/pipewire-rs.git#ec0877067dddbd93772c914083836b5794363afc"
 dependencies = [
  "bitflags 2.4.2",
  "cc",
@@ -2787,7 +2786,6 @@ dependencies = [
 [[package]]
 name = "libspa-sys"
 version = "0.7.2"
-source = "git+https://gitlab.freedesktop.org/pipewire/pipewire-rs.git#ec0877067dddbd93772c914083836b5794363afc"
 dependencies = [
  "bindgen 0.68.1",
  "cc",
@@ -3524,7 +3522,6 @@ dependencies = [
 [[package]]
 name = "pipewire"
 version = "0.7.2"
-source = "git+https://gitlab.freedesktop.org/pipewire/pipewire-rs.git#ec0877067dddbd93772c914083836b5794363afc"
 dependencies = [
  "anyhow",
  "bitflags 2.4.2",
@@ -3540,7 +3537,6 @@ dependencies = [
 [[package]]
 name = "pipewire-sys"
 version = "0.7.2"
-source = "git+https://gitlab.freedesktop.org/pipewire/pipewire-rs.git#ec0877067dddbd93772c914083836b5794363afc"
 dependencies = [
  "bindgen 0.68.1",
  "libspa-sys",
