@@ -50,7 +50,7 @@ impl Connection {
             socket: UdpSocket::bind(server_address).expect("Failed to Establish UdpSocket"),
         }
     }
-
+    
     pub fn get_meta(&self) -> std::sync::RwLockReadGuard<'_, ServerMetaData> {
         self.meta.read().unwrap()
     }

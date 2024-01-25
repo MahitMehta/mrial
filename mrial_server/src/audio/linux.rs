@@ -4,11 +4,13 @@ use super::{AudioEncoder, AudioServerThread, IAudioController};
 use mrial_proto::*;
 
 use pipewire as pw;
-use pw::spa::format::{MediaSubtype, MediaType};
-use pw::spa::WritableDict;
-use pw::{properties, spa};
+use pw::{properties::properties, spa};
+use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::format_utils;
 use spa::pod::Pod;
+#[cfg(feature = "v0_3_44")]
+use spa::WritableDict;
+use std::convert::TryInto;
 use std::mem;
 
 struct UserData {
@@ -30,8 +32,8 @@ impl IAudioController for AudioServerThread {
         std::thread::spawn(move || {
             pw::init();
 
-            let mainloop = pw::MainLoop::new().unwrap();
-            let context = pw::Context::new(&mainloop).unwrap();
+            let mainloop = pw::main_loop::MainLoop::new(None).unwrap();
+            let context = pw::context::Context::new(&mainloop).unwrap();
 
             // run if error
             // 1. systemctl --user restart pipewire.service
@@ -47,18 +49,33 @@ impl IAudioController for AudioServerThread {
             let mut props = properties! {
                 *pw::keys::MEDIA_TYPE => "Audio",
                 *pw::keys::MEDIA_CATEGORY => "Capture",
-                *pw::keys::MEDIA_ROLE => "Music"
+                *pw::keys::MEDIA_ROLE => "Music",
             };
+            #[cfg(feature = "v0_3_44")]
+            let mut props = {
+                let opt = Opt::parse();
+
+                let mut props = properties! {
+                    *pw::keys::MEDIA_TYPE => "Audio",
+                    *pw::keys::MEDIA_CATEGORY => "Capture",
+                    *pw::keys::MEDIA_ROLE => "Music",
+                };
+                if let Some(target) = opt.target {
+                    props.insert(*pw::keys::TARGET_OBJECT, target);
+                }
+                props
+            };
+
             // uncomment if you want to capture from the sink monitor ports
             props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
 
             let stream = pw::stream::Stream::new(&core, "audio-capture", props).unwrap();
             let mut audio_packet_id = 0u8;
-            let encoder = AudioEncoder::new(2, 16, 48000);
+            let _encoder = AudioEncoder::new(2, 16, 48000);
 
             let _listener = stream
                 .add_local_listener_with_user_data(data)
-                .param_changed(move |_, id, user_data, param| {
+                .param_changed(move |_, user_data, id , param| {
                     // NULL means to clear the format
 
                     let Some(param) = param else {
@@ -173,7 +190,7 @@ impl IAudioController for AudioServerThread {
 
             stream
                 .connect(
-                    spa::Direction::Input,
+                    spa::utils::Direction::Input,
                     None,
                     pw::stream::StreamFlags::AUTOCONNECT
                         | pw::stream::StreamFlags::MAP_BUFFERS

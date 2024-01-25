@@ -181,7 +181,7 @@ impl EventsThread {
             let mut emitter = EventsEmitter::new();
 
             loop {
-                let mut buf: [u8; 1032] = [0u8; MTU];
+                let mut buf = [0u8; MTU];
                 let (_size, src) = conn.recv_from(&mut buf).unwrap();
                 let packet_type = parse_packet_type(&buf);
 
