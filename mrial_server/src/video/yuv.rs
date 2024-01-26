@@ -3,7 +3,7 @@ use libyuv_sys::{ARGBToI444, ARGBToJ420};
 
 pub enum EColorSpace {
     YUV444 = 12,
-    YUV422 = 7
+    YUV422 = 7,
 }
 
 impl Into<usize> for EColorSpace {

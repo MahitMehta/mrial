@@ -1,21 +1,23 @@
 use crate::conn::Connection;
 
-use super::{AudioController, AudioEncoder, IAudioController};
+use super::{AudioEncoder, AudioServerThread, IAudioController};
 use mrial_proto::*;
 
 use pipewire as pw;
-use pw::spa::format::{MediaSubtype, MediaType};
-use pw::spa::WritableDict;
-use pw::{properties, spa};
+use pw::{properties::properties, spa};
+use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::format_utils;
 use spa::pod::Pod;
+#[cfg(feature = "v0_3_44")]
+use spa::WritableDict;
+use std::convert::TryInto;
 use std::mem;
 
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
 }
 
-impl AudioController {
+impl AudioServerThread {
     fn is_zero(buf: &[u8]) -> bool {
         let (prefix, aligned, suffix) = unsafe { buf.align_to::<u128>() };
 
@@ -25,13 +27,13 @@ impl AudioController {
     }
 }
 
-impl IAudioController for AudioController {
-    fn begin_transmission(&self, conn: Connection) {
+impl IAudioController for AudioServerThread {
+    fn run(&self, conn: Connection) {
         std::thread::spawn(move || {
             pw::init();
 
-            let mainloop = pw::MainLoop::new().unwrap();
-            let context = pw::Context::new(&mainloop).unwrap();
+            let mainloop = pw::main_loop::MainLoop::new(None).unwrap();
+            let context = pw::context::Context::new(&mainloop).unwrap();
 
             // run if error
             // 1. systemctl --user restart pipewire.service
@@ -47,18 +49,33 @@ impl IAudioController for AudioController {
             let mut props = properties! {
                 *pw::keys::MEDIA_TYPE => "Audio",
                 *pw::keys::MEDIA_CATEGORY => "Capture",
-                *pw::keys::MEDIA_ROLE => "Music"
+                *pw::keys::MEDIA_ROLE => "Music",
             };
+            #[cfg(feature = "v0_3_44")]
+            let mut props = {
+                let opt = Opt::parse();
+
+                let mut props = properties! {
+                    *pw::keys::MEDIA_TYPE => "Audio",
+                    *pw::keys::MEDIA_CATEGORY => "Capture",
+                    *pw::keys::MEDIA_ROLE => "Music",
+                };
+                if let Some(target) = opt.target {
+                    props.insert(*pw::keys::TARGET_OBJECT, target);
+                }
+                props
+            };
+
             // uncomment if you want to capture from the sink monitor ports
             props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
 
             let stream = pw::stream::Stream::new(&core, "audio-capture", props).unwrap();
             let mut audio_packet_id = 0u8;
-            let encoder = AudioEncoder::new(2, 16, 48000);
+            let _encoder = AudioEncoder::new(2, 16, 48000);
 
             let _listener = stream
                 .add_local_listener_with_user_data(data)
-                .param_changed(move |_, id, user_data, param| {
+                .param_changed(move |_, user_data, id , param| {
                     // NULL means to clear the format
 
                     let Some(param) = param else {
@@ -106,7 +123,7 @@ impl IAudioController for AudioController {
 
                         if let Some(samples) = data.data() {
                             // TODO: find a better solution to detect if audio is not playings
-                            if AudioController::is_zero(&samples[0..64]) {
+                            if AudioServerThread::is_zero(&samples[0..64]) {
                                 if samples[64] != 0 {
                                     println!("Next: {}", samples[64]);
                                 }
@@ -173,7 +190,7 @@ impl IAudioController for AudioController {
 
             stream
                 .connect(
-                    spa::Direction::Input,
+                    spa::utils::Direction::Input,
                     None,
                     pw::stream::StreamFlags::AUTOCONNECT
                         | pw::stream::StreamFlags::MAP_BUFFERS

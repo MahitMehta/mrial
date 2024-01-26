@@ -2,11 +2,12 @@
 name = "mrial_player"
 version = "0.1.0"
 edition = "2021"
+authors = ["Mahit Mehta", "Marco Ngai"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-ffmpeg-next = { version = "6.1.0", features = [ "build" ] }
+ffmpeg-next = { version = "6.1.1", features = [ "build" ] }
 rodio = "0.17.3"
 slint = "1.3.2"
 i-slint-backend-winit = { version = "1.3.2", features = [ "renderer-femtovg", "renderer-software" ]}

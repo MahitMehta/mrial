@@ -5,14 +5,14 @@ use crate::conn::Connection;
 pub use self::encoder::*;
 
 pub trait IAudioController {
-    fn begin_transmission(&self, conn: Connection);
+    fn run(&self, conn: Connection);
 }
 
-pub struct AudioController {}
+pub struct AudioServerThread {}
 
-impl AudioController {
-    pub fn new() -> AudioController {
-        AudioController {}
+impl AudioServerThread {
+    pub fn new() -> AudioServerThread {
+        AudioServerThread {}
     }
 }
 

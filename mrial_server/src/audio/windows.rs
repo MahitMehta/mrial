@@ -1,7 +1,9 @@
 use crate::conn::Connection;
 
-use super::{AudioController, IAudioController};
+use super::{AudioServerThread, IAudioController};
 
-impl IAudioController for AudioController {
-    fn begin_transmission(&self, conn: Connection) {}
+impl IAudioController for AudioServerThread {
+    fn run(&self, conn: Connection) {
+        println!("AudioServerThread Unimplemented on MacOS");
+    }
 }
