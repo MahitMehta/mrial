@@ -185,17 +185,17 @@ impl EventsThread {
 
                 match packet_type {
                     EPacketType::SHAKE => {
-                        let meta = parse_handshake_payload(&mut buf[HEADER..size]);
-                     
-                        conn.set_dimensions(
-                            meta.width.try_into().unwrap(), 
-                            meta.height.try_into().unwrap()
-                        );
-                        video_server_ch_sender
-                            .send(VideoServerActions::ConfigUpdate)
-                            .unwrap();
-                        // TODO: Need to requery headers from encoder
-                        conn.add_client(src, &headers);
+                        if let Ok(meta ) = parse_handshake_payload(&mut buf[HEADER..size]) {
+                            conn.set_dimensions(
+                                meta.width.try_into().unwrap(), 
+                                meta.height.try_into().unwrap()
+                            );
+                            video_server_ch_sender
+                                .send(VideoServerActions::ConfigUpdate)
+                                .unwrap();
+                            // TODO: Need to requery headers from encoder
+                            conn.add_client(src, &headers);
+                        };
                     }
                     EPacketType::PING => {
                         conn.client_pinged(src);

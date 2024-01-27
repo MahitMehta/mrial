@@ -106,13 +106,13 @@ impl VideoServerThread {
     }
 
     #[cfg(target_os = "windows")]
-    fn update_display_resolution(&self, width: usize, height: usize) -> Result<(), std::io::Error> {
-        Ok(())
+    fn update_display_resolution(&self, width: usize, height: usize) -> Result<bool, std::io::Error> {
+        Ok(false)
     }
 
     #[cfg(target_os = "macos")]
-    fn update_display_resolution(&self, width: usize, height: usize) -> Result<(), std::io::Error> {
-        Ok(())
+    fn update_display_resolution(&self, width: usize, height: usize) -> Result<bool, std::io::Error> {
+        Ok(false)
     }
 
     fn get_parameters(meta: RwLockReadGuard<'_, ServerMetaData>) -> Param {
@@ -165,12 +165,13 @@ impl VideoServerThread {
                         let requested_width = self.conn.get_meta().width;
                         let requested_height = self.conn.get_meta().height;
 
-                        match self.update_display_resolution(requested_width, requested_height) {
-                            Ok(_) => {},
+                        let updated_resolution = match self.update_display_resolution(requested_width, requested_height) {
+                            Ok(updated) => updated,
                             Err(e) => {
                                 println!("Error updating display resolution: {}", e);
+                                false
                             }
-                        }
+                        };
            
                         let display = Display::primary().unwrap();
                         self.capturer = Capturer::new(display).unwrap();
