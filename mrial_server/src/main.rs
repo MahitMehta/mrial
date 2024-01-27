@@ -11,7 +11,7 @@ use video::{VideoServerActions, VideoServerThread};
 
 #[tokio::main]
 async fn main() {
-    let mut conn: Connection = Connection::new();
+    let conn: Connection = Connection::new();
 
     let mut video_server = VideoServerThread::new(conn.clone());
     let audio_server = AudioServerThread::new();
