@@ -180,13 +180,13 @@ impl EventsThread {
 
             loop {
                 let mut buf = [0u8; MTU];
-                let (_size, src) = conn.recv_from(&mut buf).unwrap();
+                let (size, src) = conn.recv_from(&mut buf).unwrap();
                 let packet_type = parse_packet_type(&buf);
 
                 match packet_type {
                     EPacketType::SHAKE => {
-                        let meta = parse_handshake_payload(&mut buf[HEADER..]);
-                        println!("{}x{}", meta.width, meta.height);
+                        let meta = parse_handshake_payload(&mut buf[HEADER..size]);
+                     
                         conn.set_dimensions(
                             meta.width.try_into().unwrap(), 
                             meta.height.try_into().unwrap()
