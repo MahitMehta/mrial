@@ -81,16 +81,16 @@ impl VideoServerThread {
         let mut handle = XHandle::open().unwrap();
         let mon1 = &handle.monitors()?[0];
 
-        if mon1.width_px == width.try_into().unwrap() && 
-            mon1.height_px == height.try_into().unwrap() {
+        if mon1.width_px == width as i32 && 
+            mon1.height_px == height as i32 {
             return Ok(false);
         }
 
         let res = ScreenResources::new(&mut handle)?;
         
         let requested_mode = res.modes.iter().find(|m| {
-            m.width == width.try_into().unwrap() && 
-            m.height == height.try_into().unwrap()
+            m.width == width as u32 && 
+            m.height == height as u32
         });
         
         // TODO: Handle the possibility the mode doesn't exist
@@ -106,13 +106,13 @@ impl VideoServerThread {
     }
 
     #[cfg(target_os = "windows")]
-    fn update_display_resolution(&self, width: usize, height: usize) -> Result<(), std::io::Error> {
-        Ok(())
+    fn update_display_resolution(&self, width: usize, height: usize) -> Result<bool, std::io::Error> {
+        Ok(false)
     }
 
     #[cfg(target_os = "macos")]
-    fn update_display_resolution(&self, width: usize, height: usize) -> Result<(), std::io::Error> {
-        Ok(())
+    fn update_display_resolution(&self, width: usize, height: usize) -> Result<bool, std::io::Error> {
+        Ok(false)
     }
 
     fn get_parameters(meta: RwLockReadGuard<'_, ServerMetaData>) -> Param {
@@ -165,12 +165,13 @@ impl VideoServerThread {
                         let requested_width = self.conn.get_meta().width;
                         let requested_height = self.conn.get_meta().height;
 
-                        match self.update_display_resolution(requested_width, requested_height) {
-                            Ok(_) => {},
+                        let updated_resolution = match self.update_display_resolution(requested_width, requested_height) {
+                            Ok(updated) => updated,
                             Err(e) => {
                                 println!("Error updating display resolution: {}", e);
+                                false
                             }
-                        }
+                        };
            
                         let display = Display::primary().unwrap();
                         self.capturer = Capturer::new(display).unwrap();
@@ -269,8 +270,8 @@ impl VideoServerThread {
                             fps_time = Instant::now();
                         }
 
-                        if sleep.elapsed().as_millis() > 0 && sleep.elapsed().as_millis() < 33 {
-                            let delay = 33 - sleep.elapsed().as_millis();
+                        if sleep.elapsed().as_millis() > 0 && sleep.elapsed().as_millis() < 16 {
+                            let delay = 16 - sleep.elapsed().as_millis();
                             spin_sleep::sleep(Duration::from_millis(delay as u64));
                         }
                     }

@@ -25,7 +25,7 @@ jobs:
           name: Install Dependencies
           command: |
             sudo apt update
-            sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev
+            sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev
       - run:
           name: Build Server
           command: |
@@ -41,8 +41,8 @@ jobs:
           command: |
             mkdir dist
             mkdir -p mrial_arm64/bin
-            target/release/mrial_player mrial_arm64/bin/
-            target/release/mrial_server mrial_arm64/bin/
+            cp target/release/mrial_player mrial_arm64/bin/
+            cp target/release/mrial_server mrial_arm64/bin/
             zip -r mrial_arm64.zip mrial_arm64
             mv mrial_arm64.zip dist/
       - persist_to_workspace:
