@@ -21,9 +21,10 @@ pub struct EHandshookPayload {
 pub fn write_handshake_payload(buf: &mut [u8], payload: EHandshakePayload) -> usize {
     let serialized_payload = serde_json::to_string(&payload).unwrap();
     let bytes = serialized_payload.as_bytes();
-    buf.copy_from_slice(bytes);
+    let len = bytes.len();
+    buf[0..len].copy_from_slice(bytes);
 
-    bytes.len()
+    len
 }
 
 pub fn parse_handshake_payload(buf: &mut [u8]) -> EHandshakePayload {
@@ -35,7 +36,8 @@ pub fn parse_handshake_payload(buf: &mut [u8]) -> EHandshakePayload {
 pub fn write_handshook_payload(buf: &mut [u8], payload: EHandshookPayload) -> usize {
     let serialized_payload = serde_json::to_string(&payload).unwrap();
     let bytes = serialized_payload.as_bytes();
-    buf.copy_from_slice(bytes);
+    let len = bytes.len();
+    buf[0..len].copy_from_slice(bytes);
 
     bytes.len()
 }
