@@ -2,7 +2,8 @@
 
 members = [
     "mrial_player",
-    "mrial_server"
+    "mrial_server",
+    "libs/mrial_proto"
 ]
 
 exclude = [ "libs" ]

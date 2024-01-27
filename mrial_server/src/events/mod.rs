@@ -39,8 +39,6 @@ impl EventsEmitter {
 
     #[cfg(not(target_os = "linux"))]
     pub fn new() -> Self {
-        use std::time::Duration;
-
         let mouse = mouse_rs::Mouse::new(); // requires package install on linux (libxdo-dev)
         let enigo = Enigo::new(&Settings::default()).unwrap();
 

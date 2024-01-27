@@ -7,4 +7,4 @@
 
 # Linux
 
-1. Install libxrandr-dev
+1. Install libxrandr-dev, libxcb-randr0-dev
