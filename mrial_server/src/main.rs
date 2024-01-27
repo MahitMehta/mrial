@@ -1,5 +1,3 @@
-// dependencies: libxcb-randr0-dev
-
 mod audio;
 mod conn;
 mod events;

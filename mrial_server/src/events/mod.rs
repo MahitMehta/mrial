@@ -39,8 +39,6 @@ impl EventsEmitter {
 
     #[cfg(not(target_os = "linux"))]
     pub fn new() -> Self {
-        use std::time::Duration;
-
         let mouse = mouse_rs::Mouse::new(); // requires package install on linux (libxdo-dev)
         let enigo = Enigo::new(&Settings::default()).unwrap();
 
@@ -188,6 +186,7 @@ impl EventsThread {
                 match packet_type {
                     EPacketType::SHAKE => {
                         let meta = parse_handshake_payload(&mut buf[HEADER..]);
+                        println!("{}x{}", meta.width, meta.height);
                         conn.set_dimensions(
                             meta.width.try_into().unwrap(), 
                             meta.height.try_into().unwrap()

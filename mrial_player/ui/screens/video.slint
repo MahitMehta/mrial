@@ -1,5 +1,5 @@
 import { Screen, Theme } from "../common.slint";
-import { VerticalBox, Button } from "std-widgets.slint";
+import { VerticalBox, Button , ComboBox} from "std-widgets.slint";
 import { MrialButton, ButtonType } from "../common.slint";
 import { ServerFunctions } from "../components/server.slint";
 
@@ -48,9 +48,10 @@ export component VideoScreen inherits Screen {
                         if (event.kind == PointerEventKind.up) {
                             cp_button_attached = false; 
                         }
-                        
                     } else if (event.kind == PointerEventKind.up) {
                         VideoFunctions.click(touch.mouse-x, touch.mouse-y, event.button);
+                    } else if (event.kind == PointerEventKind.move) {
+                        VideoFunctions.mouse_move(touch.mouse-x, touch.mouse-y, false);
                     }
                 }
                 moved => {
@@ -88,10 +89,40 @@ export component VideoScreen inherits Screen {
                     background: Theme.bg-primary-color;
 
                     VerticalBox {
-                        alignment: LayoutAlignment.end;
+                        alignment: LayoutAlignment.space-between;
+                        Rectangle {
+                            height: 35px;
+                            width: 100%;
+                            drop-shadow-blur: 7.5px;
+                            drop-shadow-color: #0D0D0D;
+                            border-radius: 5px;
+                            background: Theme.bg-primary-color;
+
+                            HorizontalLayout {
+                                padding: 10px;
+                                alignment: LayoutAlignment.space-between;
+                                VerticalLayout {
+                                    alignment: LayoutAlignment.center;
+                                    Text {
+                                        text: "Resolution";
+                                        font-size: 12px;
+                                        color: Theme.text-secondary-color;
+                                    }
+                                }
+                                VerticalLayout {
+                                    alignment: LayoutAlignment.center;
+                                    Text {
+                                        text: "1440x900";
+                                        font-size: 12px;
+                                        color: Theme.text-secondary-color;
+                                    }
+                                }
+                            }
+                        }
+
                         MrialButton {
                             label: "Disconnect";
-                            type: ButtonType.negative;
+                            type: ButtonType.gradient;
                             clicked => {
                                 ServerFunctions.disconnect();
                                 root.set_current_subpage(1);

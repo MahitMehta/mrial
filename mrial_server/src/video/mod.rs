@@ -81,16 +81,16 @@ impl VideoServerThread {
         let mut handle = XHandle::open().unwrap();
         let mon1 = &handle.monitors()?[0];
 
-        if mon1.width_px == width.try_into().unwrap() && 
-            mon1.height_px == height.try_into().unwrap() {
+        if mon1.width_px == width as i32 && 
+            mon1.height_px == height as i32 {
             return Ok(false);
         }
 
         let res = ScreenResources::new(&mut handle)?;
         
         let requested_mode = res.modes.iter().find(|m| {
-            m.width == width.try_into().unwrap() && 
-            m.height == height.try_into().unwrap()
+            m.width == width as u32 && 
+            m.height == height as u32
         });
         
         // TODO: Handle the possibility the mode doesn't exist

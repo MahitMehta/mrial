@@ -162,12 +162,12 @@ impl Client {
             write_header(EPacketType::SHAKE, 0, HEADER as u32, 0, &mut buf);
 
             let meta = self.meta.read().unwrap();
-            write_handshake_payload(&mut buf[HEADER..], EHandshakePayload { 
+            let payload_len = write_handshake_payload(&mut buf[HEADER..], EHandshakePayload { 
                 width: meta.width.try_into().unwrap(),
                 height: meta.height.try_into().unwrap()
             });
 
-            let _ = socket.send(&buf);
+            let _ = socket.send(&buf[0..HEADER + payload_len]);
             println!("Sent Handshake Packet");
 
             let (_amt, _src) = match socket.recv_from(&mut buf) {
