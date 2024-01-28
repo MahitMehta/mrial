@@ -4,6 +4,56 @@ orbs:
   win: circleci/windows@5.0 
 
 jobs:   
+  build_linux_x86_64: 
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large
+    steps: 
+      - checkout
+      - run: git submodule sync
+      - run: git submodule update --init
+      - restore_cache:
+          keys:
+            - v4-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
+      - run: 
+          name: Install Rust
+          command: |
+            curl -o rustup https://sh.rustup.rs
+            bash rustup -y
+            rm ~/.gitconfig
+      - run: 
+          name: Install Dependencies
+          command: |
+            sudo apt update
+            sudo NEEDRESTART_MODE=a apt install -y yasm ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev
+      - run:
+          name: Build Server
+          command: |
+            cd mrial_server
+            cargo build --release
+      - run:
+          name: Build Player
+          command: |
+            cd mrial_player
+            cargo build --release
+      - run: 
+          name: Package
+          command: |
+            mkdir dist
+            mkdir -p mrial_x86_64/bin
+            cp target/release/mrial_player mrial_x86_64/bin/
+            cp target/release/mrial_server mrial_x86_64/bin/
+            zip -r mrial_x86_64.zip mrial_x86_64
+            mv mrial_x86_64.zip dist/
+      - persist_to_workspace:
+          root: ./dist
+          paths:
+            - ./
+      - save_cache:
+          paths:
+            - ~/.cargo/
+            - target
+          key: v4-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
   build_linux_arm64:
     machine:
       image: ubuntu-2204:current
@@ -168,6 +218,14 @@ jobs:
 workflows:
   build_and_release: 
     jobs: 
+      - build_linux_x86_64:
+          filters:
+            tags:
+              only:
+                - /v.*/
+            branches:
+              only: 
+                - master
       - build_linux_arm64:
           filters:
             tags:
