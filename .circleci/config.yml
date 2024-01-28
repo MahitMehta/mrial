@@ -260,5 +260,6 @@ workflows:
           context: mrial_gh
           requires: 
             - build_linux_arm64
+            - build_linux_x86_64
             - build_macos
           # - build_win
