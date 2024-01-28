@@ -1,11 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::{
-    error::Error,
-    fs::{File, OpenOptions},
-    io::{BufReader, Write},
-    path::Path,
-    sync::{Arc, Mutex},
+    error::Error, fs::{File, OpenOptions}, io::{BufReader, Write}, os, path::Path, sync::{Arc, Mutex}
 };
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -13,6 +9,7 @@ pub struct Server {
     pub name: String,
     pub address: String,
     pub port: u16,
+    pub os: String
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -81,7 +78,7 @@ impl Servers {
         }
     }
 
-    pub fn add(&mut self, name: String, address: String, port: u16) {
+    pub fn add(&mut self, name: String, address: String, port: u16 ,os: String) {
         if let Some(state) = self.state.lock().unwrap().as_mut() {
             // TODO: display duplicate server error in slint
             for server in &state.servers {
@@ -94,6 +91,7 @@ impl Servers {
                 name,
                 address,
                 port,
+                os
             });
         }
     }

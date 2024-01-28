@@ -3008,7 +3008,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_player"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ffmpeg-next",
  "i-slint-backend-winit",
@@ -3032,7 +3032,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cfg-if 0.1.10",
  "enigo",

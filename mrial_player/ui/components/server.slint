@@ -171,15 +171,17 @@ export component Server inherits TouchArea {
                             Rectangle {
                                 width: 45px;
                                 height: 45px;
-                                border-radius: 5px;
+                                border-radius: server.os == "ubuntu" ? 5px : 0px;
                                 clip: true;
-                                
+               
                                 Image {
                                     init => {
                                         if (server.os == "ubuntu") {
                                             self.source =  @image-url("../../assets/os/ubuntu.png");
                                         } else if (server.os == "macos") {
                                             self.source =  @image-url("../../assets/os/macos.png");
+                                        } else if (server.os == "windows") {
+                                            self.source =  @image-url("../../assets/os/windows.png");
                                         }
                                     }
                                     image-fit: ImageFit.contain;
