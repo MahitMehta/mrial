@@ -16,7 +16,7 @@ export component VideoScreen inherits Screen {
     in property <image> video-frame <=> image.source;
     in-out property <bool> cp_button_attached: false;
 
-    VerticalBox {
+    image_container := VerticalBox {
         padding: 0;
         image := Image {
             image-rendering: ImageRendering.pixelated;
@@ -49,6 +49,7 @@ export component VideoScreen inherits Screen {
                             cp_button_attached = false; 
                         }
                     } else if (event.kind == PointerEventKind.up) {
+                        
                         VideoFunctions.click(touch.mouse-x, touch.mouse-y, event.button);
                     } else if (event.kind == PointerEventKind.move) {
                         VideoFunctions.mouse_move(touch.mouse-x, touch.mouse-y, false);

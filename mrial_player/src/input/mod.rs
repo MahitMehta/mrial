@@ -69,7 +69,7 @@ impl Input {
         // TODO: don't store, make access to these values dynamic
         let width: usize = client.get_meta().width;
         let height = client.get_meta().height;
-
+        
         let mut buf = [0; packet::HEADER + input::PAYLOAD];
         proto::write_header(
             EPacketType::STATE,
@@ -94,11 +94,17 @@ impl Input {
                         return;
                     }
 
+                    
+                    if y < 45f32 {
+                        return;
+                    }
+                    println!("x: {}, y: {}", x, y - 45f32);     
+
                     input::write_click(
                         x,
-                        y,
+                        y - 45f32,
                         width, // TODO: should be width of video element
-                        height,
+                        height - 90,
                         button == PointerEventButton::Right,
                         &mut buf[HEADER..],
                     );

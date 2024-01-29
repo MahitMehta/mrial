@@ -96,6 +96,7 @@ impl VideoThread {
 
                 while ffmpeg_decoder.receive_frame(&mut yuv_frame).is_ok() {
                     if lanczos_scalar.is_none() {
+                        println!("{} {}", ffmpeg_decoder.width(), ffmpeg_decoder.height());
                         lanczos_scalar = Some(
                             software::scaling::context::Context::get(
                                 ffmpeg_decoder.format(),
