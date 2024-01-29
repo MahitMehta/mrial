@@ -37,7 +37,7 @@ fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) 
                 name: SharedString::from(server.name),
                 address: SharedString::from(server.address),
                 port: server.port.into(),
-                os: SharedString::from("ubuntu"),
+                os: SharedString::from(server.os),
                 ram: 24,
                 storage: 40,
                 vcpu: 4,
@@ -121,6 +121,7 @@ fn main() {
                     name.to_string(),
                     ip_addr.to_string(),
                     port.parse::<u16>().unwrap(),
+                    "ubuntu".to_string()
                 );
 
                 populate_servers(&server_state_create_clone, &app_weak_clone);

@@ -12,7 +12,8 @@
 
 # Run Server
 1. Install libxdo-dev
-2. export XAUTHORITY=/var/lib/lightdm/.Xauthority
+2. export XAUTHORITY=/var/lib/lightdm/.Xauthority 
 3. export DISPLAY=:0
 4. sudo xdotool type "password"
 5. sudo xdotool key Return
+6. ./mrial_server

@@ -92,19 +92,13 @@ impl Input {
                 .on_click(move |x, y, button| {
                     if !*click_connected.lock().unwrap() {
                         return;
-                    }
-
-                    
-                    if y < 45f32 {
-                        return;
-                    }
-                    println!("x: {}, y: {}", x, y - 45f32);     
+                    }  
 
                     input::write_click(
                         x,
-                        y - 45f32,
+                        y,
                         width, // TODO: should be width of video element
-                        height - 90,
+                        height,
                         button == PointerEventButton::Right,
                         &mut buf[HEADER..],
                     );
