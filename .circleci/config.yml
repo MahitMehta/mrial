@@ -234,6 +234,14 @@ workflows:
             branches:
               only: 
                 - master
+      - build_linux_x86_64:
+          filters:
+            tags:
+              only:
+                - /v.*/
+            branches:
+              only: 
+                - master
       - build_macos:
           filters:
             tags:

@@ -209,7 +209,11 @@ impl EventsThread {
                         }
                     }
                     EPacketType::STATE => {
-                        emitter.input(&mut buf[HEADER..], 1440, 900);
+                        emitter.input(
+                            &mut buf[HEADER..], 
+                            conn.get_meta().width, 
+                            conn.get_meta().height
+                        );
                     }
                     _ => {}
                 }

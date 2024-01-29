@@ -69,7 +69,7 @@ impl Input {
         // TODO: don't store, make access to these values dynamic
         let width: usize = client.get_meta().width;
         let height = client.get_meta().height;
-
+        
         let mut buf = [0; packet::HEADER + input::PAYLOAD];
         proto::write_header(
             EPacketType::STATE,
@@ -92,7 +92,7 @@ impl Input {
                 .on_click(move |x, y, button| {
                     if !*click_connected.lock().unwrap() {
                         return;
-                    }
+                    }  
 
                     input::write_click(
                         x,
