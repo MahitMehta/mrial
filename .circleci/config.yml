@@ -2,6 +2,7 @@ version: 2.1
 
 orbs:
   win: circleci/windows@5.0 
+  macos: circleci/macos@2.4.1
 
 jobs:   
   build_linux_x86_64: 
@@ -136,6 +137,12 @@ jobs:
           command: |
             cd mrial_server
             cargo build --release
+      - macos/add-permission:
+          bundle-id: com.apple.Terminal
+          permission-type: kTCCServiceAppleEvents
+      - macos/add-permission:
+          bundle-id: com.apple.Finder
+          permission-type: kTCCServiceAppleEvents
       - run: 
           name: Package
           command: |
