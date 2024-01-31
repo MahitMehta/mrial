@@ -19,7 +19,21 @@ export global Theme {
     out property <brush> bg_primary_brush: @linear-gradient(45deg, self.bg_primary_brush_start, self.bg_primary_brush_end);  // @linear-gradient(90deg, #FC466B 0%, #3F5EFB 100%);
     out property <brush> bg_negative_brush: @linear-gradient(90deg, self.bg_primary_brush_start, self.bg_primary_brush_end); // @linear-gradient(90deg, #FF9A8B 0%, #FF6A88 55%, #FF99AC 100%);
     out property <brush> bg_positive_brush: @linear-gradient(90deg, self.bg_primary_brush_start, self.bg_primary_brush_end); // @linear-gradient( 99deg,  rgba(255,166,0,1) 14.7%, rgba(255,99,97,1) 73%, rgba(255,99,97,1) 100%);
+
+    out property <length> text_size_large: 20px;
+    out property <length> text_size_medium: 14px;
 }
+
+export component MrialHeader inherits Text {
+    color: Theme.text-primary-color;
+    font-size: Theme.text-size-large;
+    font-weight: 600;
+}
+
+export component MrialSubHeader inherits Text {
+    color: Theme.text-secondary-color;
+    font-size: Theme.text_size_medium;
+} 
 
 export global GlobalVars {
     in-out property <string> app_name: "Mrial";
@@ -32,6 +46,52 @@ export component Screen inherits Rectangle {
 
     background: rgb(20, 20, 20);
 }
+
+export struct MrialDropdownItem {
+    label: string,
+    value: string
+}
+
+export component MrialDropdown inherits Rectangle{
+    in property <string> label;
+    in property <[MrialDropdownItem]> items;
+    in property <int> current-index;
+
+    height: 35px;
+
+    border-color: touch_area.has-hover ? Theme.secondary-border-color : Theme.border-color;
+    animate border-color { duration: 150ms; }
+
+    border-width: 1px;
+    border-radius: 5px;
+    background: Theme.bg-primary-color;
+
+    touch_area := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+    }
+
+    HorizontalLayout {
+        padding: 10px;
+        alignment: LayoutAlignment.space-between;
+        VerticalLayout {
+            alignment: LayoutAlignment.center;
+            Text {
+                text: label;
+                font-size: 12px;
+                color: Theme.text-secondary-color;
+            }
+        }
+        VerticalLayout {
+            alignment: LayoutAlignment.center;
+            Text {
+                text: items[current-index].label;
+                font-size: 12px;
+                color: Theme.text-secondary-color;
+            }
+        }
+    }
+}
+
 
 export enum ButtonType {
     basic,
@@ -66,10 +126,10 @@ export component MrialButton inherits Rectangle {
         }
     }
 
-    opacity: tocuh-area.has-hover ? 0.8 : 1.0;
+    opacity: touch-area.has-hover ? 0.8 : 1.0;
     animate opacity { duration: 250ms; }
 
-    tocuh_area := TouchArea {
+    touch_area := TouchArea {
         mouse-cursor: MouseCursor.pointer;
         clicked => { clicked(); }
     }

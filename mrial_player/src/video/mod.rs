@@ -79,6 +79,9 @@ impl VideoThread {
             // TODO: switch scalar depending on bitrate to reduce latency
             let mut lanczos_scalar: Option<Context> = None;
 
+            let mut yuv_frame = frame::Video::empty();
+            let mut rgb_frame = frame::Video::empty();
+
             loop {
                 let buf = receiver.recv().unwrap();
                 let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&buf);
@@ -91,12 +94,14 @@ impl VideoThread {
                     }
                 };
 
-                let mut yuv_frame = frame::Video::empty();
-                let mut rgb_frame = frame::Video::empty();
-
                 while ffmpeg_decoder.receive_frame(&mut yuv_frame).is_ok() {
-                    if lanczos_scalar.is_none() {
-                        println!("{} {}", ffmpeg_decoder.width(), ffmpeg_decoder.height());
+                    if lanczos_scalar.is_none() || 
+                        ffmpeg_decoder.width() != rgb_frame.width() || 
+                        ffmpeg_decoder.height() != rgb_frame.height() {
+
+                        rgb_frame.set_width(ffmpeg_decoder.width());
+                        rgb_frame.set_height(ffmpeg_decoder.height());
+
                         lanczos_scalar = Some(
                             software::scaling::context::Context::get(
                                 ffmpeg_decoder.format(),

@@ -1,0 +1,67 @@
+import { Screen, Theme, MrialButton, ButtonType, MrialTextInput , MrialDropdown} from "../common.slint";
+import { VerticalBox } from "std-widgets.slint";
+import { ServerFunctions } from "../components/server.slint";
+
+export component ControlPanel inherits TouchArea {
+    visible: false;
+    width: 200px;
+    height: 275px;
+
+    callback disconnect();
+
+    Rectangle {
+        x: 0px;
+        y: 0px;
+        width: parent.width;
+        height: parent.height;
+        border-radius: 15px;
+        border-width: 1px;
+        border-color: Theme.bg-secondary-color;
+        background: Theme.bg-primary-color;
+
+        VerticalBox {
+            alignment: LayoutAlignment.space-between;
+            MrialDropdown {
+                label: "Resolution";
+                items: [
+                    {
+                        label: "1440x810",
+                        value: "1440x810"
+                    },
+                ];
+                current-index: 1;
+            }
+            Rectangle {
+                width: 100%;
+                height: 35px;
+                border-radius: 5px;
+                background: Theme.bg-primary-brush;
+
+                opacity: touch-area.has-hover ? 0.8 : 1.0;
+                animate opacity { duration: 250ms; }
+
+                touch_area := TouchArea {
+                    mouse-cursor: MouseCursor.pointer;
+                    clicked => { 
+                        ServerFunctions.disconnect();
+                        disconnect();
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: LayoutAlignment.center;
+                    spacing: 5px;
+
+                    Text {
+                        text: "Disconnect";
+                        font-size: 12px;
+                        font-weight: 500;
+                        color: white;
+                        horizontal-alignment: TextHorizontalAlignment.center;
+                        vertical-alignment: TextVerticalAlignment.center;
+                    }
+                }
+            }
+        }
+    }
+}
