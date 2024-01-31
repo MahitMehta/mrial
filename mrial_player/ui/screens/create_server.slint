@@ -1,11 +1,13 @@
-import { VerticalBox } from "std-widgets.slint";
 import { MrialButton, MrialTextInput, Theme } from "../common.slint";
 
 export global CreateServerFunctions {
     pure callback add(/* server name */ string, /* ip address */ string, /* port */ string);
 }
 
-export component CreateServer inherits VerticalBox {
+export component CreateServer inherits VerticalLayout {
+    alignment: LayoutAlignment.start;
+    spacing: 15px;
+
     HorizontalLayout {
         spacing: 10px;
         VerticalLayout {

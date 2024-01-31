@@ -27,8 +27,6 @@ pub struct Client {
     meta: Arc<RwLock<ClientMetaData>>,
 }
 
-const CLIENT_PORT: u16 = 8000;
-
 impl Client {
     pub fn new(meta: ClientMetaData) -> Client {
         Client {
@@ -53,7 +51,7 @@ impl Client {
 
     pub fn connect(&mut self) {
         if !self.socket_connected() && self.state == ConnectionState::Connecting {
-            let client_address = SocketAddr::from(([0, 0, 0, 0], CLIENT_PORT));
+            let client_address = SocketAddr::from(([0, 0, 0, 0], 0));
             let socket = UdpSocket::bind(client_address).expect("Failed to Bind to Local Port");
             match socket.connect(&self.socket_address) {
                 Ok(_) => self.socket = Some(socket),

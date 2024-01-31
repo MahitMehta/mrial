@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::{
-    error::Error, fs::{File, OpenOptions}, io::{BufReader, Write}, os, path::Path, sync::{Arc, Mutex}
+    error::Error, fs::{self, File, OpenOptions}, io::{BufReader, Write}, sync::{Arc, Mutex}
 };
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -30,13 +30,15 @@ pub trait Storage<T: serde::de::DeserializeOwned> {
 pub struct Servers {
     state: Arc<Mutex<Option<ServerState>>>,
     db_path: String,
+    file_name: String,
 }
 
 impl Servers {
     pub fn new() -> Self {
         Servers {
             state: Arc::new(Mutex::new(None)),
-            db_path: "./db/servers.json".to_string(),
+            db_path: "Mrial/db".to_string(),
+            file_name: "servers.json".to_string(),
         }
     }
 
@@ -75,6 +77,7 @@ impl Servers {
         Servers {
             state: self.state.clone(),
             db_path: self.db_path.clone(),
+            file_name: self.file_name.clone(),
         }
     }
 
@@ -99,7 +102,8 @@ impl Servers {
 
 impl Storage<ServerState> for Servers {
     fn load(&mut self) -> Result<(), Box<dyn Error>> {
-        let path = Path::new(&self.db_path);
+        let os_data_dir = dirs::data_dir().unwrap();
+        let path = os_data_dir.join(&self.db_path).join(&self.file_name);
         let file = match File::open(path) {
             Ok(file) => file,
             Err(_) => {
@@ -119,12 +123,16 @@ impl Storage<ServerState> for Servers {
     }
 
     fn save(&self) -> Result<(), Box<dyn Error>> {
+        let os_data_dir = dirs::data_dir().unwrap();
+        let data_dir = os_data_dir.join(&self.db_path);
+   
+        fs::create_dir_all(&data_dir)?;
+
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&self.db_path)
-            .unwrap();
+            .open(data_dir.join(&self.file_name))?;
 
         let value = StorageWrapper {
             data: self.state.lock().unwrap().clone().unwrap(),

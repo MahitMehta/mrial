@@ -1,6 +1,6 @@
 [package]
 name = "mrial_player"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Mahit Mehta", "Marco Ngai"]
 
@@ -18,6 +18,7 @@ kanal = "0.1.0-pre8"
 serde_json = "1.0.96"
 serde = { version = "1.0.164", features = ["derive"] }
 winit = "0.29.4"
+dirs = "5.0.1"
 
 [build-dependencies] 
 slint-build = { git = "https://github.com/slint-ui/slint" }

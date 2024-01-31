@@ -1,7 +1,8 @@
 import { Screen, Theme } from "../common.slint";
-import { VerticalBox, Button , ComboBox} from "std-widgets.slint";
+import { VerticalBox, Button } from "std-widgets.slint";
 import { MrialButton, ButtonType } from "../common.slint";
 import { ServerFunctions } from "../components/server.slint";
+import { ControlPanel } from "../components/control_panel.slint";
 
 export global VideoFunctions {
     pure callback mouse_move(/* x */ length, /* y */ length, /* pressed */ bool);
@@ -72,68 +73,15 @@ export component VideoScreen inherits Screen {
                     VideoFunctions.mouse_move(touch.mouse-x, touch.mouse-y, self.pressed);
                 }
             }
-            control_panel := TouchArea {
-                visible: false;
+            control_panel := ControlPanel {
                 x: control_panel_button.x + control_panel_button.width + 10px;
                 y: control-panel-button.y;
-                width: 200px;
-                height: 275px;
 
-                Rectangle {
-                    x: 0px;
-                    y: 0px;
-                    width: parent.width;
-                    height: parent.height;
-                    border-radius: 15px;
-                    border-width: 1px;
-                    border-color: Theme.bg-secondary-color;
-                    background: Theme.bg-primary-color;
-
-                    VerticalBox {
-                        alignment: LayoutAlignment.space-between;
-                        Rectangle {
-                            height: 35px;
-                            width: 100%;
-                            // drop-shadow-blur: 7.5px;
-                            // drop-shadow-color: #0D0D0D;
-                            border-color: Theme.bg-secondary-color;
-                            border-width: 1px;
-                            border-radius: 5px;
-                            background: Theme.bg-primary-color;
-
-                            HorizontalLayout {
-                                padding: 10px;
-                                alignment: LayoutAlignment.space-between;
-                                VerticalLayout {
-                                    alignment: LayoutAlignment.center;
-                                    Text {
-                                        text: "Resolution";
-                                        font-size: 12px;
-                                        color: Theme.text-secondary-color;
-                                    }
-                                }
-                                VerticalLayout {
-                                    alignment: LayoutAlignment.center;
-                                    Text {
-                                        text: "1440x900";
-                                        font-size: 12px;
-                                        color: Theme.text-secondary-color;
-                                    }
-                                }
-                            }
-                        }
-
-                        MrialButton {
-                            label: "Disconnect";
-                            type: ButtonType.gradient;
-                            clicked => {
-                                ServerFunctions.disconnect();
-                                root.set_current_subpage(1);
-                            }
-                        }
-                    }
+                disconnect => {
+                    root.set_current_subpage(1);
                 }
             }
+
             control_panel_button := Rectangle {
                 x: 0px; 
                 y: 0px; 
