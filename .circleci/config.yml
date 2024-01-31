@@ -115,7 +115,7 @@ jobs:
       - run: git submodule update --init
       - restore_cache:
           keys:
-            - v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
+            - v5-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
       - run: 
           name: Install Rust
           command: |
@@ -125,7 +125,7 @@ jobs:
       - run: 
           name: Install Dependencies
           command: |
-            brew install yasm ffmpeg x264 cmake
+            brew install yasm ffmpeg x264 cmake create-dmg
       - run: 
           name: Build Player
           command: | 
@@ -139,7 +139,8 @@ jobs:
       - run: 
           name: Package
           command: |
-            mkdir dist
+            mkdir -p dist
+            macos/scripts/build.sh
             mkdir -p mrial_macos/bin
             cp target/release/mrial_player mrial_macos/bin/
             cp target/release/mrial_server mrial_macos/bin/
@@ -148,12 +149,15 @@ jobs:
       - persist_to_workspace:
           root: ./dist
           paths:
-            - ./
+            - ./*.zip
+            - ./*.dmg
       - save_cache:
           paths:
             - ~/.cargo/
             - target
-          key: v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
+            - ~/Library/Caches/Homebrew/
+            - ~/Library/Caches/Homebrew/downloads/
+          key: v5-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
   build_win:
     executor: 
       name: win/default 

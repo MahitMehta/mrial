@@ -1,4 +1,4 @@
-import { Screen, Theme , MrialButton, ButtonType , MrialTextInput} from "../common.slint";
+import { Screen, Theme , MrialButton, ButtonType , MrialTextInput, MrialHeader , MrialSubHeader} from "../common.slint";
 import { Button , VerticalBox , ProgressIndicator} from "std-widgets.slint";
 import { Server, IServer, ServerFunctions } from "../components/server.slint";
 import { Footer } from "../components/footer.slint";
@@ -61,7 +61,7 @@ export component HomeScreen inherits Screen {
             VerticalLayout {
                 width: parent.width;
                 padding: 10px;
-                padding-top: 20px;
+                padding-top: 24px;
                 spacing: 15px;
 
                 MrialButton {
@@ -82,7 +82,7 @@ export component HomeScreen inherits Screen {
                 Rectangle {
                     nav_item_overlay := Rectangle {
                         opacity: root.nav-page != 0 ? 1.0 : 0.0;
-                        y: (root.nav_page - 1) * 40px + 5px;
+                        y: (root.nav_page - 1) * 40px;
                         width: parent.width;
                         height: 35px;
                         background: rgba(255,255,255,0.05);
@@ -98,7 +98,6 @@ export component HomeScreen inherits Screen {
                         }
                     }
                     VerticalLayout {
-                        padding-top: 5px;
                         spacing: 5px;
                         NavItem {
                             in property <int> nav_page: 1;
@@ -119,21 +118,41 @@ export component HomeScreen inherits Screen {
             }
         }
         content := VerticalLayout {
-            alignment: LayoutAlignment.space-between;
             width: parent.width - navbar.width;
+
             Rectangle {
-                HorizontalLayout {
+                VerticalLayout {
+                    alignment: LayoutAlignment.start;
                     y: (1 - nav_page) * content.height; 
-                    spacing: 10px;
                     padding: 15px;
-                    padding-top: 20px;
-                    
-                    for server in HomePageAdapter.servers: Server {
-                        server: server;
-    
-                        connect => {
-                            root.set_current_subpage(2);
-                            ServerFunctions.connect(server.name);
+                    spacing: 15px;
+
+                    VerticalLayout {
+                        spacing: 5px;
+
+                        MrialHeader {
+                            text: "Remote Servers";
+                        }
+                        MrialSubHeader {
+                            text: "Connect to begin real-time, ultra low-latency streaming.";
+                        }
+                    }
+                    Rectangle {
+                        height: 1px;
+                        width: parent.width - parent.padding * 2;
+                        background: Theme.secondary-border-color;
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        
+                        for server in HomePageAdapter.servers: Server {
+                            server: server;
+        
+                            connect => {
+                                root.set_current_subpage(2);
+                                ServerFunctions.connect(server.name);
+                            }
                         }
                     }
                 }
