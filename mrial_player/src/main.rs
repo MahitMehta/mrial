@@ -182,6 +182,7 @@ fn main() {
                             ConnectionState::Connected => input.send_loop(&client),
                             ConnectionState::Connecting => {
                                 conn_channel.0.send(ConnectionAction::Handshake).unwrap();
+
                                 continue;
                             }
                             _ => continue,

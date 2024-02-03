@@ -7,6 +7,8 @@ export component ControlPanel inherits TouchArea {
     width: 200px;
     height: 275px;
 
+    in-out property <string> selected_dropdown;
+
     callback disconnect();
 
     Rectangle {
@@ -21,15 +23,82 @@ export component ControlPanel inherits TouchArea {
 
         VerticalBox {
             alignment: LayoutAlignment.space-between;
-            MrialDropdown {
-                label: "Resolution";
-                items: [
-                    {
-                        label: "1440x810",
-                        value: "1440x810"
-                    },
-                ];
-                current-index: 1;
+            spacing: 5px;
+
+            VerticalLayout {
+                spacing: 5px;
+
+                MrialDropdown {
+                    label: "Resolution";
+                    items: [
+                        {
+                            label: "1440x810",
+                            value: "1440x810"
+                        },
+                    ];
+                    open: root.selected_dropdown == "Resolution";
+                    current-index: 0;
+                    clicked => { 
+                        if root.selected_dropdown == self.label {
+                            root.selected_dropdown = "";
+                        } else {
+                            root.selected_dropdown = self.label;
+                        }; 
+                    }
+                    selected => {
+                        root.selected_dropdown = "";
+                    }
+                }
+                MrialDropdown {
+                    label: "Mode";
+                    items: [
+                        {
+                            label: "Ultra-Low Latency",
+                            value: "low-latency"
+                        },
+                        // {
+                        //     label: "Balanced",
+                        //     value: "balanced"
+                        // },
+                        // {
+                        //     label: "Buttery-Smooth",
+                        //     value: "smooth"
+                        // },
+                    ];
+                    open: root.selected_dropdown == self.label;
+                    clicked => { 
+                        if root.selected_dropdown == self.label {
+                            root.selected_dropdown = "";
+                        } else {
+                            root.selected_dropdown = self.label;
+                        }; 
+                    }
+                    selected => {
+                        root.selected_dropdown = "";
+                    }
+                    current-index: 0;
+                }
+                MrialDropdown {
+                    label: "Audio";
+                    items: [
+                        {
+                            label: "Original",
+                            value: "original"
+                        }
+                    ];
+                    open: root.selected_dropdown == self.label;
+                    clicked => { 
+                        if root.selected_dropdown == self.label {
+                            root.selected_dropdown = "";
+                        } else {
+                            root.selected_dropdown = self.label;
+                        }; 
+                    }
+                    selected => {
+                        root.selected_dropdown = "";
+                    }
+                    current-index: 0;
+                }
             }
             Rectangle {
                 width: 100%;

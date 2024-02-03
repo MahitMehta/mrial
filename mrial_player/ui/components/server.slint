@@ -77,6 +77,10 @@ export component Server inherits TouchArea {
     mouse-cursor: MouseCursor.pointer;
 
     Rectangle { 
+        drop-shadow-color: Theme.drop_shadow_color;
+        drop-shadow-blur: 10px;
+        background: Theme.bg_primary_color;
+
         width: parent.width;
         height: parent.height;
         border-width: 2px;
@@ -88,7 +92,7 @@ export component Server inherits TouchArea {
             height: 28px;
             width: parent.width * 0.4;
             x: parent.width / 2 - self.width / 2;
-            y: -self.height / 2;
+            y: -self.height / 2 + 3px;
             border-radius: self.height / 2;
             background: Theme.bg-secondary-color;
             border-width: 2px;

@@ -92,13 +92,21 @@ impl Input {
                 .on_click(move |x, y, button| {
                     if !*click_connected.lock().unwrap() {
                         return;
-                    }  
+                    }
+
+                    
+                    if y < 45f32 {
+                        return;
+                    }
+
+                    // println!("x: {}, y: {}", x, y - 45f32);     
 
                     input::write_click(
                         x,
-                        y,
+                        // y,
+                        y - 45f32,
                         width, // TODO: should be width of video element
-                        height,
+                        height - 90,
                         button == PointerEventButton::Right,
                         &mut buf[HEADER..],
                     );
@@ -116,10 +124,16 @@ impl Input {
                     if !*mouse_move_connected.lock().unwrap() {
                         return;
                     }
+
+                    if y < 45f32 {
+                        return;
+                    }
+
                     let mut payload = [0; input::PAYLOAD];
 
                     let x_percent = (x / (width as f32) * 10000.0).round() as u16 + 1;
-                    let y_percent = (y / (height as f32) * 10000.0).round() as u16 + 1;
+                    let y_percent = ((y - 45f32) / ((height - 90) as f32) * 10000.0).round() as u16 + 1;
+                    // let y_percent = (y / (height as f32) * 10000.0).round() as u16 + 1;
 
                     payload[10..12].copy_from_slice(&x_percent.to_be_bytes());
                     payload[12..14].copy_from_slice(&y_percent.to_be_bytes());
