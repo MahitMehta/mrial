@@ -157,7 +157,7 @@ jobs:
           root: ./dist
           paths:
             - ./*.zip
-            - ./*.dmg
+            - ./Mrial.dmg
       - save_cache:
           paths:
             - ~/.cargo/
