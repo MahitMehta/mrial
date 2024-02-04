@@ -17,10 +17,12 @@ export component VideoScreen inherits Screen {
     in property <image> video-frame <=> image.source;
     in-out property <bool> cp_button_attached: false;
 
+    background: black;
+
     image_container := VerticalBox {
         padding: 0;
         image := Image {
-            // image-rendering: ImageRendering.pixelated;
+            image-rendering: ImageRendering.pixelated;
             padding: 0;
             touch := TouchArea {
                 clicked => {
