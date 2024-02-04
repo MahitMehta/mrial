@@ -229,6 +229,14 @@ jobs:
 workflows:
   build_and_release: 
     jobs: 
+      - build_win:
+          filters:
+            tags:
+              only:
+                - /v.*/
+            branches:
+              only: 
+                - master
       - build_linux_x86_64:
           filters:
             tags:
@@ -253,14 +261,6 @@ workflows:
             branches:
               only: 
                 - master
-      # - build_win:
-      #     filters:
-      #       tags:
-      #         only:
-      #           - /v.*/
-      #       branches:
-      #         only: 
-      #           - master
       - publish_github_release:
           filters:
             tags:
@@ -273,4 +273,4 @@ workflows:
             - build_linux_arm64
             - build_linux_x86_64
             - build_macos
-          # - build_win
+            - build_win
