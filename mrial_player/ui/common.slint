@@ -1,4 +1,4 @@
-import { VerticalBox } from "std-widgets.slint";
+import { VerticalBox, ScrollView } from "std-widgets.slint";
 
 export global Theme {
     out property <color> border_color: rgb(29, 29, 29);
@@ -59,6 +59,7 @@ export component MrialDropdown inherits Rectangle{
     in property <[MrialDropdownItem]> items;
     in-out property <int> current-index;
     in-out property <bool> open: false;
+    in property <length> max_dropdown_height: 300px;
 
     callback clicked();
     callback selected();
@@ -103,56 +104,62 @@ export component MrialDropdown inherits Rectangle{
         }
     }
 
+    property <length> desired_height: (item_container.spacing + 30px) * items.length;
+
     Rectangle {
         y: 0;
         x: header.width + 5px;
         width: root.width;
-        height: (item_container.spacing + 30px) * items.length;
+        height: desired_height > max_dropdown_height ? max_dropdown_height : desired_height;
         visible: open;
         border-color: Theme.secondary-border-color;
         border-width: 1px;
         border-radius: 5px;
         background: Theme.bg-primary-color;
         opacity: open ? 1.0 : 0.0;
-        animate opacity { duration: 100ms; }
+        // animate opacity { duration: 100ms; }
 
-        item_container := VerticalLayout {
-            padding-left: 10px;
-            padding-right: 10px;
-            alignment: LayoutAlignment.center;
+        ScrollView {
             width: root.width;
-            spacing: 5px;
+            height: parent.height > max_dropdown_height ? max_dropdown_height : parent.height;
 
-            for item[i] in items: TouchArea {
-                // TODO: Fix mouse cursor dectection
-                // mouse-cursor: MouseCursor.pointer;
-                width: 100%;
-                height: 30px;   
+            item_container := VerticalLayout {
+                padding-left: 10px;
+                padding-right: 15px;
+                alignment: LayoutAlignment.center;
+                spacing: 5px;
 
-                clicked => {
-                    root.current-index = i; 
-                    root.selected();
-                }
+                for item[i] in items: TouchArea {
+                    // TODO: Fix mouse cursor dectection
+                    // mouse-cursor: MouseCursor.pointer;
+                    width: 100%;
+                    height: 30px;   
 
-                VerticalLayout {
-                    alignment: LayoutAlignment.center;
+                    clicked => {
+                        root.current-index = i; 
+                        root.selected();
+                    }
 
-                    HorizontalLayout {
-                        alignment: LayoutAlignment.space-between;
-                        Text {
-                            text: item.label;
-                            font-size: 12px;
-                            color: Theme.text-secondary-color;
-                        }
-                        VerticalLayout {
-                            alignment: LayoutAlignment.center;
-    
-                            if i == root.current-index: Image {
-                                source: @image-url("../assets/icons/check.svg");
-                                width: 14px;
-                                height: 14px;
-                                colorize: Theme.bg_primary_brush_end;
-                            }  
+                    VerticalLayout {
+                        alignment: LayoutAlignment.center;
+
+                        HorizontalLayout {
+                            alignment: LayoutAlignment.space-between;
+                            Text {
+                                text: item.label;
+                                font-size: 12px;
+                                color: Theme.text-secondary-color;
+                            }
+                            VerticalLayout {
+                                alignment: LayoutAlignment.center;
+        
+                                if i == root.current-index: Image {
+                                    source: @image-url("../assets/icons/check.svg");
+                                    width: 14px;
+                                    height: 14px;
+                                    colorize: Theme.bg_primary_brush_end;
+                                }  
+                            }
                         }
                     }
                 }
