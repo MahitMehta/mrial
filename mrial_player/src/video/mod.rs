@@ -66,15 +66,15 @@ impl VideoThread {
 
         let receiver = self.channel.1.clone();
         let _video_thread = thread::spawn(move || {
-            let mut _simple_scalar = software::converter(
-                (
-                    client.get_meta().width as u32,
-                    client.get_meta().height as u32,
-                ),
-                Pixel::YUV444P,
-                Pixel::RGB24,
-            )
-            .unwrap();
+            // let mut _simple_scalar = software::converter(
+            //     (
+            //         client.read_meta().unwrap().width as u32,
+            //         client.read_meta().unwrap().height as u32,
+            //     ),
+            //     Pixel::YUV444P,
+            //     Pixel::RGB24,
+            // )
+            // .unwrap();
 
             // TODO: switch scalar depending on bitrate to reduce latency
             let mut lanczos_scalar: Option<Context> = None;

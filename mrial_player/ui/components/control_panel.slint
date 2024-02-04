@@ -1,6 +1,18 @@
-import { Screen, Theme, MrialButton, ButtonType, MrialTextInput , MrialDropdown} from "../common.slint";
+import { 
+    Screen,
+    Theme, 
+    MrialButton, 
+    ButtonType, 
+    MrialTextInput, 
+    MrialDropdown, 
+    MrialDropdownItem 
+} from "../common.slint";
 import { VerticalBox } from "std-widgets.slint";
 import { ServerFunctions } from "../components/server.slint";
+
+export global ControlPanelAdapter {
+    in-out property <[MrialDropdownItem]> resolutions: [];
+}
 
 export component ControlPanel inherits TouchArea {
     visible: false;
@@ -30,12 +42,7 @@ export component ControlPanel inherits TouchArea {
 
                 MrialDropdown {
                     label: "Resolution";
-                    items: [
-                        {
-                            label: "1440x810",
-                            value: "1440x810"
-                        },
-                    ];
+                    items: ControlPanelAdapter.resolutions;
                     open: root.selected_dropdown == "Resolution";
                     current-index: 0;
                     clicked => { 
@@ -56,14 +63,14 @@ export component ControlPanel inherits TouchArea {
                             label: "Ultra-Low Latency",
                             value: "low-latency"
                         },
-                        // {
-                        //     label: "Balanced",
-                        //     value: "balanced"
-                        // },
-                        // {
-                        //     label: "Buttery-Smooth",
-                        //     value: "smooth"
-                        // },
+                        {
+                            label: "Balanced",
+                            value: "balanced"
+                        },
+                        {
+                            label: "Buttery-Smooth",
+                            value: "smooth"
+                        },
                     ];
                     open: root.selected_dropdown == self.label;
                     clicked => { 
@@ -84,6 +91,10 @@ export component ControlPanel inherits TouchArea {
                         {
                             label: "Original",
                             value: "original"
+                        },
+                        {
+                            label: "Opus",
+                            value: "opus"
                         }
                     ];
                     open: root.selected_dropdown == self.label;

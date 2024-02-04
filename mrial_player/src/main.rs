@@ -27,6 +27,7 @@ pub enum ConnectionAction {
     Connect,
     Reconnect,
     Handshake,
+    UpdateState
 }
 
 fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) {
@@ -81,9 +82,11 @@ fn main() {
         slint::CloseRequestResponse::HideWindow
     });
 
-    let mut client = Client::new(ClientMetaData { width, height });
     let conn_channel = unbounded::<ConnectionAction>();
     let conn_sender = conn_channel.0.clone();
+    let mut client = Client::new(ClientMetaData { 
+        width, height, widths: vec![], heights: vec![]
+    }, conn_channel.0.clone());
 
     let mut server_state = Servers::new();
     server_state.load().unwrap();
@@ -164,6 +167,26 @@ fn main() {
                             thread::sleep(Duration::from_millis(25));
                             continue;
                         }
+                    }
+                    Some(ConnectionAction::UpdateState) => {
+                        let widths = client.get_meta().widths.clone();
+                        let heights = client.get_meta().heights.clone();
+                
+                        let app_weak_clone = app_weak.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            let resolutions_model = Rc::new(VecModel::default());
+                            widths.iter().zip(heights.iter()).for_each(|(w, h)| {
+                                resolutions_model.push(MrialDropdownItem {
+                                    label: SharedString::from(format!("{}x{}", w, h)),
+                                    value: SharedString::from(format!("{}x{}", w, h)),
+                                });
+                            });
+
+                            app_weak_clone
+                                .unwrap()
+                                .global::<ControlPanelAdapter>()
+                                .set_resolutions(resolutions_model.into());
+                        });
                     }
                     Some(ConnectionAction::Connect) => {
                         let server_id = server_id.lock().unwrap().clone();
