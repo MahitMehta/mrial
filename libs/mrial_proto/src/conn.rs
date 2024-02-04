@@ -43,7 +43,7 @@ pub fn write_state_payload(buf: &mut [u8], payload: EConnStatePayload) -> usize 
     bytes.len()
 }
 
-pub fn parse_handshook_payload(buf: &mut [u8]) -> Result<EConnStatePayload, serde_json::Error> {
+pub fn parse_state_payload(buf: &mut [u8]) -> Result<EConnStatePayload, serde_json::Error> {
     let serialized_payload = std::str::from_utf8(buf).unwrap();
     let payload: EConnStatePayload = serde_json::from_str(serialized_payload)?;
     

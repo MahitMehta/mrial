@@ -1,5 +1,5 @@
 use std::{
-    error::Error, net::{SocketAddr, UdpSocket}, sync::{Arc, RwLock}, thread, time::Duration
+    net::{SocketAddr, UdpSocket}, sync::{Arc, RwLock}, thread, time::Duration
 };
 
 use kanal::Sender;
