@@ -5,7 +5,9 @@ use std::{
     time::SystemTime,
 };
 
-use mrial_proto::{packet::*, SERVER_PING_TOLERANCE};
+use mrial_proto::{packet::*, write_state_payload, EConnStatePayload, CONN_STATE_PAYLOAD, HANDSHAKE_PAYLOAD, SERVER_PING_TOLERANCE};
+
+use crate::video::display::DisplayMeta;
 
 const SERVER_DEFAULT_PORT: u16 = 8554;
 
@@ -102,7 +104,7 @@ impl Connection {
             .write()
             .unwrap()
             .insert(src_str, Client::new(src));
-        let mut buf = [0u8; HEADER];
+        let mut buf = [0u8; HEADER + CONN_STATE_PAYLOAD];
         write_header(
             EPacketType::SHOOK,
             0,
@@ -110,7 +112,21 @@ impl Connection {
             0,
             &mut buf,
         );
-        self.socket.send_to(&buf, src).unwrap();
+
+        let mut amt = HEADER;
+        
+        // TODO: Windows implementation needed
+        #[cfg(target_os = "linux")]
+        if let Ok((widths, heights)) = DisplayMeta::get_display_resolutions() {
+            amt += write_state_payload(&mut buf[HEADER..], EConnStatePayload {
+                widths,
+                heights,
+                width: 0,
+                height: 0
+            });
+        }
+
+        self.socket.send_to(&buf[..amt], src).unwrap();
 
         let mut buf = [0u8; MTU];
         write_header(EPacketType::NAL, 0, HEADER.try_into().unwrap(), 0, &mut buf);
