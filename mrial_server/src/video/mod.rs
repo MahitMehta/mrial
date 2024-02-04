@@ -1,4 +1,5 @@
 pub mod yuv;
+pub mod display;
 
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use kanal::unbounded;
@@ -13,6 +14,7 @@ use std::{
 };
 use x264::{Param, Picture, Encoder};
 use yuv::YUVBuffer;
+use display::DisplayMeta;
 
 use crate::{conn::{Connection, ServerMetaData}, events::EventsThread};
 
@@ -74,47 +76,6 @@ impl VideoServerThread {
         }
     }
 
-    #[cfg(target_os = "linux")]
-    fn update_display_resolution(&self, width: usize, height: usize) -> Result<bool, xrandr::XrandrError> {
-        use xrandr::{XHandle, ScreenResources};
-
-        let mut handle = XHandle::open().unwrap();
-        let mon1 = &handle.monitors()?[0];
-
-        if mon1.width_px == width as i32 && 
-            mon1.height_px == height as i32 {
-            return Ok(false);
-        }
-
-        let res = ScreenResources::new(&mut handle)?;
-        
-        let requested_mode = res.modes.iter().find(|m| {
-            m.width == width as u32 && 
-            m.height == height as u32
-        });
-        
-        // TODO: Handle the possibility the mode doesn't exist
-        if let Some(mode) = requested_mode {
-            handle.set_mode(
-                &mon1.outputs[0], 
-                &mode
-            )?;
-            return Ok(true);
-        }
-
-        Ok(false)
-    }
-
-    #[cfg(target_os = "windows")]
-    fn update_display_resolution(&self, width: usize, height: usize) -> Result<bool, std::io::Error> {
-        Ok(false)
-    }
-
-    #[cfg(target_os = "macos")]
-    fn update_display_resolution(&self, width: usize, height: usize) -> Result<bool, std::io::Error> {
-        Ok(false)
-    }
-
     fn get_parameters(meta: RwLockReadGuard<'_, ServerMetaData>) -> Param {
         let mut par = Param::default_preset("ultrafast", "zerolatency").unwrap();
 
@@ -165,7 +126,7 @@ impl VideoServerThread {
                         let requested_width = self.conn.get_meta().width;
                         let requested_height = self.conn.get_meta().height;
 
-                        let updated_resolution = match self.update_display_resolution(requested_width, requested_height) {
+                        let _updated_resolution = match DisplayMeta::update_display_resolution(requested_width, requested_height) {
                             Ok(updated) => updated,
                             Err(e) => {
                                 println!("Error updating display resolution: {}", e);
