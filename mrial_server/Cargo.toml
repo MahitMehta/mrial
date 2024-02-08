@@ -1,6 +1,6 @@
 [package]
 name = "mrial_server"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 authors = ["Mahit Mehta", "Marco Ngai"]
 license = "GPL-3.0-only"
@@ -18,14 +18,13 @@ mrial_proto = { path = "../libs/mrial_proto" }
 spin_sleep = "1.1.1"
 flacenc = { version = "0.3.1" }
 kanal = "0.1.0-pre8"
+x264 = { path = "../libs/x264-rs" }
 
 [target."cfg(target_os = \"linux\")".dependencies] 
 libyuv-sys = { path = "../libs/libyuv-sys" }
-x264 = { path = "../libs/x264-rs" }
 pipewire = { path = "../libs/pipewire-rs/pipewire", features = ["v0_3_44"] }
 mouse-keyboard-input = "0.4.1"
 xrandr = "0.2.0"
 
 [target."cfg(target_os = \"macos\")".dependencies] 
-x264 = { path = "../libs/x264-rs" }
 libyuv-sys = { path = "../libs/libyuv-sys" }
