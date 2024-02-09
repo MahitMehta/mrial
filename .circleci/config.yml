@@ -36,7 +36,7 @@ jobs:
           name: Build Player
           command: |
             cd mrial_player
-            cargo build --release
+            cargo build --release --features build_ffmpeg
       - run: 
           name: Package
           command: |
@@ -76,7 +76,7 @@ jobs:
           name: Install Dependencies
           command: |
             sudo apt update
-            sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev
+            sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev
       - run:
           name: Build Server
           command: |
@@ -86,7 +86,7 @@ jobs:
           name: Build Player
           command: |
             cd mrial_player
-            cargo build --release
+            cargo build --release --features build_ffmpeg
       - run: 
           name: Package
           command: |
@@ -131,7 +131,7 @@ jobs:
           name: Build Player
           command: | 
             cd mrial_player
-            cargo build --release
+            cargo build --release --features build_ffmpeg
       - run :
           name: Build Server
           command: |
@@ -157,7 +157,7 @@ jobs:
           root: ./dist
           paths:
             - ./*.zip
-            - ./Mrial.dmg
+            - Mrial.dmg
       - save_cache:
           paths:
             - ~/.cargo/
@@ -171,8 +171,11 @@ jobs:
       size: large
     environment:
       FFMPEG_DOWNLOAD_URL: "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full-shared.7z"
+      FFMPEG_DIR: ""
     steps:
       - checkout
+      - run: git submodule sync
+      - run: git submodule update --init
       - restore_cache:
           keys:
             - v3-cargo-mrial-player-cache-{{ arch }}-{{ checksum "Cargo.lock" }}
@@ -182,18 +185,46 @@ jobs:
             curl -o rustup https://sh.rustup.rs
             bash rustup -y
             rm ~/.gitconfig
+      # - run: 
+      #     name: Install x264
+      #     command: |
+      #       choco install -y pkgconfiglite
+
+      #       (New-Object System.Net.WebClient).DownloadFile('https://github.com/msys2/msys2-installer/releases/download/nightly-x86_64/msys2-base-x86_64-latest.sfx.exe', 'msys2.exe')
+      #       .\msys2.exe -y -oC:\ 
+      #       Remove-Item msys2.exe
+
+      #       C:\msys64\usr\bin\bash -lc ' '
+      #       C:\msys64\usr\bin\bash -lc 'pacman --noconfirm -Syuu' 
+      #       C:\msys64\usr\bin\bash -lc 'pacman -S --noconfirm yasm'
+      #       C:\msys64\usr\bin\bash -lc 'pacman -S --noconfirm make'
+
+      #       git clone http://git.videolan.org/git/x264.git
+
+      #       $VCINSTALLDIR = $(& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath)
+      #       New-Item $Profile.CurrentUserAllHosts -Force  
+      #       SETX VS_TOOLS_PATH "${VCINSTALLDIR}\Common7\Tools`n"
+      # - run: 
+      #     name: Build x264
+      #     command: |
+      #       "%VS_TOOLS_PATH%\VsDevCmd.bat" & windows\scripts\setup.bat
+      #     shell: cmd.exe
+      # - run: 
+      #     name: Install package config
+      #     command: |
+      #       choco install -y pkgconfiglite
       - run: 
-          name: Install Dependencies
+          name: Install FFMPEG
           command: |
             $VCINSTALLDIR = $(& "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath)
             New-Item $Profile.CurrentUserAllHosts -Force  
-            SETX LIBCLANG_PATH "${VCINSTALLDIR}\VC\Tools\LLVM\x64\bin`n"
+            $env:LIBCLANG_PATH = "${VCINSTALLDIR}\VC\Tools\LLVM\x64\bin"
             Invoke-WebRequest "${env:FFMPEG_DOWNLOAD_URL}" -OutFile ffmpeg-release-full-shared.7z
             7z x ffmpeg-release-full-shared.7z
             mkdir ffmpeg
             mv ffmpeg-*/* ffmpeg/
-            SETX FFMPEG_DIR "${pwd}\ffmpeg`n"
-            Add-Content -Path $Profile.CurrentUserAllHosts -Value '$env:PATH = "${pwd}\ffmpeg\bin;$env:PATH"'
+            $env:FFMPEG_DIR = "${pwd}\ffmpeg"
+            $env:PATH = "${pwd}\ffmpeg\bin;$env:PATH"
       - run: 
           name: Build 
           command: | 
@@ -204,6 +235,7 @@ jobs:
           command: |
             mkdir dist
             mkdir -p mrial_win/bin
+            cp ffmpeg/bin/*.dll mrial_win/bin/
             cp target/release/mrial_player.exe mrial_win/bin/
             zip -r mrial_win.zip mrial_win
             mv mrial_win.zip dist/
@@ -229,6 +261,14 @@ jobs:
 workflows:
   build_and_release: 
     jobs: 
+      # - build_win:
+      #     filters:
+      #       tags:
+      #         only:
+      #           - /v.*/
+      #       branches:
+      #         only: 
+      #           - master
       - build_linux_x86_64:
           filters:
             tags:
@@ -253,14 +293,6 @@ workflows:
             branches:
               only: 
                 - master
-      # - build_win:
-      #     filters:
-      #       tags:
-      #         only:
-      #           - /v.*/
-      #       branches:
-      #         only: 
-      #           - master
       - publish_github_release:
           filters:
             tags:
@@ -273,4 +305,4 @@ workflows:
             - build_linux_arm64
             - build_linux_x86_64
             - build_macos
-          # - build_win
+            #  - build_win

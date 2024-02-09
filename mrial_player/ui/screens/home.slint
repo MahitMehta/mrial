@@ -65,11 +65,14 @@ export component HomeScreen inherits Screen {
                 spacing: 15px;
 
                 MrialButton {
+                    border-radius: 7.5px;
+                    drop-shadow-blur: 10px;
+                    drop-shadow-color: rgba(0,0,0,0.15);
                     width: parent.width - parent.padding * 2;
                     label: "Add Server";
                     type: ButtonType.basic;
                     border-color: Theme.secondary-border-color;
-                    border-width: 1px;
+                    border-width: 2px;
                     icon:  @image-url("../../assets/icons/plus.svg");
                     has-icon: true;
                     clicked => { root.nav-page = 0; }
