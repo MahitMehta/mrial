@@ -176,7 +176,7 @@ fn main() {
                         let _ = slint::invoke_from_event_loop(move || {
                             let resolutions_model = Rc::new(VecModel::default());
                             widths.iter().zip(heights.iter()).for_each(|(w, h)| {
-                                resolutions_model.push(MrialDropdownItem {
+                                resolutions_model.push(IMrialDropdownItem {
                                     label: SharedString::from(format!("{}x{}", w, h)),
                                     value: SharedString::from(format!("{}x{}", w, h)),
                                 });
