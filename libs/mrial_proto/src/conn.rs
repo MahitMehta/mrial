@@ -2,24 +2,24 @@ use serde::{Deserialize, Serialize};
 
 use crate::{HEADER, MTU};
 
-pub const HANDSHAKE_PAYLOAD : usize = 512 - HEADER; 
-pub const CONN_STATE_PAYLOAD : usize = MTU - HEADER;
+pub const CLIENT_STATE_PAYLOAD : usize = 512 - HEADER; 
+pub const SERVER_STATE_PAYLOAD : usize = MTU - HEADER;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct EHandshakePayload {
+pub struct ClientStatePayload {
     pub width: u16,
     pub height: u16
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct EConnStatePayload {
+pub struct ServerStatePayload {
     pub widths: Vec<u16>,
     pub heights: Vec<u16>,
     pub width: u16,
     pub height: u16,
 }
 
-pub fn write_handshake_payload(buf: &mut [u8], payload: EHandshakePayload) -> usize {
+pub fn write_handshake_payload(buf: &mut [u8], payload: ClientStatePayload) -> usize {
     let serialized_payload = serde_json::to_string(&payload).unwrap();
     let bytes = serialized_payload.as_bytes();
     let len = bytes.len();
@@ -28,13 +28,13 @@ pub fn write_handshake_payload(buf: &mut [u8], payload: EHandshakePayload) -> us
     len
 }
 
-pub fn parse_handshake_payload(buf: &mut [u8]) -> Result<EHandshakePayload, serde_json::Error> {
+pub fn parse_handshake_payload(buf: &mut [u8]) -> Result<ClientStatePayload, serde_json::Error> {
     let serialized_payload = std::str::from_utf8(buf).unwrap();
-    let payload: EHandshakePayload = serde_json::from_str(serialized_payload)?;
+    let payload: ClientStatePayload = serde_json::from_str(serialized_payload)?;
     
     Ok(payload)
 }
-pub fn write_state_payload(buf: &mut [u8], payload: EConnStatePayload) -> usize {
+pub fn write_state_payload(buf: &mut [u8], payload: ServerStatePayload) -> usize {
     let serialized_payload = serde_json::to_string(&payload).unwrap();
     let bytes = serialized_payload.as_bytes();
     let len = bytes.len();
@@ -43,9 +43,9 @@ pub fn write_state_payload(buf: &mut [u8], payload: EConnStatePayload) -> usize 
     bytes.len()
 }
 
-pub fn parse_state_payload(buf: &mut [u8]) -> Result<EConnStatePayload, serde_json::Error> {
+pub fn parse_state_payload(buf: &mut [u8]) -> Result<ServerStatePayload, serde_json::Error> {
     let serialized_payload = std::str::from_utf8(buf).unwrap();
-    let payload: EConnStatePayload = serde_json::from_str(serialized_payload)?;
+    let payload: ServerStatePayload = serde_json::from_str(serialized_payload)?;
     
     Ok(payload)
 }

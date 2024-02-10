@@ -5,7 +5,7 @@ use std::{
     time::SystemTime,
 };
 
-use mrial_proto::{packet::*, write_state_payload, EConnStatePayload, CONN_STATE_PAYLOAD, HANDSHAKE_PAYLOAD, SERVER_PING_TOLERANCE};
+use mrial_proto::{packet::*, write_state_payload, ServerStatePayload, SERVER_STATE_PAYLOAD, CLIENT_STATE_PAYLOAD, SERVER_PING_TOLERANCE};
 
 use crate::video::display::DisplayMeta;
 
@@ -104,7 +104,7 @@ impl Connection {
             .write()
             .unwrap()
             .insert(src_str, Client::new(src));
-        let mut buf = [0u8; HEADER + CONN_STATE_PAYLOAD];
+        let mut buf = [0u8; HEADER + SERVER_STATE_PAYLOAD];
         write_header(
             EPacketType::SHOOK,
             0,
@@ -118,7 +118,7 @@ impl Connection {
         // TODO: Windows implementation needed
         #[cfg(target_os = "linux")]
         if let Ok((widths, heights)) = DisplayMeta::get_display_resolutions() {
-            amt += write_state_payload(&mut buf[HEADER..], EConnStatePayload {
+            amt += write_state_payload(&mut buf[HEADER..], ServerStatePayload {
                 widths,
                 heights,
                 width: 0,
