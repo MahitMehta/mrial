@@ -44,6 +44,10 @@ impl Client {
         }
     }
 
+    pub fn get_meta_clone(&self) -> Arc<RwLock<ClientMetaData>> {
+        self.meta.clone()
+    }
+
     pub fn get_meta(&self) -> std::sync::RwLockReadGuard<ClientMetaData> {
         self.meta.read().unwrap()
     }
@@ -159,7 +163,7 @@ impl Client {
         }
     }
 
-    fn update_client_conn_state(&self, payload: EConnStatePayload) {
+    fn update_client_conn_state(&self, payload: ServerStatePayload) {
         self.meta.write().unwrap().widths = payload.widths.try_into().unwrap();
         self.meta.write().unwrap().heights = payload.heights.try_into().unwrap();
 
@@ -171,11 +175,11 @@ impl Client {
             let _ = socket
                 .set_read_timeout(Some(Duration::from_millis(1000)))
                 .expect("Failed to Set Timeout");
-            let mut buf = [0u8; HEADER + CONN_STATE_PAYLOAD];
+            let mut buf = [0u8; HEADER + SERVER_STATE_PAYLOAD];
 
             write_header(EPacketType::SHAKE, 0, HEADER as u32, 0, &mut buf);
 
-            let payload_len = write_handshake_payload(&mut buf[HEADER..HEADER + HANDSHAKE_PAYLOAD], EHandshakePayload { 
+            let payload_len = write_handshake_payload(&mut buf[HEADER..HEADER + CLIENT_STATE_PAYLOAD], ClientStatePayload { 
                 width: self.meta.read().unwrap().width.try_into().unwrap(),
                 height: self.meta.read().unwrap().height.try_into().unwrap()
             });

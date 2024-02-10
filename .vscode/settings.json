@@ -1,7 +1,0 @@
-{
-    "cmake.sourceDirectory": "/Users/mahitmehta/Desktop/Misc/mrial/libs/slint/examples/carousel/esp-idf/s3-box",
-    "rust-analyzer.linkedProjects": [
-        "./libs/x264-rs/Cargo.toml"
-    ]
-    
-}

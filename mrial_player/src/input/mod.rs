@@ -67,8 +67,7 @@ impl Input {
         client: Client,
     ) {
         // TODO: don't store, make access to these values dynamic
-        let width: usize = client.get_meta().width;
-        let height = client.get_meta().height;
+        let meta = client.get_meta_clone();
         
         let mut buf = [0; packet::HEADER + input::PAYLOAD];
         proto::write_header(
@@ -81,10 +80,12 @@ impl Input {
 
         let sender = self.channel.0.clone();
         let connected = Arc::clone(&self.connected);
+        let meta_clone = meta.clone();
 
         let _ = slint::invoke_from_event_loop(move || {
             let click_sender = sender.clone();
             let click_connected = connected.clone();
+            let app_weak_clone = app_weak.clone();
 
             app_weak
                 .unwrap()
@@ -93,20 +94,39 @@ impl Input {
                     if !*click_connected.lock().unwrap() {
                         return;
                     }
-
                     
-                    if y < 45f32 {
-                        return;
+                    let size = app_weak_clone.unwrap().window().size(); 
+                    let scale_factor = app_weak_clone.unwrap().window().scale_factor();
+
+                    let win_width = (size.width as f32) / scale_factor;
+                    let win_height = (size.height as f32) / scale_factor;
+
+                    let vid_height = meta_clone.read().unwrap().height as f32; 
+                    let vid_width = meta_clone.read().unwrap().width as f32;
+
+                    let win_ratio = win_width / win_height;
+                    let vid_ratio = vid_width / vid_height;
+                    
+                    let mut x_offset = 0f32;
+                    let mut y_offset = 0f32;
+
+                    if win_ratio > vid_ratio {
+                        let new_width = win_height * vid_ratio;
+                        x_offset = (win_width - new_width) / 2f32;
+                    } else {
+                        let new_height = win_width / vid_ratio;
+                        y_offset = (win_height - new_height) / 2f32;
                     }
 
-                    // println!("x: {}, y: {}", x, y - 45f32);     
-
+                    if y < y_offset || y > win_height - y_offset || x < x_offset || x > win_width - x_offset {
+                        return;
+                    }
+                    
                     input::write_click(
-                        x,
-                        // y,
-                        y - 45f32,
-                        width, // TODO: should be width of video element
-                        height - 90,
+                        x - x_offset,
+                        y - y_offset,
+                        (win_width as usize) - (x_offset as usize * 2),
+                        (win_height as usize) - (y_offset as usize * 2),
                         button == PointerEventButton::Right,
                         &mut buf[HEADER..],
                     );
@@ -117,6 +137,9 @@ impl Input {
 
             let mouse_move_sender = sender.clone();
             let mouse_move_connected = connected.clone();
+            let meta_clone = meta.clone();
+            let app_weak_clone = app_weak.clone();
+
             app_weak
                 .unwrap()
                 .global::<KeyVideoFunctions>()
@@ -125,16 +148,41 @@ impl Input {
                         return;
                     }
 
-                    if y < 45f32 {
+                    let size = app_weak_clone.unwrap().window().size(); 
+                    let scale_factor = app_weak_clone.unwrap().window().scale_factor();
+
+                    let win_width = (size.width as f32) / scale_factor;
+                    let win_height = (size.height as f32) / scale_factor;
+
+                    let vid_height = meta_clone.read().unwrap().height as f32; 
+                    let vid_width = meta_clone.read().unwrap().width as f32;
+
+                    let win_ratio = win_width / win_height;
+                    let vid_ratio = vid_width / vid_height;
+                    
+                    let mut x_offset = 0f32;
+                    let mut y_offset = 0f32;
+
+                    if win_ratio > vid_ratio {
+                        let new_width = win_height * vid_ratio;
+                        x_offset = (win_width - new_width) / 2f32;
+                    } else {
+                        let new_height = win_width / vid_ratio;
+                        y_offset = (win_height - new_height) / 2f32;
+                    }
+
+                    if y < y_offset || y > win_height - y_offset || x < x_offset || x > win_width - x_offset {
                         return;
                     }
 
                     let mut payload = [0; input::PAYLOAD];
 
-                    let x_percent = (x / (width as f32) * 10000.0).round() as u16 + 1;
-                    let y_percent = ((y - 45f32) / ((height - 90) as f32) * 10000.0).round() as u16 + 1;
-                    // let y_percent = (y / (height as f32) * 10000.0).round() as u16 + 1;
+                    let ele_width = (win_width as usize) - (x_offset as usize * 2);
+                    let ele_height = (win_height as usize) - (y_offset as usize * 2);
 
+                    let x_percent = ((x - x_offset) / (ele_width as f32) * 10000.0).round() as u16 + 1;
+                    let y_percent = ((y - y_offset) / (ele_height as f32) * 10000.0).round() as u16 + 1;
+  
                     payload[10..12].copy_from_slice(&x_percent.to_be_bytes());
                     payload[12..14].copy_from_slice(&y_percent.to_be_bytes());
 

@@ -57,7 +57,7 @@ fn main() {
 
     let app: MainWindow = MainWindow::new().unwrap();
     let app_weak = app.as_weak();
-
+    
     let (width, height) = app
         .window()
         .with_winit_window(|winit_window: &winit::window::Window| {
