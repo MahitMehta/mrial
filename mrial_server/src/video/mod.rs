@@ -167,7 +167,8 @@ impl VideoServerThread {
                     let bgra_frame = frame.chunks(self.row_len).next().unwrap().to_vec();
 
                     let cvt_rgb_yuv = async move {
-                        let yuv = YUVBuffer::with_bgra_for_444(width, height, &bgra_frame);
+                        // TODO: figure out why this is neccessary
+                        let yuv = YUVBuffer::with_bgra_for_444(width, height, &bgra_frame[0..width * height * 4]); 
                         yuv
                     };
                     yuv_handles.push_back(pool.spawn_with_handle(cvt_rgb_yuv).unwrap());

@@ -97,6 +97,7 @@ fn main() {
 
     populate_servers(&server_state, &app_weak);
 
+    let client_clone = client.clone();
     slint::invoke_from_event_loop(move || {
         let conn_sender_clone = conn_sender.clone();
         app_weak
@@ -140,6 +141,33 @@ fn main() {
                 populate_servers(&server_state_clone, &app_weak_clone);
                 server_state_clone.save().unwrap();
             });
+    
+        app_weak
+            .unwrap()
+            .global::<ControlPanelFunctions>()
+            .on_state_update(move |state| {
+                let items: Vec<u16> = state.resolution
+                    .split("x")
+                    .map(|x| x.parse::<u16>().unwrap())
+                    .collect();
+                let (width, height) = (items[0], items[1]);
+                
+                let mut buf = [0; CLIENT_STATE_PAYLOAD + HEADER];
+                let size = write_client_state_payload(&mut buf[HEADER..], ClientStatePayload {
+                    width,
+                    height
+                });
+
+                write_header(
+                    EPacketType::CLIENT_STATE, 
+                    0, 
+                    size.try_into().unwrap(), 
+                    0, 
+                    &mut buf
+                );
+                
+                let _ = client_clone.send(&buf);
+            })
     })
     .unwrap();
 

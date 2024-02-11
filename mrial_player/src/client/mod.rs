@@ -179,7 +179,7 @@ impl Client {
 
             write_header(EPacketType::SHAKE, 0, HEADER as u32, 0, &mut buf);
 
-            let payload_len = write_handshake_payload(&mut buf[HEADER..HEADER + CLIENT_STATE_PAYLOAD], ClientStatePayload { 
+            let payload_len = write_client_state_payload(&mut buf[HEADER..HEADER + CLIENT_STATE_PAYLOAD], ClientStatePayload { 
                 width: self.meta.read().unwrap().width.try_into().unwrap(),
                 height: self.meta.read().unwrap().height.try_into().unwrap()
             });
@@ -197,7 +197,7 @@ impl Client {
                 let _ = socket
                     .set_read_timeout(Some(Duration::from_millis(5000)))
                     .expect("Failed to Set Timeout");
-                if let Ok(payload) = parse_state_payload(&mut buf[HEADER..amt]) {   
+                if let Ok(payload) = parse_server_state_payload(&mut buf[HEADER..amt]) {   
                     self.update_client_conn_state(payload);
                 };
             }

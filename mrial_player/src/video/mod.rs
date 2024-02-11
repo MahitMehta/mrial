@@ -66,21 +66,13 @@ impl VideoThread {
 
         let receiver = self.channel.1.clone();
         let _video_thread = thread::spawn(move || {
-            // let mut _simple_scalar = software::converter(
-            //     (
-            //         client.read_meta().unwrap().width as u32,
-            //         client.read_meta().unwrap().height as u32,
-            //     ),
-            //     Pixel::YUV444P,
-            //     Pixel::RGB24,
-            // )
-            // .unwrap();
-
             // TODO: switch scalar depending on bitrate to reduce latency
             let mut lanczos_scalar: Option<Context> = None;
 
             let mut yuv_frame = frame::Video::empty();
             let mut rgb_frame = frame::Video::empty();
+
+            let meta_clone = client.get_meta_clone();
 
             loop {
                 let buf = receiver.recv().unwrap();
@@ -101,6 +93,9 @@ impl VideoThread {
 
                         rgb_frame.set_width(ffmpeg_decoder.width());
                         rgb_frame.set_height(ffmpeg_decoder.height());
+
+                        meta_clone.write().unwrap().width = ffmpeg_decoder.width() as usize;
+                        meta_clone.write().unwrap().height = ffmpeg_decoder.height() as usize;
 
                         lanczos_scalar = Some(
                             software::scaling::context::Context::get(

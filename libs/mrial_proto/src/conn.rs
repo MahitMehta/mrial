@@ -19,7 +19,7 @@ pub struct ServerStatePayload {
     pub height: u16,
 }
 
-pub fn write_handshake_payload(buf: &mut [u8], payload: ClientStatePayload) -> usize {
+pub fn write_client_state_payload(buf: &mut [u8], payload: ClientStatePayload) -> usize {
     let serialized_payload = serde_json::to_string(&payload).unwrap();
     let bytes = serialized_payload.as_bytes();
     let len = bytes.len();
@@ -28,13 +28,13 @@ pub fn write_handshake_payload(buf: &mut [u8], payload: ClientStatePayload) -> u
     len
 }
 
-pub fn parse_handshake_payload(buf: &mut [u8]) -> Result<ClientStatePayload, serde_json::Error> {
+pub fn parse_client_state_payload(buf: &mut [u8]) -> Result<ClientStatePayload, serde_json::Error> {
     let serialized_payload = std::str::from_utf8(buf).unwrap();
     let payload: ClientStatePayload = serde_json::from_str(serialized_payload)?;
     
     Ok(payload)
 }
-pub fn write_state_payload(buf: &mut [u8], payload: ServerStatePayload) -> usize {
+pub fn write_server_state_payload(buf: &mut [u8], payload: ServerStatePayload) -> usize {
     let serialized_payload = serde_json::to_string(&payload).unwrap();
     let bytes = serialized_payload.as_bytes();
     let len = bytes.len();
@@ -43,7 +43,7 @@ pub fn write_state_payload(buf: &mut [u8], payload: ServerStatePayload) -> usize
     bytes.len()
 }
 
-pub fn parse_state_payload(buf: &mut [u8]) -> Result<ServerStatePayload, serde_json::Error> {
+pub fn parse_server_state_payload(buf: &mut [u8]) -> Result<ServerStatePayload, serde_json::Error> {
     let serialized_payload = std::str::from_utf8(buf).unwrap();
     let payload: ServerStatePayload = serde_json::from_str(serialized_payload)?;
     

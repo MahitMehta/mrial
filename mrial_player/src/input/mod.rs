@@ -1,9 +1,9 @@
 use kanal::{unbounded, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
-use crate::client::Client;
+use crate::client::{Client, ClientMetaData};
 use mrial_proto as proto;
 use mrial_proto::*;
 use slint::platform::PointerEventButton;
@@ -61,6 +61,36 @@ impl Input {
         }
     }
 
+    pub fn video_offset(
+        meta_clone: &Arc<RwLock<ClientMetaData>>,
+        app_weak_clone: &slint::Weak<super::slint_generatedMainWindow::MainWindow>
+    ) -> (f32, f32, f32, f32) {
+        let size = app_weak_clone.unwrap().window().size(); 
+        let scale_factor = app_weak_clone.unwrap().window().scale_factor();
+
+        let win_width = (size.width as f32) / scale_factor;
+        let win_height = (size.height as f32) / scale_factor;
+
+        let vid_height = meta_clone.read().unwrap().height as f32; 
+        let vid_width = meta_clone.read().unwrap().width as f32;
+
+        let win_ratio = win_width / win_height;
+        let vid_ratio = vid_width / vid_height;
+        
+        let mut x_offset = 0f32;
+        let mut y_offset = 0f32;
+
+        if win_ratio > vid_ratio {
+            let new_width = win_height * vid_ratio;
+            x_offset = (win_width - new_width) / 2f32;
+        } else {
+            let new_height = win_width / vid_ratio;
+            y_offset = (win_height - new_height) / 2f32;
+        }
+
+        (x_offset, y_offset, win_width, win_height)
+    }
+
     pub fn capture(
         &self,
         app_weak: slint::Weak<super::slint_generatedMainWindow::MainWindow>,
@@ -71,7 +101,7 @@ impl Input {
         
         let mut buf = [0; packet::HEADER + input::PAYLOAD];
         proto::write_header(
-            EPacketType::STATE,
+            EPacketType::INPUT_STATE,
             0,
             (packet::HEADER + input::PAYLOAD) as u32,
             0,
@@ -94,30 +124,8 @@ impl Input {
                     if !*click_connected.lock().unwrap() {
                         return;
                     }
-                    
-                    let size = app_weak_clone.unwrap().window().size(); 
-                    let scale_factor = app_weak_clone.unwrap().window().scale_factor();
 
-                    let win_width = (size.width as f32) / scale_factor;
-                    let win_height = (size.height as f32) / scale_factor;
-
-                    let vid_height = meta_clone.read().unwrap().height as f32; 
-                    let vid_width = meta_clone.read().unwrap().width as f32;
-
-                    let win_ratio = win_width / win_height;
-                    let vid_ratio = vid_width / vid_height;
-                    
-                    let mut x_offset = 0f32;
-                    let mut y_offset = 0f32;
-
-                    if win_ratio > vid_ratio {
-                        let new_width = win_height * vid_ratio;
-                        x_offset = (win_width - new_width) / 2f32;
-                    } else {
-                        let new_height = win_width / vid_ratio;
-                        y_offset = (win_height - new_height) / 2f32;
-                    }
-
+                    let (x_offset, y_offset, win_width, win_height) = Input::video_offset(&meta_clone, &app_weak_clone);
                     if y < y_offset || y > win_height - y_offset || x < x_offset || x > win_width - x_offset {
                         return;
                     }
@@ -148,29 +156,7 @@ impl Input {
                         return;
                     }
 
-                    let size = app_weak_clone.unwrap().window().size(); 
-                    let scale_factor = app_weak_clone.unwrap().window().scale_factor();
-
-                    let win_width = (size.width as f32) / scale_factor;
-                    let win_height = (size.height as f32) / scale_factor;
-
-                    let vid_height = meta_clone.read().unwrap().height as f32; 
-                    let vid_width = meta_clone.read().unwrap().width as f32;
-
-                    let win_ratio = win_width / win_height;
-                    let vid_ratio = vid_width / vid_height;
-                    
-                    let mut x_offset = 0f32;
-                    let mut y_offset = 0f32;
-
-                    if win_ratio > vid_ratio {
-                        let new_width = win_height * vid_ratio;
-                        x_offset = (win_width - new_width) / 2f32;
-                    } else {
-                        let new_height = win_width / vid_ratio;
-                        y_offset = (win_height - new_height) / 2f32;
-                    }
-
+                    let (x_offset, y_offset, win_width, win_height) = Input::video_offset(&meta_clone, &app_weak_clone);
                     if y < y_offset || y > win_height - y_offset || x < x_offset || x > win_width - x_offset {
                         return;
                     }

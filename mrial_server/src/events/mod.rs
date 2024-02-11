@@ -5,7 +5,7 @@ use enigo::{
     Enigo, Key, Keyboard, Mouse, Settings,
 };
 use kanal::Sender;
-use mrial_proto::{input::*, packet::*, parse_handshake_payload};
+use mrial_proto::{input::*, packet::*, parse_client_state_payload};
 
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
@@ -185,7 +185,7 @@ impl EventsThread {
 
                 match packet_type {
                     EPacketType::SHAKE => {
-                        if let Ok(meta ) = parse_handshake_payload(&mut buf[HEADER..size]) {
+                        if let Ok(meta ) = parse_client_state_payload(&mut buf[HEADER..size]) {
                             conn.set_dimensions(
                                 meta.width.try_into().unwrap(), 
                                 meta.height.try_into().unwrap()
@@ -195,6 +195,17 @@ impl EventsThread {
                                 .unwrap();
                             // TODO: Need to requery headers from encoder
                             conn.add_client(src, &headers);
+                        };
+                    }
+                    EPacketType::CLIENT_STATE => {
+                        if let Ok(meta ) = parse_client_state_payload(&mut buf[HEADER..size]) {
+                            conn.set_dimensions(
+                                meta.width.try_into().unwrap(), 
+                                meta.height.try_into().unwrap()
+                            );
+                            video_server_ch_sender
+                                .send(VideoServerActions::ConfigUpdate)
+                                .unwrap();
                         };
                     }
                     EPacketType::PING => {
@@ -208,7 +219,7 @@ impl EventsThread {
                                 .unwrap();
                         }
                     }
-                    EPacketType::STATE => {
+                    EPacketType::INPUT_STATE => {
                         emitter.input(
                             &mut buf[HEADER..], 
                             conn.get_meta().width, 
