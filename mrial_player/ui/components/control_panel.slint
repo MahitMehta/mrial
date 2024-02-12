@@ -20,6 +20,7 @@ export global ControlPanelFunctions {
 
 export global ControlPanelAdapter {
     in-out property <[IMrialDropdownItem]> resolutions: [];
+    in-out property <int> resolution_index: 0;
 }
 
 export component ControlPanel inherits TouchArea {
@@ -56,18 +57,18 @@ export component ControlPanel inherits TouchArea {
                         label: "Resolution";
                         items: ControlPanelAdapter.resolutions;
                         open: root.selected_dropdown == "Resolution";
-                        current-index: 0;
+                        current-index: ControlPanelAdapter.resolution_index;
                         clicked => { 
                             if root.selected_dropdown == self.label {
                                 root.selected_dropdown = "";
                             } else {
                                 root.selected_dropdown = self.label;
-                                ControlPanelFunctions.state_update({
-                                    resolution: self.items[self.current-index].value
-                                })
                             }; 
                         }
                         selected => {
+                            ControlPanelFunctions.state_update({
+                                resolution: self.items[self.current-index].value
+                            });
                             root.selected_dropdown = "";
                         }
                     }

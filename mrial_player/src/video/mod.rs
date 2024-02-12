@@ -1,4 +1,4 @@
-use std::{fs::File, io::Write, thread};
+use std::{fs::File, io::{ErrorKind, Write, Error}, thread};
 
 use ffmpeg_next::{
     format::Pixel,
@@ -7,6 +7,9 @@ use ffmpeg_next::{
 };
 use kanal::{unbounded, Receiver, Sender};
 use mrial_proto::*;
+
+use super::slint_generatedMainWindow::ControlPanelAdapter;
+use slint::{ComponentHandle, Model};
 
 use crate::client::Client;
 
@@ -43,11 +46,16 @@ impl VideoThread {
         rgb: &[u8],
         width: u32,
         height: u32,
-    ) -> slint::SharedPixelBuffer<slint::Rgb8Pixel> {
+    ) -> Result<slint::SharedPixelBuffer<slint::Rgb8Pixel>, Error> {
+        // TODO: Handle error accordingly
+        if width * height * 3 != rgb.len() as u32 {
+            return Err(Error::new(ErrorKind::InvalidData, "Invalid RGB buffer"));
+        }
+
         let mut pixel_buffer = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(width, height);
         pixel_buffer.make_mut_bytes().copy_from_slice(rgb);
 
-        pixel_buffer
+        Ok(pixel_buffer)
     }
 
     pub fn run(
@@ -69,10 +77,10 @@ impl VideoThread {
             // TODO: switch scalar depending on bitrate to reduce latency
             let mut lanczos_scalar: Option<Context> = None;
 
-            let mut yuv_frame = frame::Video::empty();
-            let mut rgb_frame = frame::Video::empty();
-
             let meta_clone = client.get_meta_clone();
+
+            let mut previous_width = 0; 
+            let mut previous_height = 0;
 
             loop {
                 let buf = receiver.recv().unwrap();
@@ -86,13 +94,15 @@ impl VideoThread {
                     }
                 };
 
-                while ffmpeg_decoder.receive_frame(&mut yuv_frame).is_ok() {
-                    if lanczos_scalar.is_none() || 
-                        ffmpeg_decoder.width() != rgb_frame.width() || 
-                        ffmpeg_decoder.height() != rgb_frame.height() {
+                let mut yuv_frame = frame::Video::empty();
+                let mut rgb_frame = frame::Video::empty();
 
-                        rgb_frame.set_width(ffmpeg_decoder.width());
-                        rgb_frame.set_height(ffmpeg_decoder.height());
+                while ffmpeg_decoder.receive_frame(&mut yuv_frame).is_ok() {
+                    if lanczos_scalar.is_none()
+                        || ffmpeg_decoder.width() != previous_width
+                        || ffmpeg_decoder.height() != previous_height  {
+                        previous_width = ffmpeg_decoder.width();
+                        previous_height = ffmpeg_decoder.height();
 
                         meta_clone.write().unwrap().width = ffmpeg_decoder.width() as usize;
                         meta_clone.write().unwrap().height = ffmpeg_decoder.height() as usize;
@@ -109,6 +119,31 @@ impl VideoThread {
                             )
                             .unwrap(),
                         );
+
+                        let app_weak_clone = app_weak.clone();
+                        let resolution_id = format!(
+                            "{}x{}",
+                            ffmpeg_decoder.width(),
+                            ffmpeg_decoder.height()
+                        );
+
+                        let _ = slint::invoke_from_event_loop(move || {
+                            let resolution_index = app_weak_clone
+                                .unwrap()
+                                .global::<ControlPanelAdapter>()
+                                .get_resolutions()
+                                .iter()
+                                .position(|res| {
+                                    res.value == resolution_id
+                                });
+                            
+                            if let Some(resolution_index) = resolution_index {
+                                app_weak_clone
+                                    .unwrap()
+                                    .global::<ControlPanelAdapter>()
+                                    .set_resolution_index(resolution_index.try_into().unwrap());
+                            }
+                        });
                     }
 
                     if let Some(scalar) = &mut lanczos_scalar {
@@ -116,21 +151,21 @@ impl VideoThread {
                     }
 
                     let rgb_buffer: &[u8] = rgb_frame.data(0);
-                    let pixel_buffer = VideoThread::rgb_to_slint_pixel_buffer(
+                    if let Ok(pixel_buffer) = VideoThread::rgb_to_slint_pixel_buffer(
                         rgb_buffer,
                         ffmpeg_decoder.width(),
                         ffmpeg_decoder.height(),
-                    );
-
-                    let app_copy: slint::Weak<super::slint_generatedMainWindow::MainWindow> =
+                    ) {
+                        let app_copy: slint::Weak<super::slint_generatedMainWindow::MainWindow> =
                         app_weak.clone();
-                    let _ = slint::invoke_from_event_loop(move || {
-                        app_copy
-                            .unwrap()
-                            .set_video_frame(slint::Image::from_rgb8(pixel_buffer));
-                        // TODO: test if this actually improves smoothness
-                        // app_copy.unwrap().window().request_redraw();
-                    });
+                        let _ = slint::invoke_from_event_loop(move || {
+                            app_copy
+                                .unwrap()
+                                .set_video_frame(slint::Image::from_rgb8(pixel_buffer));
+                            // TODO: test if this actually improves smoothness
+                            // app_copy.unwrap().window().request_redraw();
+                        });
+                    };
                 }
             }
         });

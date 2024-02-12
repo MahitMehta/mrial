@@ -197,7 +197,7 @@ impl EventsThread {
                             conn.add_client(src, &headers);
                         };
                     }
-                    EPacketType::CLIENT_STATE => {
+                    EPacketType::ClientState => {
                         if let Ok(meta ) = parse_client_state_payload(&mut buf[HEADER..size]) {
                             conn.set_dimensions(
                                 meta.width.try_into().unwrap(), 
@@ -219,7 +219,7 @@ impl EventsThread {
                                 .unwrap();
                         }
                     }
-                    EPacketType::INPUT_STATE => {
+                    EPacketType::InputState => {
                         emitter.input(
                             &mut buf[HEADER..], 
                             conn.get_meta().width, 

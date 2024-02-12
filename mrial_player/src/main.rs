@@ -27,7 +27,7 @@ pub enum ConnectionAction {
     Connect,
     Reconnect,
     Handshake,
-    UpdateState
+    UpdateState,
 }
 
 fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) {
@@ -57,7 +57,7 @@ fn main() {
 
     let app: MainWindow = MainWindow::new().unwrap();
     let app_weak = app.as_weak();
-    
+
     let (width, height) = app
         .window()
         .with_winit_window(|winit_window: &winit::window::Window| {
@@ -84,9 +84,15 @@ fn main() {
 
     let conn_channel = unbounded::<ConnectionAction>();
     let conn_sender = conn_channel.0.clone();
-    let mut client = Client::new(ClientMetaData { 
-        width, height, widths: vec![], heights: vec![]
-    }, conn_channel.0.clone());
+    let mut client = Client::new(
+        ClientMetaData {
+            width,
+            height,
+            widths: vec![],
+            heights: vec![],
+        },
+        conn_channel.0.clone(),
+    );
 
     let mut server_state = Servers::new();
     server_state.load().unwrap();
@@ -125,7 +131,7 @@ fn main() {
                     name.to_string(),
                     ip_addr.to_string(),
                     port.parse::<u16>().unwrap(),
-                    "ubuntu".to_string()
+                    "ubuntu".to_string(),
                 );
 
                 populate_servers(&server_state_create_clone, &app_weak_clone);
@@ -141,33 +147,6 @@ fn main() {
                 populate_servers(&server_state_clone, &app_weak_clone);
                 server_state_clone.save().unwrap();
             });
-    
-        app_weak
-            .unwrap()
-            .global::<ControlPanelFunctions>()
-            .on_state_update(move |state| {
-                let items: Vec<u16> = state.resolution
-                    .split("x")
-                    .map(|x| x.parse::<u16>().unwrap())
-                    .collect();
-                let (width, height) = (items[0], items[1]);
-                
-                let mut buf = [0; CLIENT_STATE_PAYLOAD + HEADER];
-                let size = write_client_state_payload(&mut buf[HEADER..], ClientStatePayload {
-                    width,
-                    height
-                });
-
-                write_header(
-                    EPacketType::CLIENT_STATE, 
-                    0, 
-                    size.try_into().unwrap(), 
-                    0, 
-                    &mut buf
-                );
-                
-                let _ = client_clone.send(&buf);
-            })
     })
     .unwrap();
 
@@ -199,7 +178,7 @@ fn main() {
                     Some(ConnectionAction::UpdateState) => {
                         let widths = client.get_meta().widths.clone();
                         let heights = client.get_meta().heights.clone();
-                
+
                         let app_weak_clone = app_weak.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             let resolutions_model = Rc::new(VecModel::default());

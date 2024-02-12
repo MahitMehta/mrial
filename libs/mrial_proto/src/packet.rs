@@ -5,12 +5,12 @@ pub enum EPacketType {
     SHAKE = 0, 
     SHOOK = 1,
     NAL = 2,  
-    INPUT_STATE = 3,
+    InputState = 3,
     AUDIO = 4,
     DISCONNECT = 5,
     PING = 6,
-    CLIENT_STATE = 7,
-    SERVER_STATE = 8,
+    ClientState = 7,
+    ServerState = 8,
     InternalEOL = 13
 }
 
@@ -20,12 +20,12 @@ impl From<u8> for EPacketType {
             0 => EPacketType::SHAKE,
             1 => EPacketType::SHOOK,
             2 => EPacketType::NAL,
-            3 => EPacketType::INPUT_STATE,
+            3 => EPacketType::InputState,
             4 => EPacketType::AUDIO,
             5 => EPacketType::DISCONNECT,
             6 => EPacketType::PING,
-            7 => EPacketType::CLIENT_STATE,
-            8 => EPacketType::SERVER_STATE,
+            7 => EPacketType::ClientState,
+            8 => EPacketType::ServerState,
             13 => EPacketType::InternalEOL,
             _ => panic!("Invalid Packet Type")
         }
