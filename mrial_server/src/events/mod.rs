@@ -5,7 +5,7 @@ use enigo::{
     Enigo, Key, Keyboard, Mouse, Settings,
 };
 use kanal::Sender;
-use mrial_proto::{input::*, packet::*, parse_handshake_payload};
+use mrial_proto::{input::*, packet::*, parse_client_state_payload};
 
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
@@ -79,10 +79,8 @@ impl EventsEmitter {
             }
         }
         if mouse_move_requested(&buf) {
-            let x_percent =
-                u16::from_be_bytes(buf[10..12].try_into().unwrap()) - 1;
-            let y_percent =
-                u16::from_be_bytes(buf[12..14].try_into().unwrap()) - 1;
+            let x_percent = u16::from_be_bytes(buf[10..12].try_into().unwrap()) - 1;
+            let y_percent = u16::from_be_bytes(buf[12..14].try_into().unwrap()) - 1;
 
             let x: i32 = (x_percent as f32 / 10000.0 * width as f32).round() as i32;
             let y = (y_percent as f32 / 10000.0 * height as f32).round() as i32;
@@ -185,16 +183,27 @@ impl EventsThread {
 
                 match packet_type {
                     EPacketType::SHAKE => {
-                        if let Ok(meta ) = parse_handshake_payload(&mut buf[HEADER..size]) {
+                        if let Ok(meta) = parse_client_state_payload(&mut buf[HEADER..size]) {
                             conn.set_dimensions(
-                                meta.width.try_into().unwrap(), 
-                                meta.height.try_into().unwrap()
+                                meta.width.try_into().unwrap(),
+                                meta.height.try_into().unwrap(),
                             );
                             video_server_ch_sender
                                 .send(VideoServerActions::ConfigUpdate)
                                 .unwrap();
                             // TODO: Need to requery headers from encoder
                             conn.add_client(src, &headers);
+                        };
+                    }
+                    EPacketType::ClientState => {
+                        if let Ok(meta) = parse_client_state_payload(&mut buf[HEADER..size]) {
+                            conn.set_dimensions(
+                                meta.width.try_into().unwrap(),
+                                meta.height.try_into().unwrap(),
+                            );
+                            video_server_ch_sender
+                                .send(VideoServerActions::ConfigUpdate)
+                                .unwrap();
                         };
                     }
                     EPacketType::PING => {
@@ -208,11 +217,11 @@ impl EventsThread {
                                 .unwrap();
                         }
                     }
-                    EPacketType::STATE => {
+                    EPacketType::InputState => {
                         emitter.input(
-                            &mut buf[HEADER..], 
-                            conn.get_meta().width, 
-                            conn.get_meta().height
+                            &mut buf[HEADER..],
+                            conn.get_meta().width,
+                            conn.get_meta().height,
                         );
                     }
                     _ => {}

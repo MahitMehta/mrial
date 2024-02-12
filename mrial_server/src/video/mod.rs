@@ -1,6 +1,7 @@
-pub mod yuv;
 pub mod display;
+pub mod yuv;
 
+use display::DisplayMeta;
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use kanal::unbounded;
 use mrial_proto::*;
@@ -10,20 +11,23 @@ use std::{
     collections::VecDeque,
     fs::File,
     io::{ErrorKind::WouldBlock, Write},
-    time::{Duration, Instant}, sync::RwLockReadGuard
+    sync::RwLockReadGuard,
+    time::{Duration, Instant},
 };
-use x264::{Param, Picture, Encoder};
+use x264::{Encoder, Param, Picture};
 use yuv::YUVBuffer;
-use display::DisplayMeta;
 
-use crate::{conn::{Connection, ServerMetaData}, events::EventsThread};
+use crate::{
+    conn::{Connection, ServerMetaData},
+    events::EventsThread,
+};
 
 use self::yuv::EColorSpace;
 
 #[derive(PartialEq)]
 pub enum VideoServerActions {
     Inactive,
-    ConfigUpdate
+    ConfigUpdate,
 }
 
 pub struct VideoServerThread {
@@ -36,7 +40,7 @@ pub struct VideoServerThread {
     row_len: usize,
 
     par: Param,
-    encoder: Encoder
+    encoder: Encoder,
 }
 
 impl VideoServerThread {
@@ -44,10 +48,7 @@ impl VideoServerThread {
         let display: Display = Display::primary().unwrap();
         let capturer = Capturer::new(display).unwrap();
 
-        conn.set_dimensions(
-            capturer.width(), 
-            capturer.height()
-        );
+        conn.set_dimensions(capturer.width(), capturer.height());
 
         let row_len = 4 * conn.get_meta().width * conn.get_meta().width;
 
@@ -64,7 +65,7 @@ impl VideoServerThread {
             buf: [0u8; MTU],
 
             par,
-            encoder
+            encoder,
         }
     }
 
@@ -99,20 +100,20 @@ impl VideoServerThread {
         let (ch_sender, ch_receiver) = unbounded::<VideoServerActions>();
 
         let mut pic = Picture::from_param(&self.par).unwrap();
-      
+
         let pool = ThreadPool::builder().pool_size(1).create().unwrap();
         let mut yuv_handles: VecDeque<RemoteHandle<YUVBuffer>> = VecDeque::new();
 
         let mut frames = 0u8;
         let mut fps_time = Instant::now();
 
-        let headers = self.encoder.get_headers().unwrap();
+        let mut headers = self.encoder.get_headers().unwrap();
 
         let events = EventsThread::new();
         events.run(
-            &mut self.conn, 
-            headers.as_bytes().to_vec(), 
-            ch_sender.clone()
+            &mut self.conn,
+            headers.as_bytes().to_vec(),
+            ch_sender.clone(),
         );
 
         loop {
@@ -120,36 +121,53 @@ impl VideoServerThread {
                 match ch_receiver.try_recv_realtime().unwrap() {
                     Some(VideoServerActions::Inactive) => {
                         self.encoder = x264::Encoder::open(&mut self.par).unwrap();
-                    
                     }
                     Some(VideoServerActions::ConfigUpdate) => {
                         let requested_width = self.conn.get_meta().width;
                         let requested_height = self.conn.get_meta().height;
 
-                        let _updated_resolution = match DisplayMeta::update_display_resolution(requested_width, requested_height) {
+                        let _updated_resolution = match DisplayMeta::update_display_resolution(
+                            requested_width,
+                            requested_height,
+                        ) {
                             Ok(updated) => updated,
                             Err(e) => {
                                 println!("Error updating display resolution: {}", e);
                                 false
                             }
                         };
-           
+
                         let display = Display::primary().unwrap();
                         self.capturer = Capturer::new(display).unwrap();
 
-                        self.conn.set_dimensions(
-                            self.capturer.width(), 
-                            self.capturer.height()
-                        );
+                        self.conn
+                            .set_dimensions(self.capturer.width(), self.capturer.height());
 
                         self.par = VideoServerThread::get_parameters(self.conn.get_meta());
-                        
+
                         self.encoder = x264::Encoder::open(&mut self.par).unwrap();
+                        
+                        headers = self.encoder.get_headers().unwrap();
+                        let header_bytes = headers.as_bytes();
+
+                        let mut buf = [0u8; MTU];
+                        write_header(
+                            EPacketType::NAL, 
+                            0, 
+                            HEADER.try_into().unwrap(),
+                            0, 
+                            &mut buf);
+                        buf[HEADER..HEADER + header_bytes.len()]
+                            .copy_from_slice(header_bytes);
+                        self.conn.broadcast(&buf[0..HEADER + header_bytes.len()]);
+
                         pic = Picture::from_param(&self.par).unwrap();
 
                         yuv_handles.clear();
                     }
-                    None => { break; }
+                    None => {
+                        break;
+                    }
                 }
             }
 
@@ -167,7 +185,12 @@ impl VideoServerThread {
                     let bgra_frame = frame.chunks(self.row_len).next().unwrap().to_vec();
 
                     let cvt_rgb_yuv = async move {
-                        let yuv = YUVBuffer::with_bgra_for_444(width, height, &bgra_frame);
+                        // TODO: figure out why this is neccessary
+                        let yuv = YUVBuffer::with_bgra_for_444(
+                            width,
+                            height,
+                            &bgra_frame[0..width * height * 4],
+                        );
                         yuv
                     };
                     yuv_handles.push_back(pool.spawn_with_handle(cvt_rgb_yuv).unwrap());

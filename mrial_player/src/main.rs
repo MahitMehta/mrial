@@ -27,7 +27,7 @@ pub enum ConnectionAction {
     Connect,
     Reconnect,
     Handshake,
-    UpdateState
+    UpdateState,
 }
 
 fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) {
@@ -84,9 +84,15 @@ fn main() {
 
     let conn_channel = unbounded::<ConnectionAction>();
     let conn_sender = conn_channel.0.clone();
-    let mut client = Client::new(ClientMetaData { 
-        width, height, widths: vec![], heights: vec![]
-    }, conn_channel.0.clone());
+    let mut client = Client::new(
+        ClientMetaData {
+            width,
+            height,
+            widths: vec![],
+            heights: vec![],
+        },
+        conn_channel.0.clone(),
+    );
 
     let mut server_state = Servers::new();
     server_state.load().unwrap();
@@ -97,6 +103,7 @@ fn main() {
 
     populate_servers(&server_state, &app_weak);
 
+    let client_clone = client.clone();
     slint::invoke_from_event_loop(move || {
         let conn_sender_clone = conn_sender.clone();
         app_weak
@@ -124,7 +131,7 @@ fn main() {
                     name.to_string(),
                     ip_addr.to_string(),
                     port.parse::<u16>().unwrap(),
-                    "ubuntu".to_string()
+                    "ubuntu".to_string(),
                 );
 
                 populate_servers(&server_state_create_clone, &app_weak_clone);
@@ -171,12 +178,12 @@ fn main() {
                     Some(ConnectionAction::UpdateState) => {
                         let widths = client.get_meta().widths.clone();
                         let heights = client.get_meta().heights.clone();
-                
+
                         let app_weak_clone = app_weak.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             let resolutions_model = Rc::new(VecModel::default());
                             widths.iter().zip(heights.iter()).for_each(|(w, h)| {
-                                resolutions_model.push(MrialDropdownItem {
+                                resolutions_model.push(IMrialDropdownItem {
                                     label: SharedString::from(format!("{}x{}", w, h)),
                                     value: SharedString::from(format!("{}x{}", w, h)),
                                 });

@@ -5,7 +5,10 @@ use std::{
     time::SystemTime,
 };
 
-use mrial_proto::{packet::*, write_state_payload, EConnStatePayload, CONN_STATE_PAYLOAD, HANDSHAKE_PAYLOAD, SERVER_PING_TOLERANCE};
+use mrial_proto::{
+    packet::*, write_server_state_payload, ServerStatePayload, CLIENT_STATE_PAYLOAD,
+    SERVER_PING_TOLERANCE, SERVER_STATE_PAYLOAD,
+};
 
 use crate::video::display::DisplayMeta;
 
@@ -37,7 +40,7 @@ pub struct ServerMetaData {
 pub struct Connection {
     clients: Arc<RwLock<HashMap<String, Client>>>,
     meta: Arc<RwLock<ServerMetaData>>,
-    socket: UdpSocket
+    socket: UdpSocket,
 }
 
 impl Connection {
@@ -52,7 +55,7 @@ impl Connection {
             socket: UdpSocket::bind(server_address).expect("Failed to Establish UdpSocket"),
         }
     }
-    
+
     pub fn get_meta(&self) -> std::sync::RwLockReadGuard<'_, ServerMetaData> {
         self.meta.read().unwrap()
     }
@@ -104,7 +107,7 @@ impl Connection {
             .write()
             .unwrap()
             .insert(src_str, Client::new(src));
-        let mut buf = [0u8; HEADER + CONN_STATE_PAYLOAD];
+        let mut buf = [0u8; HEADER + SERVER_STATE_PAYLOAD];
         write_header(
             EPacketType::SHOOK,
             0,
@@ -114,20 +117,23 @@ impl Connection {
         );
 
         let mut amt = HEADER;
-        
+
         // TODO: Windows implementation needed
         #[cfg(target_os = "linux")]
         if let Ok((widths, heights)) = DisplayMeta::get_display_resolutions() {
-            amt += write_state_payload(&mut buf[HEADER..], EConnStatePayload {
-                widths,
-                heights,
-                width: 0,
-                height: 0
-            });
+            amt += write_server_state_payload(
+                &mut buf[HEADER..],
+                ServerStatePayload {
+                    widths,
+                    heights,
+                    width: 0,
+                    height: 0,
+                },
+            );
         }
 
         self.socket.send_to(&buf[..amt], src).unwrap();
-
+    
         let mut buf = [0u8; MTU];
         write_header(EPacketType::NAL, 0, HEADER.try_into().unwrap(), 0, &mut buf);
         buf[HEADER..HEADER + headers.len()].copy_from_slice(headers);

@@ -1,6 +1,6 @@
 [package]
 name = "mrial_server"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 authors = ["Mahit Mehta", "Marco Ngai"]
 license = "GPL-3.0-only"

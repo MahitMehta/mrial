@@ -5,13 +5,22 @@ import {
     ButtonType, 
     MrialTextInput, 
     MrialDropdown, 
-    MrialDropdownItem 
+    IMrialDropdownItem 
 } from "../common.slint";
 import { VerticalBox } from "std-widgets.slint";
 import { ServerFunctions } from "../components/server.slint";
 
+struct ClientState {
+    resolution: string
+}
+
+export global ControlPanelFunctions {
+    pure callback state_update(ClientState); 
+}
+
 export global ControlPanelAdapter {
-    in-out property <[MrialDropdownItem]> resolutions: [];
+    in-out property <[IMrialDropdownItem]> resolutions: [];
+    in-out property <int> resolution_index: 0;
 }
 
 export component ControlPanel inherits TouchArea {
@@ -33,82 +42,90 @@ export component ControlPanel inherits TouchArea {
         border-color: Theme.bg-secondary-color;
         background: Theme.bg-primary-color;
 
-        VerticalBox {
+        VerticalLayout {
+            padding: 10px;
             alignment: LayoutAlignment.space-between;
             spacing: 5px;
 
-            VerticalLayout {
-                spacing: 5px;
+            HorizontalLayout {
+                alignment: LayoutAlignment.center;
 
-                MrialDropdown {
-                    label: "Resolution";
-                    items: ControlPanelAdapter.resolutions;
-                    open: root.selected_dropdown == "Resolution";
-                    current-index: 0;
-                    clicked => { 
-                        if root.selected_dropdown == self.label {
-                            root.selected_dropdown = "";
-                        } else {
-                            root.selected_dropdown = self.label;
-                        }; 
-                    }
-                    selected => {
-                        root.selected_dropdown = "";
-                    }
-                }
-                MrialDropdown {
-                    label: "Mode";
-                    items: [
-                        {
-                            label: "Ultra-Low Latency",
-                            value: "low-latency"
-                        },
-                        {
-                            label: "Balanced",
-                            value: "balanced"
-                        },
-                        {
-                            label: "Buttery-Smooth",
-                            value: "smooth"
-                        },
-                    ];
-                    open: root.selected_dropdown == self.label;
-                    clicked => { 
-                        if root.selected_dropdown == self.label {
-                            root.selected_dropdown = "";
-                        } else {
-                            root.selected_dropdown = self.label;
-                        }; 
-                    }
-                    selected => {
-                        root.selected_dropdown = "";
-                    }
-                    current-index: 0;
-                }
-                MrialDropdown {
-                    label: "Audio";
-                    items: [
-                        {
-                            label: "Original",
-                            value: "original"
-                        },
-                        {
-                            label: "Opus",
-                            value: "opus"
+                VerticalLayout {
+                    spacing: 5px;
+    
+                    MrialDropdown {
+                        label: "Resolution";
+                        items: ControlPanelAdapter.resolutions;
+                        open: root.selected_dropdown == "Resolution";
+                        current-index: ControlPanelAdapter.resolution_index;
+                        clicked => { 
+                            if root.selected_dropdown == self.label {
+                                root.selected_dropdown = "";
+                            } else {
+                                root.selected_dropdown = self.label;
+                            }; 
                         }
-                    ];
-                    open: root.selected_dropdown == self.label;
-                    clicked => { 
-                        if root.selected_dropdown == self.label {
+                        selected => {
+                            ControlPanelFunctions.state_update({
+                                resolution: self.items[self.current-index].value
+                            });
                             root.selected_dropdown = "";
-                        } else {
-                            root.selected_dropdown = self.label;
-                        }; 
+                        }
                     }
-                    selected => {
-                        root.selected_dropdown = "";
+                    MrialDropdown {
+                        label: "Mode";
+                        items: [
+                            {
+                                label: "Ultra-Low Latency",
+                                value: "low-latency"
+                            },
+                            {
+                                label: "Balanced",
+                                value: "balanced"
+                            },
+                            {
+                                label: "Buttery-Smooth",
+                                value: "smooth"
+                            },
+                        ];
+                        open: root.selected_dropdown == self.label;
+                        clicked => { 
+                            if root.selected_dropdown == self.label {
+                                root.selected_dropdown = "";
+                            } else {
+                                root.selected_dropdown = self.label;
+                            }; 
+                        }
+                        selected => {
+                            root.selected_dropdown = "";
+                        }
+                        current-index: 0;
                     }
-                    current-index: 0;
+                    MrialDropdown {
+                        label: "Audio";
+                        items: [
+                            {
+                                label: "Original",
+                                value: "original"
+                            },
+                            {
+                                label: "Opus",
+                                value: "opus"
+                            }
+                        ];
+                        open: root.selected_dropdown == self.label;
+                        clicked => { 
+                            if root.selected_dropdown == self.label {
+                                root.selected_dropdown = "";
+                            } else {
+                                root.selected_dropdown = self.label;
+                            }; 
+                        }
+                        selected => {
+                            root.selected_dropdown = "";
+                        }
+                        current-index: 0;
+                    }
                 }
             }
             Rectangle {

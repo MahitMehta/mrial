@@ -1,4 +1,6 @@
 *s.h264
 target
 .DS_Store
+/**/.DS_Store
 dist
+.vscode

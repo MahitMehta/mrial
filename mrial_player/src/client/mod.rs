@@ -1,5 +1,8 @@
 use std::{
-    net::{SocketAddr, UdpSocket}, sync::{Arc, RwLock}, thread, time::Duration
+    net::{SocketAddr, UdpSocket},
+    sync::{Arc, RwLock},
+    thread,
+    time::Duration,
 };
 
 use kanal::Sender;
@@ -27,21 +30,22 @@ pub struct Client {
     socket: Option<UdpSocket>,
     state: ConnectionState,
     meta: Arc<RwLock<ClientMetaData>>,
-    conn_sender: Sender<ConnectionAction>
+    conn_sender: Sender<ConnectionAction>,
 }
 
 impl Client {
-    pub fn new(
-        meta: ClientMetaData, 
-        conn_sender: Sender<ConnectionAction>
-    ) -> Client {
+    pub fn new(meta: ClientMetaData, conn_sender: Sender<ConnectionAction>) -> Client {
         Client {
             socket_address: String::new(),
             socket: None,
             state: ConnectionState::Disconnected,
             meta: Arc::new(RwLock::new(meta)),
-            conn_sender
+            conn_sender,
         }
+    }
+
+    pub fn get_meta_clone(&self) -> Arc<RwLock<ClientMetaData>> {
+        self.meta.clone()
     }
 
     pub fn get_meta(&self) -> std::sync::RwLockReadGuard<ClientMetaData> {
@@ -111,7 +115,7 @@ impl Client {
                 socket: Some(socket),
                 state: self.state,
                 meta: self.meta.clone(),
-                conn_sender: self.conn_sender.clone()
+                conn_sender: self.conn_sender.clone(),
             };
         }
 
@@ -120,7 +124,7 @@ impl Client {
             socket: None,
             state: ConnectionState::Disconnected,
             meta: self.meta.clone(),
-            conn_sender: self.conn_sender.clone()
+            conn_sender: self.conn_sender.clone(),
         };
     }
 
@@ -159,26 +163,29 @@ impl Client {
         }
     }
 
-    fn update_client_conn_state(&self, payload: EConnStatePayload) {
+    fn update_client_conn_state(&self, payload: ServerStatePayload) {
         self.meta.write().unwrap().widths = payload.widths.try_into().unwrap();
         self.meta.write().unwrap().heights = payload.heights.try_into().unwrap();
 
         let _ = &self.conn_sender.send(ConnectionAction::UpdateState);
     }
-    
+
     pub fn send_handshake(&mut self) {
         if let Some(socket) = &self.socket {
             let _ = socket
                 .set_read_timeout(Some(Duration::from_millis(1000)))
                 .expect("Failed to Set Timeout");
-            let mut buf = [0u8; HEADER + CONN_STATE_PAYLOAD];
+            let mut buf = [0u8; HEADER + SERVER_STATE_PAYLOAD];
 
             write_header(EPacketType::SHAKE, 0, HEADER as u32, 0, &mut buf);
 
-            let payload_len = write_handshake_payload(&mut buf[HEADER..HEADER + HANDSHAKE_PAYLOAD], EHandshakePayload { 
-                width: self.meta.read().unwrap().width.try_into().unwrap(),
-                height: self.meta.read().unwrap().height.try_into().unwrap()
-            });
+            let payload_len = write_client_state_payload(
+                &mut buf[HEADER..HEADER + CLIENT_STATE_PAYLOAD],
+                ClientStatePayload {
+                    width: self.meta.read().unwrap().width.try_into().unwrap(),
+                    height: self.meta.read().unwrap().height.try_into().unwrap(),
+                },
+            );
 
             let _ = socket.send(&buf[0..HEADER + payload_len]);
             println!("Sent Handshake Packet");
@@ -193,7 +200,7 @@ impl Client {
                 let _ = socket
                     .set_read_timeout(Some(Duration::from_millis(5000)))
                     .expect("Failed to Set Timeout");
-                if let Ok(payload) = parse_state_payload(&mut buf[HEADER..amt]) {   
+                if let Ok(payload) = parse_server_state_payload(&mut buf[HEADER..amt]) {
                     self.update_client_conn_state(payload);
                 };
             }
