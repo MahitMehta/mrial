@@ -75,7 +75,7 @@ impl IAudioController for AudioServerThread {
 
             let _listener = stream
                 .add_local_listener_with_user_data(data)
-                .param_changed(move |_, user_data, id , param| {
+                .param_changed(move |_, user_data, id, param| {
                     // NULL means to clear the format
 
                     let Some(param) = param else {
