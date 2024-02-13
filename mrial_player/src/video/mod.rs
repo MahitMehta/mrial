@@ -1,3 +1,5 @@
+mod convert;
+
 use std::{fs::File, io::{ErrorKind, Write, Error}, thread};
 
 use ffmpeg_next::{
@@ -11,7 +13,7 @@ use mrial_proto::*;
 use super::slint_generatedMainWindow::ControlPanelAdapter;
 use slint::{ComponentHandle, Model};
 
-use crate::client::Client;
+use crate::{client::Client, video::convert::RGBBuffer};
 
 pub struct VideoThread {
     packet_constructor: PacketConstructor,
@@ -95,30 +97,15 @@ impl VideoThread {
                 };
 
                 let mut yuv_frame = frame::Video::empty();
-                let mut rgb_frame = frame::Video::empty();
 
                 while ffmpeg_decoder.receive_frame(&mut yuv_frame).is_ok() {
-                    if lanczos_scalar.is_none()
-                        || ffmpeg_decoder.width() != previous_width
+                    if ffmpeg_decoder.width() != previous_width
                         || ffmpeg_decoder.height() != previous_height  {
                         previous_width = ffmpeg_decoder.width();
                         previous_height = ffmpeg_decoder.height();
 
                         meta_clone.write().unwrap().width = ffmpeg_decoder.width() as usize;
                         meta_clone.write().unwrap().height = ffmpeg_decoder.height() as usize;
-
-                        lanczos_scalar = Some(
-                            software::scaling::context::Context::get(
-                                ffmpeg_decoder.format(),
-                                ffmpeg_decoder.width() as u32,
-                                ffmpeg_decoder.height() as u32,
-                                Pixel::RGB24,
-                                ffmpeg_decoder.width() as u32,
-                                ffmpeg_decoder.height() as u32,
-                                software::scaling::flag::Flags::LANCZOS,
-                            )
-                            .unwrap(),
-                        );
 
                         let app_weak_clone = app_weak.clone();
                         let resolution_id = format!(
@@ -146,11 +133,15 @@ impl VideoThread {
                         });
                     }
 
-                    if let Some(scalar) = &mut lanczos_scalar {
-                        scalar.run(&yuv_frame, &mut rgb_frame).unwrap();
-                    }
+                    let rgb_buffer: RGBBuffer = RGBBuffer::with_444_for_rgb24(
+                        ffmpeg_decoder.width() as usize,
+                        ffmpeg_decoder.height() as usize,
+                        yuv_frame.data(0),
+                        yuv_frame.data(1),
+                        yuv_frame.data(2),
+                    );
 
-                    let rgb_buffer: &[u8] = rgb_frame.data(0);
+                    let rgb_buffer: &[u8] = rgb_buffer.as_slice();
                     if let Ok(pixel_buffer) = VideoThread::rgb_to_slint_pixel_buffer(
                         rgb_buffer,
                         ffmpeg_decoder.width(),

@@ -19,6 +19,9 @@ winit = "0.29.4"
 dirs = "5.0.1"
 ffmpeg-next = { version = "6.1.1" }
 
+[target."cfg(target_os = \"macos\")".dependencies] 
+libyuv-sys = { path = "../libs/libyuv-sys" }
+
 [build-dependencies] 
 slint-build = "1.4.0"
 
