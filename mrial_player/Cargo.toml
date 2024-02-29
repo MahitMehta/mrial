@@ -1,9 +1,9 @@
 [package]
 name = "mrial_player"
-version = "0.1.5"
 edition = "2021"
-authors = ["Mahit Mehta", "Marco Ngai"]
-license = "GPL-3.0-only"
+authors.workspace = true
+license.workspace = true
+version.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -18,6 +18,9 @@ serde = { version = "1.0.164", features = ["derive"] }
 winit = "0.29.4"
 dirs = "5.0.1"
 ffmpeg-next = { version = "6.1.1" }
+
+[target."cfg(target_os = \"linux\")".dependencies] 
+libyuv-sys = { path = "../libs/libyuv-sys" }
 
 [target."cfg(target_os = \"macos\")".dependencies] 
 libyuv-sys = { path = "../libs/libyuv-sys" }

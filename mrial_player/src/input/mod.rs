@@ -323,7 +323,9 @@ impl Input {
                         &mut buf,
                     );
 
-                    client_state_sender.send(buf[0..HEADER+size].to_vec()).unwrap();
+                    client_state_sender
+                        .send(buf[0..HEADER + size].to_vec())
+                        .unwrap();
                 })
         });
     }

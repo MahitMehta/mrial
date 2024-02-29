@@ -6,16 +6,13 @@ pub struct RGBBuffer {
 
 impl RGBBuffer {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    pub fn with_444_for_rgb8(
-        width: usize, 
-        height: usize
-    ) -> Self {
+    pub fn with_444_for_rgb8(width: usize, height: usize) -> Self {
         let rval = Self {
             rgb: vec![0u8; 3 * width * height],
             width,
             height,
         };
-        
+
         rval
     }
 
@@ -23,10 +20,7 @@ impl RGBBuffer {
     pub fn read_444_for_rgb8(&mut self, y: &[u8], u: &[u8], v: &[u8]) {
         use std::borrow::Borrow;
 
-        use libyuv_sys::{
-            I444ToRGB24Matrix, 
-            kYvuI601Constants
-        };
+        use libyuv_sys::{kYvuI601Constants, I444ToRGB24Matrix};
 
         assert_eq!(y.len(), self.width * self.height);
         assert_eq!(u.len(), self.width * self.height);

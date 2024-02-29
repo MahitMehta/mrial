@@ -7,3 +7,8 @@ members = [
 ]
 
 exclude = [ "libs" ]
+
+[workspace.package]
+version = "0.1.5"
+authors = ["Mahit Mehta", "Marco Ngai"]
+license = "GPL-3.0-only"

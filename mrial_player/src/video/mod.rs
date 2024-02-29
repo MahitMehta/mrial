@@ -1,17 +1,20 @@
 mod convert;
 
-use std::{fs::File, io::{Error, ErrorKind, Write}, thread};
-
-use ffmpeg_next::{
-    format::Pixel, frame, software::{self, scaling::Context}
+use std::{
+    fs::File,
+    io::{Error, ErrorKind, Write},
+    thread,
 };
+
+use ffmpeg_next::frame;
 use kanal::{unbounded, Receiver, Sender};
+
 use mrial_proto::*;
 
 use super::slint_generatedMainWindow::ControlPanelAdapter;
 use slint::{ComponentHandle, Model};
 
-use crate::{client::Client, video::convert::RGBBuffer};
+use crate::client::Client;
 
 pub struct VideoThread {
     packet_constructor: PacketConstructor,
@@ -65,6 +68,11 @@ impl VideoThread {
         _conn_sender: Sender<super::ConnectionAction>,
         client: Client,
     ) {
+        use ffmpeg_next::{
+            format::Pixel,
+            software::{self, scaling::Context},
+        };
+
         ffmpeg_next::init().unwrap();
 
         let mut ffmpeg_decoder = ffmpeg_next::decoder::new()
@@ -78,7 +86,7 @@ impl VideoThread {
             // TODO: switch scalar depending on bitrate to reduce latency
             let meta_clone = client.get_meta_clone();
 
-            let mut previous_width = 0; 
+            let mut previous_width = 0;
             let mut previous_height = 0;
 
             let mut lanczos_scalar: Option<Context> = None;
@@ -101,7 +109,8 @@ impl VideoThread {
 
                 while ffmpeg_decoder.receive_frame(&mut yuv_frame).is_ok() {
                     if ffmpeg_decoder.width() != previous_width
-                        || ffmpeg_decoder.height() != previous_height  {
+                        || ffmpeg_decoder.height() != previous_height
+                    {
                         previous_width = ffmpeg_decoder.width();
                         previous_height = ffmpeg_decoder.height();
 
@@ -122,11 +131,8 @@ impl VideoThread {
                         );
 
                         let app_weak_clone = app_weak.clone();
-                        let resolution_id = format!(
-                            "{}x{}",
-                            ffmpeg_decoder.width(),
-                            ffmpeg_decoder.height()
-                        );
+                        let resolution_id =
+                            format!("{}x{}", ffmpeg_decoder.width(), ffmpeg_decoder.height());
 
                         let _ = slint::invoke_from_event_loop(move || {
                             let resolution_index = app_weak_clone
@@ -134,10 +140,8 @@ impl VideoThread {
                                 .global::<ControlPanelAdapter>()
                                 .get_resolutions()
                                 .iter()
-                                .position(|res| {
-                                    res.value == resolution_id
-                                });
-                            
+                                .position(|res| res.value == resolution_id);
+
                             if let Some(resolution_index) = resolution_index {
                                 app_weak_clone
                                     .unwrap()
@@ -158,7 +162,7 @@ impl VideoThread {
                         ffmpeg_decoder.height(),
                     ) {
                         let app_copy: slint::Weak<super::slint_generatedMainWindow::MainWindow> =
-                        app_weak.clone();
+                            app_weak.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             app_copy
                                 .unwrap()
@@ -166,7 +170,7 @@ impl VideoThread {
                             // TODO: test if this actually improves smoothness
                             // app_copy.unwrap().window().request_redraw();
                         });
-                    };              
+                    };
                 }
                 println!("Time to process frame: {:?}", start.elapsed());
             }
@@ -180,6 +184,8 @@ impl VideoThread {
         _conn_sender: Sender<super::ConnectionAction>,
         client: Client,
     ) {
+        use crate::video::convert::RGBBuffer;
+
         ffmpeg_next::init().unwrap();
 
         let mut ffmpeg_decoder = ffmpeg_next::decoder::new()
@@ -192,7 +198,7 @@ impl VideoThread {
         let _video_thread = thread::spawn(move || {
             let meta_clone = client.get_meta_clone();
 
-            let mut previous_width = 0; 
+            let mut previous_width = 0;
             let mut previous_height = 0;
 
             let mut rgb_buffer = Option::<RGBBuffer>::None;
@@ -214,7 +220,8 @@ impl VideoThread {
 
                 while ffmpeg_decoder.receive_frame(&mut yuv_frame).is_ok() {
                     if ffmpeg_decoder.width() != previous_width
-                        || ffmpeg_decoder.height() != previous_height  {
+                        || ffmpeg_decoder.height() != previous_height
+                    {
                         previous_width = ffmpeg_decoder.width();
                         previous_height = ffmpeg_decoder.height();
 
@@ -227,11 +234,8 @@ impl VideoThread {
                         ));
 
                         let app_weak_clone = app_weak.clone();
-                        let resolution_id = format!(
-                            "{}x{}",
-                            ffmpeg_decoder.width(),
-                            ffmpeg_decoder.height()
-                        );
+                        let resolution_id =
+                            format!("{}x{}", ffmpeg_decoder.width(), ffmpeg_decoder.height());
 
                         let _ = slint::invoke_from_event_loop(move || {
                             let resolution_index = app_weak_clone
@@ -239,10 +243,8 @@ impl VideoThread {
                                 .global::<ControlPanelAdapter>()
                                 .get_resolutions()
                                 .iter()
-                                .position(|res| {
-                                    res.value == resolution_id
-                                });
-                            
+                                .position(|res| res.value == resolution_id);
+
                             if let Some(resolution_index) = resolution_index {
                                 app_weak_clone
                                     .unwrap()
@@ -266,8 +268,9 @@ impl VideoThread {
                             ffmpeg_decoder.width(),
                             ffmpeg_decoder.height(),
                         ) {
-                            let app_copy: slint::Weak<super::slint_generatedMainWindow::MainWindow> =
-                            app_weak.clone();
+                            let app_copy: slint::Weak<
+                                super::slint_generatedMainWindow::MainWindow,
+                            > = app_weak.clone();
                             let _ = slint::invoke_from_event_loop(move || {
                                 app_copy
                                     .unwrap()
@@ -276,7 +279,7 @@ impl VideoThread {
                                 // app_copy.unwrap().window().request_redraw();
                             });
                         };
-                    }                    
+                    }
                 }
                 println!("Time to process frame: {:?}", start.elapsed());
             }
