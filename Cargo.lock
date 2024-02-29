@@ -3052,12 +3052,13 @@ dependencies = [
 
 [[package]]
 name = "mrial_player"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "dirs",
  "ffmpeg-next",
  "i-slint-backend-winit",
  "kanal",
+ "libyuv-sys",
  "mrial_proto",
  "rodio",
  "serde",
@@ -3077,7 +3078,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_server"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "cfg-if 0.1.10",
  "enigo",
