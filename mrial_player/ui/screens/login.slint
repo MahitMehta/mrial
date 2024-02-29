@@ -1,4 +1,4 @@
-import { Screen, MrialTextInput , MrialButton} from "../common.slint";
+import { Screen, MrialTextInput , MrialButton, Theme } from "../common.slint";
 import { VerticalBox , Button , HorizontalBox} from "std-widgets.slint";
 import { Footer } from "../components/footer.slint";
 
@@ -9,13 +9,48 @@ export component LoginScreen inherits Screen {
     VerticalLayout {
         alignment: LayoutAlignment.space-between;
         padding: 0;
-        Image {
-            source: @image-url("../../assets/imgs/your_name.jpeg");
+        Rectangle {
+            Rectangle {
+                height: window_height - 32px;
+                drop-shadow-color: Theme.drop_shadow_color;
+                drop-shadow-blur: 15px;
+                border-color: rgb(29, 29, 29);
+                border-width: 3px;
+                border-radius: 10px;
+                clip: true;
+                width: l_desk.width;
+                x: 0px;
+                y: (window_height - 32px) / 2 - self.height / 2;
+
+                l_desk := Image {
+                    height: window_height - 32px; 
+                    source: @image-url("../../assets/imgs/left_desk.png");
+                }
+            }
+            Rectangle {
+                height: window_height - 32px;
+                drop-shadow-color: Theme.drop_shadow_color;
+                drop-shadow-blur: 15px;
+                border-color: rgb(29, 29, 29);
+                border-width: 3px;
+                border-radius: 10px;
+                clip: true;
+                width: r_desk.width;
+                x: parent.width - self.width;
+                y: (window_height - 32px) / 2 - self.height / 2;
+
+                r_desk := Image {
+                    height: window_height - 32px; 
+                    source: @image-url("../../assets/imgs/right_desk.png");
+                }
+            }
             Rectangle {
                 x: parent.width / 2 - self.width / 2;
                 y: window_height / 2 - self.height / 2;
                 width: 275px;
                 height: 350px;
+                drop-shadow-color: Theme.drop_shadow_color;
+                drop-shadow-blur: 15px;
                 background: rgba(20, 20, 20, 1.0);
                 border-color: rgb(29, 29, 29);
                 border-width: 3px;

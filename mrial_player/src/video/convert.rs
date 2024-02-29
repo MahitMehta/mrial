@@ -1,5 +1,3 @@
-use libyuv_sys::I444ToRGB24;
-
 pub struct RGBBuffer {
     rgb: Vec<u8>,
     width: usize,
@@ -8,31 +6,34 @@ pub struct RGBBuffer {
 
 impl RGBBuffer {
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    pub fn with_444_for_rgb24(
+    pub fn with_444_for_rgb8(
         width: usize, 
-        height: usize, 
-        y: &[u8], 
-        u: &[u8],
-        v: &[u8]
+        height: usize
     ) -> Self {
-        let mut rval = Self {
+        let rval = Self {
             rgb: vec![0u8; 3 * width * height],
             width,
             height,
         };
-
-        rval.read_444_for_rgb24(y, u, v);
+        
         rval
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    pub fn read_444_for_rgb24(&mut self, y: &[u8], u: &[u8], v: &[u8]) {
+    pub fn read_444_for_rgb8(&mut self, y: &[u8], u: &[u8], v: &[u8]) {
+        use std::borrow::Borrow;
+
+        use libyuv_sys::{
+            I444ToRGB24Matrix, 
+            kYvuI601Constants
+        };
+
         assert_eq!(y.len(), self.width * self.height);
         assert_eq!(u.len(), self.width * self.height);
         assert_eq!(v.len(), self.width * self.height);
 
         unsafe {
-            I444ToRGB24(
+            I444ToRGB24Matrix(
                 y.as_ptr(),
                 self.width as _,
                 v.as_ptr(),
@@ -41,6 +42,7 @@ impl RGBBuffer {
                 self.width as _,
                 self.rgb.as_mut_ptr(),
                 (self.width * 3) as _,
+                kYvuI601Constants.borrow(),
                 self.width as _,
                 self.height as _,
             );
