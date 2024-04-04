@@ -93,7 +93,6 @@ impl VideoThread {
 
             loop {
                 let buf = receiver.recv().unwrap();
-                let start = std::time::Instant::now();
                 let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&buf);
 
                 match ffmpeg_decoder.send_packet(&pt) {
@@ -172,7 +171,6 @@ impl VideoThread {
                         });
                     };
                 }
-                println!("Time to process frame: {:?}", start.elapsed());
             }
         });
     }
@@ -205,7 +203,6 @@ impl VideoThread {
 
             loop {
                 let buf = receiver.recv().unwrap();
-                let start = std::time::Instant::now();
                 let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&buf);
 
                 match ffmpeg_decoder.send_packet(&pt) {
@@ -281,7 +278,6 @@ impl VideoThread {
                         };
                     }
                 }
-                println!("Time to process frame: {:?}", start.elapsed());
             }
         });
     }

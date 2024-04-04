@@ -10,40 +10,40 @@ export component LoginScreen inherits Screen {
         alignment: LayoutAlignment.space-between;
         padding: 0;
         Rectangle {
-            Rectangle {
-                height: window_height - 32px;
-                drop-shadow-color: Theme.drop_shadow_color;
-                drop-shadow-blur: 15px;
-                border-color: rgb(29, 29, 29);
-                border-width: 3px;
-                border-radius: 10px;
-                clip: true;
-                width: l_desk.width;
-                x: 0px;
-                y: (window_height - 32px) / 2 - self.height / 2;
+            // Rectangle {
+            //     height: window_height - 32px;
+            //     drop-shadow-color: Theme.drop_shadow_color;
+            //     drop-shadow-blur: 15px;
+            //     border-color: rgb(29, 29, 29);
+            //     border-width: 3px;
+            //     border-radius: 10px;
+            //     clip: true;
+            //     width: l_desk.width;
+            //     x: 0px;
+            //     y: (window_height - 32px) / 2 - self.height / 2;
 
-                l_desk := Image {
-                    height: window_height - 32px; 
-                    source: @image-url("../../assets/imgs/left_desk.png");
-                }
-            }
-            Rectangle {
-                height: window_height - 32px;
-                drop-shadow-color: Theme.drop_shadow_color;
-                drop-shadow-blur: 15px;
-                border-color: rgb(29, 29, 29);
-                border-width: 3px;
-                border-radius: 10px;
-                clip: true;
-                width: r_desk.width;
-                x: parent.width - self.width;
-                y: (window_height - 32px) / 2 - self.height / 2;
+            //     l_desk := Image {
+            //         height: window_height - 32px; 
+            //         source: @image-url("../../assets/imgs/left_desk.png");
+            //     }
+            // }
+            // Rectangle {
+            //     height: window_height - 32px;
+            //     drop-shadow-color: Theme.drop_shadow_color;
+            //     drop-shadow-blur: 15px;
+            //     border-color: rgb(29, 29, 29);
+            //     border-width: 3px;
+            //     border-radius: 10px;
+            //     clip: true;
+            //     width: r_desk.width;
+            //     x: parent.width - self.width;
+            //     y: (window_height - 32px) / 2 - self.height / 2;
 
-                r_desk := Image {
-                    height: window_height - 32px; 
-                    source: @image-url("../../assets/imgs/right_desk.png");
-                }
-            }
+            //     r_desk := Image {
+            //         height: window_height - 32px; 
+            //         source: @image-url("../../assets/imgs/right_desk.png");
+            //     }
+            // }
             Rectangle {
                 x: parent.width / 2 - self.width / 2;
                 y: window_height / 2 - self.height / 2;

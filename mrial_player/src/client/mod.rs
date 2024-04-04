@@ -94,17 +94,17 @@ impl Client {
 
     #[inline]
     pub fn connection_state(&self) -> &ConnectionState {
-        return &self.state;
+        &self.state
     }
 
     #[inline]
     pub fn socket_connected(&self) -> bool {
-        return self.socket.is_some();
+        self.socket.is_some()
     }
 
     #[inline]
     pub fn connected(&self) -> bool {
-        return self.socket_connected() && self.state == ConnectionState::Connected;
+        self.socket_connected() && self.state == ConnectionState::Connected
     }
 
     pub fn clone(&self) -> Client {
@@ -119,13 +119,13 @@ impl Client {
             };
         }
 
-        return Client {
+        Client {
             socket_address: self.socket_address.clone(),
             socket: None,
             state: ConnectionState::Disconnected,
             meta: self.meta.clone(),
             conn_sender: self.conn_sender.clone(),
-        };
+        }
     }
 
     #[inline]
@@ -135,14 +135,14 @@ impl Client {
     ) -> Result<(usize, std::net::SocketAddr), std::io::Error> {
         match &self.socket {
             None => {
-                return Err(std::io::Error::new(
+                Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "Socket Not Initialized",
                 ))
             }
             Some(socket) => {
                 let (amt, src) = socket.recv_from(buf)?;
-                return Ok((amt, src));
+                Ok((amt, src))
             }
         }
     }
@@ -151,14 +151,14 @@ impl Client {
     pub fn send(&self, buf: &[u8]) -> Result<usize, std::io::Error> {
         match &self.socket {
             None => {
-                return Err(std::io::Error::new(
+                Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
                     "Socket Not Initialized",
                 ))
             }
             Some(socket) => {
                 let amt = socket.send(buf)?;
-                return Ok(amt);
+                Ok(amt)
             }
         }
     }

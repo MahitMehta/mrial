@@ -20,7 +20,11 @@ impl RGBBuffer {
     pub fn read_444_for_rgb8(&mut self, y: &[u8], u: &[u8], v: &[u8]) {
         use std::borrow::Borrow;
 
-        use libyuv_sys::{kYvuI601Constants, I444ToRGB24Matrix};
+        use libyuv_sys::{
+            kYvuI601Constants, // Macos and Linux 
+            I444ToRGB24Matrix, 
+            kYvuF709Constants // Windows | full range
+        };
 
         assert_eq!(y.len(), self.width * self.height);
         assert_eq!(u.len(), self.width * self.height);
@@ -36,6 +40,7 @@ impl RGBBuffer {
                 self.width as _,
                 self.rgb.as_mut_ptr(),
                 (self.width * 3) as _,
+                // kYvuF709Constants.borrow(),
                 kYvuI601Constants.borrow(),
                 self.width as _,
                 self.height as _,

@@ -17,7 +17,7 @@ use std::{rc::Rc, thread};
 
 use i_slint_backend_winit::WinitWindowAccessor;
 use kanal::unbounded;
-use slint::{ComponentHandle, SharedString, VecModel};
+use slint::{ComponentHandle, PhysicalSize, SharedString, VecModel, WindowSize};
 
 slint::include_modules!();
 
@@ -103,9 +103,9 @@ fn main() {
 
     populate_servers(&server_state, &app_weak);
 
-    let client_clone = client.clone();
     slint::invoke_from_event_loop(move || {
         let conn_sender_clone = conn_sender.clone();
+
         app_weak
             .unwrap()
             .global::<ServerFunctions>()
