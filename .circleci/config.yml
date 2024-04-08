@@ -123,6 +123,7 @@ jobs:
             curl -o rustup https://sh.rustup.rs
             bash rustup -y
             rm ~/.gitconfig
+            rustup target add aarch64-apple-darwin
       - run: 
           name: Install Dependencies
           command: |
