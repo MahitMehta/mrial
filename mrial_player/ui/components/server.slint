@@ -5,6 +5,7 @@ export global ServerFunctions {
     pure callback connect(/* server_id */ string);
     pure callback disconnect();
     pure callback delete(/* server_id */ string);
+    pure callback copy(/* address (ip + port) */ string);
 }
 
 component ModifyServerIcon inherits TouchArea {
@@ -90,7 +91,7 @@ export component Server inherits TouchArea {
         Rectangle { 
             z: 1;
             height: 28px;
-            width: parent.width * 0.4;
+            width: parent.width * 0.55;
             x: parent.width / 2 - self.width / 2;
             y: -self.height / 2 + 3px;
             border-radius: self.height / 2;
@@ -117,13 +118,20 @@ export component Server inherits TouchArea {
                     clicked => { } 
                 }
                 ModifyServerIcon {
+                    source: @image-url("../../assets/icons/copy.svg");
+                    color: Theme.text-secondary-color;
+                    hover-color: Theme.blue_color;
+                    clicked => { 
+                        ServerFunctions.copy(server.address + ":" + server.port);
+                    }
+                }
+                ModifyServerIcon {
                     source: @image-url("../../assets/icons/trash.svg");
                     color: Theme.text-secondary-color;
                     hover-color: Theme.red_color;
                     clicked => { 
                         ServerFunctions.delete(server.name);
                     }
-
                 }
             }
         }

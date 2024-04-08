@@ -8,6 +8,7 @@ export global Theme {
     
     out property <color> red_color: rgb(255, 106, 74);
     out property <color> green_color: rgb(6, 255, 183);
+    out property <color> blue_color: #2B8BFF;
    
     // out property <color> bg_primary_brush_start: #3457D5;
     // out property <color> bg_primary_brush_end: #318CE7;
@@ -64,7 +65,9 @@ component MrialDropdownItem inherits Rectangle {
     height: 35px;
     background: Theme.bg-primary-color;
     border-width: 1px;
-    border-color: item_touch_area.has-hover ? Theme.secondary-border-color : rgba(45, 45, 45, 0);
+    border-color: item_touch_area.has-hover ? 
+        Theme.secondary-border-color : 
+        rgba(45, 45, 45, 0);
     animate border-color { duration: 150ms; }
 
     callback clicked();
@@ -73,7 +76,7 @@ component MrialDropdownItem inherits Rectangle {
         // TODO: Fix mouse cursor dectection
         // mouse-cursor: MouseCursor.pointer;
         width: 100%;
-        height: 35px;   
+        height: parent.height;   
 
         clicked => { clicked(); }
 

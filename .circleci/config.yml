@@ -76,7 +76,7 @@ jobs:
           name: Install Dependencies
           command: |
             sudo apt update
-            sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev
+            sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev libxcb-composite0-dev
       - run:
           name: Build Server
           command: |
@@ -130,13 +130,13 @@ jobs:
       - run: 
           name: Build Player
           command: | 
-            cd mrial_player
-            cargo build --release --features build_ffmpeg
-      - run :
-          name: Build Server
-          command: |
-            cd mrial_server
-            cargo build --release
+            cd mrial_player 
+            cargo build --release --features build_ffmpeg --target=aarch64-apple-darwin
+      # - run :
+      #     name: Build Server
+      #     command: |
+      #       cd mrial_server
+      #       cargo build --release
       - macos/add-permission:
           bundle-id: com.apple.Terminal
           permission-type: kTCCServiceAppleEvents
@@ -149,8 +149,8 @@ jobs:
             mkdir -p dist
             macos/scripts/build.sh
             mkdir -p mrial_macos/bin
-            cp target/release/mrial_player mrial_macos/bin/
-            cp target/release/mrial_server mrial_macos/bin/
+            cp target/aarch64-apple-darwin/release/mrial_player mrial_macos/bin/
+            # cp target/release/mrial_server mrial_macos/bin/
             zip -r mrial_macos.zip mrial_macos
             mv mrial_macos.zip dist/
       - persist_to_workspace:

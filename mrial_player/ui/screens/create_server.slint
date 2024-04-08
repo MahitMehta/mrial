@@ -1,4 +1,4 @@
-import { MrialButton, MrialTextInput, Theme } from "../common.slint";
+import { MrialButton, MrialTextInput, Theme, MrialHeader, MrialSubHeader } from "../common.slint";
 
 export global CreateServerFunctions {
     pure callback add(/* server name */ string, /* ip address */ string, /* port */ string);
@@ -8,6 +8,21 @@ export component CreateServer inherits VerticalLayout {
     alignment: LayoutAlignment.start;
     spacing: 15px;
 
+    VerticalLayout {
+        spacing: 5px;
+
+        MrialHeader {
+            text: "Add Remote Server";
+        }
+        MrialSubHeader {
+            text: "Get ready to stream your remote server in real-time with ultra low-latency.";
+        }
+    }
+    Rectangle {
+        height: 1px;
+        width: parent.width - parent.padding * 2;
+        background: Theme.secondary-border-color;
+    }
     HorizontalLayout {
         spacing: 10px;
         VerticalLayout {

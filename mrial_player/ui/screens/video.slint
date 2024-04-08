@@ -81,6 +81,7 @@ export component VideoScreen inherits Screen {
 
                 disconnect => {
                     root.set_current_subpage(1);
+                    control_panel.visible = false; 
                 }
             }
 

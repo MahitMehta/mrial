@@ -5,6 +5,7 @@ mod storage;
 mod video;
 
 use audio::AudioClient;
+use cli_clipboard::{ClipboardContext, ClipboardProvider};
 use client::{Client, ClientMetaData, ConnectionState};
 use input::Input;
 use mrial_proto::*;
@@ -57,6 +58,8 @@ fn main() {
 
     let app: MainWindow = MainWindow::new().unwrap();
     let app_weak = app.as_weak();
+
+    let mut clipboard_ctx = ClipboardContext::new().unwrap();
 
     let (width, height) = app
         .window()
@@ -147,6 +150,13 @@ fn main() {
                 populate_servers(&server_state_clone, &app_weak_clone);
                 server_state_clone.save().unwrap();
             });
+
+        app_weak
+            .unwrap()
+            .global::<ServerFunctions>()
+            .on_copy(move |address| 
+                clipboard_ctx.set_contents(address.to_string()).unwrap()
+            );
     })
     .unwrap();
 
