@@ -126,14 +126,14 @@ jobs:
       - run: 
           name: Install Dependencies
           command: |
-            # rustup target add aarch64-apple-darwin
+            rustup target add aarch64-apple-darwin
             brew install yasm ffmpeg x264 cmake create-dmg
       - run: 
           name: Build Player
           command: | 
             cd mrial_player
-            cargo build --release --features build_ffmpeg  
-            # cargo build --release --features build_ffmpeg --target=aarch64-apple-darwin
+            # cargo build --release --features build_ffmpeg  
+            cargo build --release --features build_ffmpeg --target=aarch64-apple-darwin
       # - run :
       #     name: Build Server
       #     command: |
@@ -151,8 +151,8 @@ jobs:
             mkdir -p dist
             macos/scripts/build.sh
             mkdir -p mrial_macos/bin
-            # cp target/aarch64-apple-darwin/release/mrial_player mrial_macos/bin/
-            cp target/release/mrial_player mrial_macos/bin/
+            cp target/aarch64-apple-darwin/release/mrial_player mrial_macos/bin/
+            # cp target/release/mrial_player mrial_macos/bin/
             # cp target/release/mrial_server mrial_macos/bin/
             zip -r mrial_macos.zip mrial_macos
             mv mrial_macos.zip dist/
