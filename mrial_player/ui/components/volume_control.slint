@@ -1,0 +1,59 @@
+import { Theme } from "../common.slint";
+import { ServerFunctions } from "server.slint";
+
+export component MrialVolumeControl inherits Rectangle {
+    in-out property <bool> muted: false;
+
+    callback mute();
+
+    border-radius: 5px;
+    height: 35px;
+    background: Theme.bg-primary-color;
+    border-width: 1px;
+    border-color:  volume_button.has-hover ? Theme.secondary-border-color : Theme.border-color;
+
+    drop-shadow-color: Theme.drop_shadow_color;
+    drop-shadow-blur: 15px;
+    clip: true;
+
+    animate border-color { duration: 150ms; }
+
+    HorizontalLayout {
+        Rectangle {
+            width: root.height;
+            height: root.height;
+
+            volume_button := TouchArea {
+                width: parent.width;
+                height: parent.height;
+                mouse-cursor: MouseCursor.pointer;
+
+                clicked => {
+                    muted = !muted;
+                    mute();
+                }
+            }
+        
+            Image {
+                source: muted ? 
+                    @image-url("../../assets/icons/muted.svg") :
+                    @image-url("../../assets/icons/volume.svg");
+                width: 20px;
+                height: 20px;
+                colorize: Theme.text_secondary_color;
+                animate colorize { duration: 150ms; }
+            }
+        }
+        Rectangle {
+            width: 1px; 
+            height: root.height; 
+            background: volume_button.has-hover ? Theme.secondary-border-color : Theme.border-color;
+            animate background { duration: 150ms; }
+        }
+        Rectangle { 
+            width: 100%;
+            height: root.height; 
+            // background: Theme.bg_primary_brush;
+        }
+    }
+}

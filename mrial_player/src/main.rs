@@ -18,7 +18,7 @@ use std::{rc::Rc, thread};
 
 use i_slint_backend_winit::WinitWindowAccessor;
 use kanal::unbounded;
-use slint::{ComponentHandle, PhysicalSize, SharedString, VecModel, WindowSize};
+use slint::{ComponentHandle, SharedString, VecModel};
 
 slint::include_modules!();
 

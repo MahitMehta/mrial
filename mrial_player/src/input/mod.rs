@@ -310,9 +310,14 @@ impl Input {
                     let (width, height) = (items[0], items[1]);
 
                     let mut buf = [0; CLIENT_STATE_PAYLOAD + HEADER];
+                    println!("State Update: {:?}", state.muted);
                     let size = write_client_state_payload(
                         &mut buf[HEADER..],
-                        ClientStatePayload { width, height },
+                        ClientStatePayload { 
+                            width, 
+                            height, 
+                            muted: state.muted 
+                        },
                     );
 
                     write_header(

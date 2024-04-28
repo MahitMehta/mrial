@@ -5,13 +5,15 @@ import {
     ButtonType, 
     MrialTextInput, 
     MrialDropdown, 
-    IMrialDropdownItem 
+    IMrialDropdownItem
 } from "../common.slint";
 import { VerticalBox } from "std-widgets.slint";
 import { ServerFunctions } from "../components/server.slint";
+import { MrialVolumeControl } from "../components/volume_control.slint";
 
 struct ClientState {
-    resolution: string
+    resolution: string,
+    muted: bool
 }
 
 export global ControlPanelFunctions {
@@ -21,6 +23,7 @@ export global ControlPanelFunctions {
 export global ControlPanelAdapter {
     in-out property <[IMrialDropdownItem]> resolutions: [];
     in-out property <int> resolution_index: 0;
+    in-out property <bool> muted: false;
 }
 
 export component ControlPanel inherits TouchArea {
@@ -52,7 +55,20 @@ export component ControlPanel inherits TouchArea {
 
                 VerticalLayout {
                     spacing: 5px;
-    
+
+                    MrialVolumeControl {
+                        muted: ControlPanelAdapter.muted;
+                        width: 100%;
+
+                        mute => {
+                            ControlPanelAdapter.muted = self.muted;
+                            
+                            ControlPanelFunctions.state_update({
+                                resolution: ControlPanelAdapter.resolutions[ControlPanelAdapter.resolution_index].value,
+                                muted: ControlPanelAdapter.muted
+                            });
+                        }
+                    }
                     MrialDropdown {
                         label: "Resolution";
                         items: ControlPanelAdapter.resolutions;
@@ -66,8 +82,11 @@ export component ControlPanel inherits TouchArea {
                             }; 
                         }
                         selected => {
+                            ControlPanelAdapter.resolution_index = self.current_index;
+
                             ControlPanelFunctions.state_update({
-                                resolution: self.items[self.current-index].value
+                                resolution: ControlPanelAdapter.resolutions[ControlPanelAdapter.resolution_index].value,
+                                muted: ControlPanelAdapter.muted
                             });
                             root.selected_dropdown = "";
                         }

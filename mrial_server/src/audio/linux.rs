@@ -162,7 +162,7 @@ impl IAudioController for AudioServerThread {
                                     sample.len() - start
                                 };
                                 buf[HEADER..].copy_from_slice(&sample[start..start + addition]);
-                                conn.broadcast(&buf);
+                                conn.broadcast_audio(&buf);
                             }
                             audio_packet_id += 1;
                         }

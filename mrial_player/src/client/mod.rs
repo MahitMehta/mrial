@@ -184,6 +184,7 @@ impl Client {
                 ClientStatePayload {
                     width: self.meta.read().unwrap().width.try_into().unwrap(),
                     height: self.meta.read().unwrap().height.try_into().unwrap(),
+                    muted: false
                 },
             );
 

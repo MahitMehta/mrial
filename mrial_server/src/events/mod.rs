@@ -184,23 +184,39 @@ impl EventsThread {
                 match packet_type {
                     EPacketType::SHAKE => {
                         if let Ok(meta) = parse_client_state_payload(&mut buf[HEADER..size]) {
+                            conn.mute_client(src, meta.muted.try_into().unwrap());
+
+                            if conn.get_meta().width == meta.width as usize 
+                                && conn.get_meta().height == meta.height as usize {
+                                return;
+                            }
                             conn.set_dimensions(
                                 meta.width.try_into().unwrap(),
                                 meta.height.try_into().unwrap(),
                             );
+
                             video_server_ch_sender
                                 .send(VideoServerActions::ConfigUpdate)
                                 .unwrap();
                             // TODO: Need to requery headers from encoder
                             conn.add_client(src, &headers);
-                        };
+                        } else {
+                            println!("Invalid handshake packet from {:?}", src);
+                        }
                     }
                     EPacketType::ClientState => {
                         if let Ok(meta) = parse_client_state_payload(&mut buf[HEADER..size]) {
+                            conn.mute_client(src, meta.muted.try_into().unwrap());
+
+                            if conn.get_meta().width == meta.width as usize 
+                                && conn.get_meta().height == meta.height as usize {
+                                return;
+                            }
                             conn.set_dimensions(
                                 meta.width.try_into().unwrap(),
                                 meta.height.try_into().unwrap(),
                             );
+
                             video_server_ch_sender
                                 .send(VideoServerActions::ConfigUpdate)
                                 .unwrap();

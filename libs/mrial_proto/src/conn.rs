@@ -8,7 +8,8 @@ pub const SERVER_STATE_PAYLOAD : usize = MTU - HEADER;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientStatePayload {
     pub width: u16,
-    pub height: u16
+    pub height: u16,
+    pub muted: bool
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

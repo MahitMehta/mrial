@@ -6,7 +6,7 @@ use std::{
 };
 
 use mrial_proto::{
-    packet::*, write_server_state_payload, ServerStatePayload, CLIENT_STATE_PAYLOAD,
+    packet::*, write_server_state_payload, ServerStatePayload,
     SERVER_PING_TOLERANCE, SERVER_STATE_PAYLOAD,
 };
 
@@ -17,14 +17,20 @@ const SERVER_DEFAULT_PORT: u16 = 8554;
 pub struct Client {
     last_ping: SystemTime,
     src: SocketAddr,
+    muted: bool
 }
 
 impl Client {
     pub fn new(src: SocketAddr) -> Self {
         Self {
             src,
+            muted: false,
             last_ping: SystemTime::now(),
         }
+    }
+
+    pub fn set_muted(&mut self, muted: bool) {
+        self.muted = muted; 
     }
 
     pub fn is_alive(&self) -> bool {
@@ -77,6 +83,14 @@ impl Connection {
                 .get_mut(&src_str)
                 .unwrap()
                 .last_ping = current;
+        }
+    }
+
+    pub fn mute_client(&self, src: SocketAddr, muted: bool) {
+        let src_str = src.to_string();
+
+        if let Some(client) = self.clients.write().unwrap().get_mut(&src_str) {
+            client.set_muted(muted)
         }
     }
 
@@ -145,6 +159,14 @@ impl Connection {
     #[inline]
     pub fn broadcast(&self, buf: &[u8]) {
         for client in self.clients.read().unwrap().values() {
+            self.socket.send_to(buf, client.src).unwrap();
+        }
+    }
+
+    #[inline]
+    pub fn broadcast_audio(&self, buf: &[u8]) {
+        for client in self.clients.read().unwrap().values() {
+            if client.muted { continue; }
             self.socket.send_to(buf, client.src).unwrap();
         }
     }
