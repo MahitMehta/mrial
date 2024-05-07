@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::client::{Client, ClientMetaData};
 use mrial_proto as proto;
 use mrial_proto::*;
-use slint::platform::PointerEventButton;
+use slint::platform::{PointerEventButton};
 
 use super::ComponentHandle;
 slint::include_modules!();
@@ -214,6 +214,40 @@ impl Input {
                     scroll_sender.send(buf.to_vec()).unwrap();
                 });
 
+
+            let arrow_pressed_sender = sender.clone();
+            let arrow_pressed_connected = connected.clone();
+
+            app_weak
+                .unwrap()
+                .global::<KeyVideoFunctions>()
+                .on_arrow_pressed(move |event, direction| {
+                    if !*arrow_pressed_connected.lock().unwrap() {
+                        return;
+                    }
+                    let mut payload = [0; input::PAYLOAD];
+
+                    payload[1] = event.modifiers.shift.into();
+                    payload[2] = event.modifiers.alt.into();
+                    payload[3] = event.modifiers.meta.into();
+
+                    if direction == 0 {
+                        payload[8] = 18; // Up
+                    } else if direction == 1 {
+                        payload[8] = 19; // Down
+                    } else if direction == 2 {
+                        payload[8] = 20; // Left
+                    } else if direction == 3 {
+                        payload[8] = 21; // Right
+                    }
+
+                    println!("Arrow Key Pressed: {:?}", direction);
+
+                    buf[HEADER..HEADER + input::PAYLOAD].copy_from_slice(&payload);
+                    arrow_pressed_sender.send(buf.to_vec()).unwrap();
+                });
+
+
             let key_pressed_sender = sender.clone();
             let key_pressed_connected = connected.clone();
 
@@ -228,10 +262,12 @@ impl Input {
 
                     match event.text.bytes().next() {
                         Some(key) => {
-                            //buf[HEADER] = event.modifiers.control as u8;
+                            payload[0] = event.modifiers.control.into();
                             payload[1] = event.modifiers.shift.into();
                             payload[2] = event.modifiers.alt.into();
                             payload[3] = event.modifiers.meta.into();
+                            
+                            println!("Key Pressed: {}", key);
                             if key != 17 {
                                 payload[8] = key.into();
                             }
@@ -261,7 +297,11 @@ impl Input {
 
                     match event.text.bytes().next() {
                         Some(key) => {
-                            //buf[HEADER] = if event.modifiers.control { event.modifiers.control as u8 + 1 } else { 0 };
+                            payload[0] = if event.modifiers.control {
+                                event.modifiers.control as u8 + 1
+                            } else {
+                                0
+                            };
                             payload[1] = if event.modifiers.shift {
                                 event.modifiers.shift as u8 + 1
                             } else {

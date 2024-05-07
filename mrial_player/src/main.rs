@@ -245,13 +245,22 @@ fn main() {
                 }
             }
 
-            let (number_of_bytes, _) = client.recv_from(&mut buf).unwrap();
-            let packet_type = parse_packet_type(&buf);
+            match client.recv_from(&mut buf) {
+                Ok((number_of_bytes, _)) => {
+                    let packet_type = parse_packet_type(&buf);
 
-            match packet_type {
-                EPacketType::AUDIO => audio.play_audio_stream(&buf, number_of_bytes),
-                EPacketType::NAL => video.packet(&buf, &client, number_of_bytes),
-                _ => {}
+                    match packet_type {
+                        EPacketType::AUDIO => audio.play_audio_stream(&buf, number_of_bytes),
+                        EPacketType::NAL => video.packet(&buf, &client, number_of_bytes),
+                        _ => {}
+                    }
+                }
+                Err(_e) => {
+                    println!("Lost Connection, Reconnecting...");
+                    if client.connected() {
+                        conn_channel.0.send(ConnectionAction::Reconnect).unwrap();
+                    }
+                }
             }
         }
     });

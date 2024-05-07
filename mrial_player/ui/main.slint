@@ -55,11 +55,27 @@ export component MainWindow inherits Window {
         video-frame: root.video-frame;
         key-handler := FocusScope {
             key-pressed(event) => {
-                VideoFunctions.key_pressed(event);
+                if (event.text == Key.UpArrow) {
+                    VideoFunctions.arrow_pressed(event, 0);
+                } else if (event.text == Key.RightArrow) {
+                    VideoFunctions.arrow_pressed(event, 1);
+                } else if (event.text == Key.DownArrow) {
+                    VideoFunctions.arrow_pressed(event, 2);
+                } else if (event.text == Key.LeftArrow) {
+                    VideoFunctions.arrow_pressed(event, 3);
+                } else {
+                    VideoFunctions.key_pressed(event);
+                }
+                
                 accept
             }
             key-released(event) => {
-                VideoFunctions.key-released(event);
+                if (event.text == Key.DownArrow) {
+                   // VideoFunctions.arrow_released(Key.DownArrow);
+                } else {
+                    VideoFunctions.key-released(event);
+                }
+             
                 accept
             }
         }
