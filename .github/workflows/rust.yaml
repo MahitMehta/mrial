@@ -1,0 +1,56 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "feat/gh_actions" ]
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_linux_arm64:
+    runs-on: self-hosted
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+    - name: Download and Update Submodules
+      run: git submodule sync && git submodule update --init
+    - name: Download Dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev cmake
+    - name: Build
+      run: |
+        cd mrial_server
+        cargo build --release
+  build_linux_amd64:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download and Update Submodules
+      run: git submodule sync && git submodule update --init
+    - name: Download Dependencies
+      run: |
+        sudo apt update
+        sudo NEEDRESTART_MODE=a apt install -y yasm ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev
+    - name: Build
+      run: |
+        cd mrial_server
+        cargo build --release
+  build_macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download and Update Submodules
+      run: git submodule sync && git submodule update --init
+    - name: Download Dependencies
+      run: |
+        brew install yasm ffmpeg x264 cmake create-dmg
+    - name: Build
+      run: |
+        cd mrial_player
+        cargo build --release
