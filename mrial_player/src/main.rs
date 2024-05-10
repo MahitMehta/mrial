@@ -221,6 +221,7 @@ fn main() {
                         match client.connection_state() {
                             ConnectionState::Connected => input.send_loop(&client),
                             ConnectionState::Connecting => {
+                                thread::sleep(Duration::from_millis(1000));
                                 conn_channel.0.send(ConnectionAction::Handshake).unwrap();
 
                                 continue;

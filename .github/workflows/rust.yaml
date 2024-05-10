@@ -1,0 +1,131 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ "master" ]
+    tags:
+      - "v*"
+  pull_request:
+    branches: [ "master" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build_linux_arm64:
+    runs-on: self-hosted
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+    - name: Download and Update Submodules
+      run: git submodule sync && git submodule update --init
+    - name: Download Dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev cmake
+    - name: Build
+      run: |
+        cd mrial_server
+        cargo build --release
+    - name: Package
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        mkdir dist
+        mkdir -p mrial_arm64/bin
+        cp target/release/mrial_server mrial_arm64/bin/
+        zip -r mrial_arm64.zip mrial_arm64
+        mv mrial_arm64.zip dist/
+    - name: Upload
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist_linux_arm64
+        path: | 
+          dist/*.zip
+  build_linux_amd64:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: "v0_rust"
+    - name: Download and Update Submodules
+      run: git submodule sync && git submodule update --init
+    - name: Download Dependencies
+      run: |
+        sudo apt update
+        sudo NEEDRESTART_MODE=a apt install -y yasm ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev
+    - name: Build
+      run: |
+        cd mrial_server
+        cargo build --release
+    - name: Package
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        mkdir dist
+        mkdir -p mrial_x86_64/bin
+        cp target/release/mrial_server mrial_x86_64/bin/
+        zip -r mrial_x86_64.zip mrial_x86_64
+        mv mrial_x86_64.zip dist/
+    - name: Upload
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist_linux_amd64
+        path: | 
+          dist/*.zip
+  build_macos_arm64:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: "v0_rust"
+    - name: Download and Update Submodules
+      run: git submodule sync && git submodule update --init
+    - name: Download Brew Dependencies
+      run: |
+        brew install yasm x264 ffmpeg cmake create-dmg
+    - name: Build
+      run: |
+        cd mrial_player
+        cargo build --release --all-features
+    - name: Package
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        mkdir -p dist
+        macos/scripts/build.sh
+        mkdir -p mrial_macos/bin
+        cp target/release/mrial_player mrial_macos/bin/
+        zip -r mrial_macos.zip mrial_macos
+        mv mrial_macos.zip dist/
+    - name: Upload
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist_macos_arm64
+        path: | 
+          dist/*.zip
+          dist/*.dmg
+  publish_gh_release: 
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [build_linux_arm64, build_linux_amd64, build_macos_arm64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps: 
+    - run: mkdir dist
+    - name: Download Dist Artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: dist
+        merge-multiple: true
+    - name: Create Release
+      uses: fnkr/github-action-ghr@v1
+      env:
+        GHR_PATH: dist
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GHR_REPLACE: false
+      
