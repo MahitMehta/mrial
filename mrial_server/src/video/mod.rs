@@ -126,6 +126,12 @@ impl VideoServerThread {
                         let requested_width = self.conn.get_meta().width;
                         let requested_height = self.conn.get_meta().height;
 
+                        if requested_width == self.capturer.width() as usize
+                            && requested_height == self.capturer.height() as usize
+                        {
+                            continue;
+                        }
+
                         let _updated_resolution = match DisplayMeta::update_display_resolution(
                             requested_width,
                             requested_height,

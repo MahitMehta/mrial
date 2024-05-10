@@ -1,0 +1,17 @@
+version: '2.3'
+services:
+  worker:
+    image: myoung34/github-runner:ubuntu-noble
+    environment:
+      REPO_URL: https://github.com/MahitMehta/mrial
+      RUNNER_NAME: mahitm-compute
+      RUNNER_TOKEN: $RUNNER_TOKEN
+      RUNNER_WORKDIR: /tmp/runner/_work
+      RUNNER_GROUP: default
+      RUNNER_SCOPE: 'repo'
+      LABELS: linux,arm64
+    security_opt:
+      - label:disable
+    volumes:
+      - '/var/run/docker.sock:/var/run/docker.sock'
+      - '/tmp/runner:/tmp/runner'

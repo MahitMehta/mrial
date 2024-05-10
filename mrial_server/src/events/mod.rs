@@ -131,6 +131,9 @@ impl EventsEmitter {
                 self.enigo.key(Key::Space, enigo::Direction::Click).unwrap();
             } else if buf[8] == 8 {
                 self.enigo.key(Key::Backspace, Press).unwrap();
+            } else if buf[8] == 9 {
+                self.enigo.key(Key::Tab, enigo::Direction::Press)
+                    .unwrap();
             } else if buf[8] == 10 {
                 self.enigo
                     .key(Key::Return, enigo::Direction::Click)
@@ -149,6 +152,8 @@ impl EventsEmitter {
                 self.enigo.key(Key::Space, Release).unwrap();
             } else if buf[9] == 8 {
                 self.enigo.key(Key::Backspace, Release).unwrap();
+            } else if buf[9] == 9 {
+                self.enigo.key(Key::Tab, Release).unwrap();
             } else if buf[9] >= 33 {
                 // add ascii range check
                 self.enigo
@@ -186,10 +191,6 @@ impl EventsThread {
                         if let Ok(meta) = parse_client_state_payload(&mut buf[HEADER..size]) {
                             conn.mute_client(src, meta.muted.try_into().unwrap());
 
-                            if conn.get_meta().width == meta.width as usize 
-                                && conn.get_meta().height == meta.height as usize {
-                                return;
-                            }
                             conn.set_dimensions(
                                 meta.width.try_into().unwrap(),
                                 meta.height.try_into().unwrap(),
@@ -208,18 +209,18 @@ impl EventsThread {
                         if let Ok(meta) = parse_client_state_payload(&mut buf[HEADER..size]) {
                             conn.mute_client(src, meta.muted.try_into().unwrap());
 
-                            if conn.get_meta().width == meta.width as usize 
-                                && conn.get_meta().height == meta.height as usize {
-                                return;
-                            }
                             conn.set_dimensions(
                                 meta.width.try_into().unwrap(),
                                 meta.height.try_into().unwrap(),
                             );
 
+                            // if conn.get_meta().width != meta.width as usize 
+                            //     || conn.get_meta().height != meta.height as usize {
+                            // }    
+
                             video_server_ch_sender
                                 .send(VideoServerActions::ConfigUpdate)
-                                .unwrap();
+                                .unwrap();                   
                         };
                     }
                     EPacketType::PING => {
