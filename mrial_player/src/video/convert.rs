@@ -21,9 +21,9 @@ impl RGBBuffer {
         use std::borrow::Borrow;
 
         use libyuv_sys::{
-            kYvuI601Constants, // Macos and Linux 
-            I444ToRGB24Matrix, 
-            kYvuF709Constants // Windows | full range
+            kYvuF709Constants, // Windows | full range
+            kYvuI601Constants, // Macos and Linux
+            I444ToRGB24Matrix,
         };
 
         assert_eq!(y.len(), self.width * self.height);

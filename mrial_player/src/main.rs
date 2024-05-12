@@ -19,6 +19,7 @@ use std::{rc::Rc, thread};
 use i_slint_backend_winit::WinitWindowAccessor;
 use kanal::unbounded;
 use slint::{ComponentHandle, SharedString, VecModel};
+use log::{debug, info};
 
 slint::include_modules!();
 
@@ -29,6 +30,7 @@ pub enum ConnectionAction {
     Reconnect,
     Handshake,
     UpdateState,
+    CloseApplication
 }
 
 fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) {
@@ -53,6 +55,8 @@ fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) 
 }
 
 fn main() {
+    pretty_env_logger::init_timed();
+
     let backend = i_slint_backend_winit::Backend::new().unwrap();
     let _ = slint::platform::set_platform(Box::new(backend));
 
@@ -80,11 +84,6 @@ fn main() {
         .global::<GlobalVars>()
         .set_app_version(VERSION.into());
 
-    app.window().on_close_requested(|| {
-        println!("Close Requested"); // send disconnect packet
-        slint::CloseRequestResponse::HideWindow
-    });
-
     let conn_channel = unbounded::<ConnectionAction>();
     let conn_sender = conn_channel.0.clone();
     let mut client = Client::new(
@@ -96,6 +95,13 @@ fn main() {
         },
         conn_channel.0.clone(),
     );
+
+    let conn_sender_clone = conn_sender.clone();
+    app.window().on_close_requested(move || {
+        info!("Application Close Requested"); 
+        conn_sender_clone.send(ConnectionAction::CloseApplication).unwrap();
+        slint::CloseRequestResponse::KeepWindowShown
+    });
 
     let mut server_state = Servers::new();
     server_state.load().unwrap();
@@ -154,9 +160,7 @@ fn main() {
         app_weak
             .unwrap()
             .global::<ServerFunctions>()
-            .on_copy(move |address| 
-                clipboard_ctx.set_contents(address.to_string()).unwrap()
-            );
+            .on_copy(move |address| clipboard_ctx.set_contents(address.to_string()).unwrap());
     })
     .unwrap();
 
@@ -235,12 +239,38 @@ fn main() {
                             continue;
                         }
                     }
+                    Some(ConnectionAction::CloseApplication) => {
+                        if client.connected() {
+                            input.close_send_loop();
+                        }
+                        
+                        client.disconnect();
+                        let app_weak_clone: slint::Weak<MainWindow> = app_weak.clone();
+                        let _ = app_weak.upgrade_in_event_loop(move |_| {
+                            let _ = app_weak_clone.unwrap().hide();
+                        });
+
+                        break;
+                    }
                     Some(ConnectionAction::Disconnect) => {
                         if client.connected() {
                             input.close_send_loop();
                         }
 
                         client.disconnect();
+
+                        // Clear stream
+                        let app_weak_clone = app_weak.clone();
+                        let rgb = vec![0; client.get_meta().width * client.get_meta().height * 3];
+                        if let Ok(pixel_buffer) = VideoThread::rgb_to_slint_pixel_buffer(
+                            &rgb, client.get_meta().width as u32, client.get_meta().height as u32,
+                        ) {
+                            let _ = slint::invoke_from_event_loop(move || {
+                                app_weak_clone
+                                    .unwrap()
+                                    .set_video_frame(slint::Image::from_rgb8(pixel_buffer));
+                            });
+                        }
                         continue;
                     }
                 }
@@ -257,7 +287,7 @@ fn main() {
                     }
                 }
                 Err(_e) => {
-                    println!("Lost Connection, Reconnecting...");
+                    debug!("Lost Connection, Reconnecting...");
                     if client.connected() {
                         conn_channel.0.send(ConnectionAction::Reconnect).unwrap();
                     }

@@ -33,10 +33,10 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       run: |
         mkdir dist
-        mkdir -p mrial_arm64/bin
-        cp target/release/mrial_server mrial_arm64/bin/
-        zip -r mrial_arm64.zip mrial_arm64
-        mv mrial_arm64.zip dist/
+        mkdir -p mrial_linux_arm64/bin
+        cp target/release/mrial_server mrial_linux_arm64/bin/
+        zip -r mrial_linux_arm64.zip mrial_linux_arm64
+        mv mrial_linux_arm64.zip dist/
     - name: Upload
       if: startsWith(github.ref, 'refs/tags/')
       uses: actions/upload-artifact@v4
@@ -44,7 +44,7 @@ jobs:
         name: dist_linux_arm64
         path: | 
           dist/*.zip
-  build_linux_amd64:
+  build_linux_x86_64:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
@@ -65,10 +65,10 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/')
       run: |
         mkdir dist
-        mkdir -p mrial_x86_64/bin
-        cp target/release/mrial_server mrial_x86_64/bin/
-        zip -r mrial_x86_64.zip mrial_x86_64
-        mv mrial_x86_64.zip dist/
+        mkdir -p mrial_linux_x86_64/bin
+        cp target/release/mrial_server mrial_linux_x86_64/bin/
+        zip -r mrial_linux_x86_64.zip mrial_linux_x86_64
+        mv mrial_linux_x86_64.zip dist/
     - name: Upload
       if: startsWith(github.ref, 'refs/tags/')
       uses: actions/upload-artifact@v4
@@ -92,15 +92,53 @@ jobs:
       run: |
         cd mrial_player
         cargo build --release --all-features
+    - name: Install Apple Packaging Certs
+      if: startsWith(github.ref, 'refs/tags/')
+      env:
+        MACOS_INSTALLER_CERT: ${{ secrets.MACOS_INSTALLER_CERT }}
+        MACOS_INSTALLER_CERT_PW: ${{ secrets.MACOS_INSTALLER_CERT_PW }}
+        MACOS_APPLICATION_CERT: ${{ secrets.MACOS_APPLICATION_CERT }}
+        MACOS_APPLICATION_CERT_PW: ${{ secrets.MACOS_APPLICATION_CERT_PW }}
+        MACOS_KEYCHAIN_PW: ${{ secrets.MACOS_KEYCHAIN_PW }}
+        MACOS_NOTARYTOOL_PW: ${{ secrets.MACOS_NOTARYTOOL_PW }}
+        MACOS_DEVELOPER_TEAM_ID: ${{ vars.MACOS_DEVELOPER_TEAM_ID }}
+        MACOS_APPLE_ID: ${{ vars.MACOS_APPLE_ID }}
+        MACOS_NOTARYTOOL_PW_KEY: ${{ vars.MACOS_NOTARYTOOL_PW_KEY }} 
+      run: | 
+        # create variables
+        INSTALLER_CERT_PATH=$RUNNER_TEMP/installer_certificate.p12
+        APPLICATION_CERT_PATH=$RUNNER_TEMP/application_certificate.p12
+        KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+
+        # import certificate from secrets
+        echo -n "$MACOS_INSTALLER_CERT" | base64 --decode -o $INSTALLER_CERT_PATH
+        echo -n "$MACOS_APPLICATION_CERT" | base64 --decode -o $APPLICATION_CERT_PATH
+
+        # create temporary keychain
+        security create-keychain -p "$MACOS_KEYCHAIN_PW" $KEYCHAIN_PATH
+        security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+        security unlock-keychain -p "$MACOS_KEYCHAIN_PW" $KEYCHAIN_PATH
+
+        # import certificate to keychain
+        security import $INSTALLER_CERT_PATH -P "$MACOS_INSTALLER_CERT_PW" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+        security import $APPLICATION_CERT_PATH -P "$MACOS_APPLICATION_CERT_PW" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+        security set-key-partition-list -S apple-tool:,apple: -k "$MACOS_KEYCHAIN_PW" $KEYCHAIN_PATH
+        security list-keychain -d user -s $KEYCHAIN_PATH
+
+        # import notarytool password
+        xcrun notarytool store-credentials --password="$MACOS_NOTARYTOOL_PW" --apple-id="$MACOS_APPLE_ID" --team-id="$MACOS_DEVELOPER_TEAM_ID" $MACOS_NOTARYTOOL_PW_KEY
     - name: Package
       if: startsWith(github.ref, 'refs/tags/')
+      env: 
+        MACOS_CODESIGN_SIGNATURE: ${{ vars.MACOS_CODESIGN_SIGNATURE }}
+        MACOS_NOTARYTOOL_PW_KEY: ${{ vars.MACOS_NOTARYTOOL_PW_KEY }}
       run: |
         mkdir -p dist
         macos/scripts/build.sh
-        mkdir -p mrial_macos/bin
-        cp target/release/mrial_player mrial_macos/bin/
-        zip -r mrial_macos.zip mrial_macos
-        mv mrial_macos.zip dist/
+        mkdir -p mrial_macos_arm64/bin
+        cp target/release/mrial_player mrial_macos_arm64/bin/
+        zip -r mrial_macos_arm64.zip mrial_macos_arm64
+        mv mrial_macos_arm64.zip dist/
     - name: Upload
       if: startsWith(github.ref, 'refs/tags/')
       uses: actions/upload-artifact@v4
@@ -111,7 +149,7 @@ jobs:
           dist/*.dmg
   publish_gh_release: 
     if: startsWith(github.ref, 'refs/tags/')
-    needs: [build_linux_arm64, build_linux_amd64, build_macos_arm64]
+    needs: [build_linux_arm64, build_linux_x86_64, build_macos_arm64]
     runs-on: ubuntu-latest
     permissions:
       contents: write

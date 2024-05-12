@@ -6,7 +6,7 @@ use std::time::Duration;
 use crate::client::{Client, ClientMetaData};
 use mrial_proto as proto;
 use mrial_proto::*;
-use slint::platform::{PointerEventButton};
+use slint::platform::PointerEventButton;
 
 use super::ComponentHandle;
 slint::include_modules!();
@@ -214,7 +214,6 @@ impl Input {
                     scroll_sender.send(buf.to_vec()).unwrap();
                 });
 
-
             let arrow_pressed_sender = sender.clone();
             let arrow_pressed_connected = connected.clone();
 
@@ -247,7 +246,6 @@ impl Input {
                     arrow_pressed_sender.send(buf.to_vec()).unwrap();
                 });
 
-
             let key_pressed_sender = sender.clone();
             let key_pressed_connected = connected.clone();
 
@@ -266,7 +264,7 @@ impl Input {
                             payload[1] = event.modifiers.shift.into();
                             payload[2] = event.modifiers.alt.into();
                             payload[3] = event.modifiers.meta.into();
-                            
+
                             println!("Key Pressed: {}", key);
                             if key != 17 {
                                 payload[8] = key.into();
@@ -353,10 +351,10 @@ impl Input {
                     println!("State Update: {:?}", state.muted);
                     let size = write_client_state_payload(
                         &mut buf[HEADER..],
-                        ClientStatePayload { 
-                            width, 
-                            height, 
-                            muted: state.muted 
+                        ClientStatePayload {
+                            width,
+                            height,
+                            muted: state.muted,
                         },
                     );
 

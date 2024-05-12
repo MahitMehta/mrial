@@ -1,6 +1,6 @@
 // State Payload:
 
-// 1 Byte for Control 
+// 1 Byte for Control
 // 1 Byte for Shift
 // 1 Byte for Alt
 // 1 Byte for Meta
@@ -14,30 +14,23 @@
 // 2 Bytes for X scroll delta
 // 2 Bytes for Y scroll delta
 
-pub const PAYLOAD : usize = 24; 
+pub const PAYLOAD: usize = 24;
 
 #[inline]
-pub fn write_click(
-    x: f32,
-    y: f32,
-    width: usize,
-    height: usize,
-    right: bool,
-    buf: &mut [u8]
-) {
-    let x_percent = (x / (width as f32) * 10000.0).round() as u16 + 1; 
-    let y_percent = (y / (height as f32)  * 10000.0).round() as u16 + 1;
+pub fn write_click(x: f32, y: f32, width: usize, height: usize, right: bool, buf: &mut [u8]) {
+    let x_percent = (x / (width as f32) * 10000.0).round() as u16 + 1;
+    let y_percent = (y / (height as f32) * 10000.0).round() as u16 + 1;
 
     buf[4..6].copy_from_slice(&x_percent.to_be_bytes());
     buf[6..8].copy_from_slice(&y_percent.to_be_bytes());
-     
+
     if right {
-        let mask = 1 << 7; 
-        buf[4] = (buf[4] & !mask) | (1 << 7); 
+        let mask = 1 << 7;
+        buf[4] = (buf[4] & !mask) | (1 << 7);
     }
 }
 
-#[inline] 
+#[inline]
 pub fn reset_click(buf: &mut [u8]) {
     buf[4..8].copy_from_slice(&[0; 4]);
 }
@@ -49,11 +42,11 @@ pub fn click_requested(buf: &[u8]) -> bool {
 
 #[inline]
 pub fn parse_click(buf: &mut [u8], width: usize, height: usize) -> (i32, i32, bool) {
-    let mut right_click = false; 
+    let mut right_click = false;
 
     if buf[4] >> 7 == 1 {
-        right_click = true; 
-        let mask = 1 << 7; 
+        right_click = true;
+        let mask = 1 << 7;
         buf[4] = (buf[4] & !mask) | (0 << 7);
     }
 

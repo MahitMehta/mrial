@@ -152,19 +152,13 @@ impl VideoServerThread {
                         self.par = VideoServerThread::get_parameters(self.conn.get_meta());
 
                         self.encoder = x264::Encoder::open(&mut self.par).unwrap();
-                        
+
                         headers = self.encoder.get_headers().unwrap();
                         let header_bytes = headers.as_bytes();
 
                         let mut buf = [0u8; MTU];
-                        write_header(
-                            EPacketType::NAL, 
-                            0, 
-                            HEADER.try_into().unwrap(),
-                            0, 
-                            &mut buf);
-                        buf[HEADER..HEADER + header_bytes.len()]
-                            .copy_from_slice(header_bytes);
+                        write_header(EPacketType::NAL, 0, HEADER.try_into().unwrap(), 0, &mut buf);
+                        buf[HEADER..HEADER + header_bytes.len()].copy_from_slice(header_bytes);
                         self.conn.broadcast(&buf[0..HEADER + header_bytes.len()]);
 
                         pic = Picture::from_param(&self.par).unwrap();

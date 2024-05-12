@@ -45,7 +45,7 @@ impl VideoThread {
         }
     }
 
-    fn rgb_to_slint_pixel_buffer(
+    pub fn rgb_to_slint_pixel_buffer(
         rgb: &[u8],
         width: u32,
         height: u32,
@@ -182,6 +182,8 @@ impl VideoThread {
         _conn_sender: Sender<super::ConnectionAction>,
         client: Client,
     ) {
+        use log::debug;
+
         use crate::video::convert::RGBBuffer;
 
         ffmpeg_next::init().unwrap();
@@ -202,13 +204,19 @@ impl VideoThread {
             let mut rgb_buffer = Option::<RGBBuffer>::None;
 
             loop {
-                let buf = receiver.recv().unwrap();
+                let buf = match receiver.recv() {
+                    Ok(buf) => buf,
+                    Err(e) => {
+                        debug!("Video Tunnel Closed");
+                        break;
+                    }
+                };
                 let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&buf);
 
                 match ffmpeg_decoder.send_packet(&pt) {
                     Ok(_) => (),
                     Err(e) => {
-                        println!("Error Sending Packet: {}", e);
+                        debug!("Error Sending Packet due to \"{}\"", e);
                         continue;
                     }
                 };

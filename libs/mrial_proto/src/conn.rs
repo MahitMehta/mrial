@@ -2,14 +2,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{HEADER, MTU};
 
-pub const CLIENT_STATE_PAYLOAD : usize = 512 - HEADER; 
-pub const SERVER_STATE_PAYLOAD : usize = MTU - HEADER;
+pub const CLIENT_STATE_PAYLOAD: usize = 512 - HEADER;
+pub const SERVER_STATE_PAYLOAD: usize = MTU - HEADER;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientStatePayload {
     pub width: u16,
     pub height: u16,
-    pub muted: bool
+    pub muted: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -32,7 +32,7 @@ pub fn write_client_state_payload(buf: &mut [u8], payload: ClientStatePayload) -
 pub fn parse_client_state_payload(buf: &mut [u8]) -> Result<ClientStatePayload, serde_json::Error> {
     let serialized_payload = std::str::from_utf8(buf).unwrap();
     let payload: ClientStatePayload = serde_json::from_str(serialized_payload)?;
-    
+
     Ok(payload)
 }
 pub fn write_server_state_payload(buf: &mut [u8], payload: ServerStatePayload) -> usize {
@@ -47,6 +47,6 @@ pub fn write_server_state_payload(buf: &mut [u8], payload: ServerStatePayload) -
 pub fn parse_server_state_payload(buf: &mut [u8]) -> Result<ServerStatePayload, serde_json::Error> {
     let serialized_payload = std::str::from_utf8(buf).unwrap();
     let payload: ServerStatePayload = serde_json::from_str(serialized_payload)?;
-    
+
     Ok(payload)
 }

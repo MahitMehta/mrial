@@ -6,6 +6,7 @@ use std::{
 };
 
 use kanal::Sender;
+use log::{debug, info};
 use mrial_proto::*;
 
 use crate::ConnectionAction;
@@ -78,6 +79,8 @@ impl Client {
     }
 
     pub fn disconnect(&mut self) {
+        if !self.socket_connected() { return; }
+
         let mut buf = [0u8; HEADER];
         write_header(
             EPacketType::DISCONNECT,
@@ -87,6 +90,7 @@ impl Client {
             &mut buf,
         );
         let _ = self.socket.as_ref().unwrap().send(&buf);
+        info!("Sent Disconnection Packet");
 
         self.socket = None;
         self.state = ConnectionState::Disconnected;
@@ -134,12 +138,10 @@ impl Client {
         buf: &mut [u8],
     ) -> Result<(usize, std::net::SocketAddr), std::io::Error> {
         match &self.socket {
-            None => {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Socket Not Initialized",
-                ))
-            }
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Socket Not Initialized",
+            )),
             Some(socket) => {
                 let (amt, src) = socket.recv_from(buf)?;
                 Ok((amt, src))
@@ -150,12 +152,10 @@ impl Client {
     #[inline]
     pub fn send(&self, buf: &[u8]) -> Result<usize, std::io::Error> {
         match &self.socket {
-            None => {
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Socket Not Initialized",
-                ))
-            }
+            None => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Socket Not Initialized",
+            )),
             Some(socket) => {
                 let amt = socket.send(buf)?;
                 Ok(amt)
@@ -184,12 +184,12 @@ impl Client {
                 ClientStatePayload {
                     width: self.meta.read().unwrap().width.try_into().unwrap(),
                     height: self.meta.read().unwrap().height.try_into().unwrap(),
-                    muted: false
+                    muted: false,
                 },
             );
 
             let _ = socket.send(&buf[0..HEADER + payload_len]);
-            println!("Sent Handshake Packet");
+            debug!("Sent Handshake Packet");
 
             let (amt, _src) = match socket.recv_from(&mut buf) {
                 Ok(v) => v,
@@ -197,7 +197,7 @@ impl Client {
             };
 
             if buf[0] == EPacketType::SHOOK as u8 {
-                println!("Received Handshake Packet");
+                debug!("Received Handshake Packet");
                 let _ = socket
                     .set_read_timeout(Some(Duration::from_millis(5000)))
                     .expect("Failed to Set Timeout");

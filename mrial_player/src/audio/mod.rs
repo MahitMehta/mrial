@@ -1,5 +1,5 @@
 use rodio::{buffer::SamplesBuffer, Sink};
-
+use log::debug;
 use mrial_proto::*;
 
 pub struct AudioClient {
@@ -37,7 +37,7 @@ impl AudioClient {
 
     pub fn handle_latency_by_dropping(&mut self) {
         if self.sink.len() == 0 {
-            println!("Sink Buffer at {}", self.sink.len());
+            debug!("Sink Buffer at {}", self.sink.len());
             // self.sink.set_volume(0f32);
         } else {
             // self.sink.set_volume(1f32);

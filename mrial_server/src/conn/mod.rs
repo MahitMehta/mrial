@@ -6,8 +6,8 @@ use std::{
 };
 
 use mrial_proto::{
-    packet::*, write_server_state_payload, ServerStatePayload,
-    SERVER_PING_TOLERANCE, SERVER_STATE_PAYLOAD,
+    packet::*, write_server_state_payload, ServerStatePayload, SERVER_PING_TOLERANCE,
+    SERVER_STATE_PAYLOAD,
 };
 
 use crate::video::display::DisplayMeta;
@@ -17,7 +17,7 @@ const SERVER_DEFAULT_PORT: u16 = 8554;
 pub struct Client {
     last_ping: SystemTime,
     src: SocketAddr,
-    muted: bool
+    muted: bool,
 }
 
 impl Client {
@@ -30,7 +30,7 @@ impl Client {
     }
 
     pub fn set_muted(&mut self, muted: bool) {
-        self.muted = muted; 
+        self.muted = muted;
     }
 
     pub fn is_alive(&self) -> bool {
@@ -147,7 +147,7 @@ impl Connection {
         }
 
         self.socket.send_to(&buf[..amt], src).unwrap();
-    
+
         let mut buf = [0u8; MTU];
         write_header(EPacketType::NAL, 0, HEADER.try_into().unwrap(), 0, &mut buf);
         buf[HEADER..HEADER + headers.len()].copy_from_slice(headers);
@@ -166,7 +166,9 @@ impl Connection {
     #[inline]
     pub fn broadcast_audio(&self, buf: &[u8]) {
         for client in self.clients.read().unwrap().values() {
-            if client.muted { continue; }
+            if client.muted {
+                continue;
+            }
             self.socket.send_to(buf, client.src).unwrap();
         }
     }

@@ -14,12 +14,12 @@
 	<string>Mrial</string>
 	<key>CFBundleDisplayName</key>
 	<string>Mrial</string>
+	<key>CFBundleIconFile</key>
+	<string>logo.icns</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>0.1.7</string>
-	<key>CFBundleSignature</key>
-	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>0.1.7</string>
 </dict>
