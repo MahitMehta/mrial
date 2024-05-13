@@ -3145,7 +3145,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_player"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "cli-clipboard",
  "dirs",
@@ -3166,7 +3166,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_proto"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "serde",
  "serde_json",
@@ -3174,7 +3174,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_server"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "cfg-if 0.1.10",
  "enigo",

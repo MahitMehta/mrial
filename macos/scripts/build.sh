@@ -38,5 +38,5 @@ rm -rf $MACOS_RUST_APP_NAME/.Trashes
 
 FULL_NAME=$MACOS_RUST_APP_NAME
 
-create-dmg --codesign "$MACOS_CODESIGN_SIGNATURE" --window-size 500 500 --app-drop-link 370 200 --icon-size 125 --icon $FULL_NAME.app 120 200 $FULL_NAME.dmg $MACOS_RUST_APP_NAME
+create-dmg --codesign "$MACOS_CODESIGN_SIGNATURE" --notarize "$MACOS_NOTARYTOOL_PW_KEY" --window-size 500 500 --app-drop-link 370 200 --icon-size 125 --icon $FULL_NAME.app 120 200 $FULL_NAME.dmg $MACOS_RUST_APP_NAME
 rm -rf $MACOS_RUST_APP_NAME
