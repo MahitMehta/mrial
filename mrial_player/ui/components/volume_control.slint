@@ -1,10 +1,12 @@
-import { Theme } from "../common.slint";
+import { Theme, MrialSlider } from "../common.slint";
 import { ServerFunctions } from "server.slint";
 
 export component MrialVolumeControl inherits Rectangle {
     in-out property <bool> muted: false;
+    in-out property <int> volume: 100;
 
     callback mute();
+    callback volume_changed(int);
 
     border-radius: 5px;
     height: 35px;
@@ -31,6 +33,12 @@ export component MrialVolumeControl inherits Rectangle {
                 clicked => {
                     muted = !muted;
                     mute();
+
+                    if (muted) {
+                        slider.slider_color = Theme.secondary-border-color;
+                    } else {
+                        slider.slider_color = Theme.bg_primary_brush;
+                    }
                 }
             }
         
@@ -51,9 +59,16 @@ export component MrialVolumeControl inherits Rectangle {
             animate background { duration: 150ms; }
         }
         Rectangle { 
-            width: 100%;
-            height: root.height; 
-            // background: Theme.bg_primary_brush;
+            height: root.height;
+            width: 125px; // TODO: make this dynamic, adjust with size of control panel
+
+            slider := MrialSlider {
+                value: volume;
+                x: 10px;
+                min_value: 0;
+                max_value: 100;
+                changed(value) => { volume_changed(value); }
+            }
         }
     }
 }

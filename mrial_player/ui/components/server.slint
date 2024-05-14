@@ -6,6 +6,7 @@ export global ServerFunctions {
     pure callback disconnect();
     pure callback delete(/* server_id */ string);
     pure callback copy(/* address (ip + port) */ string);
+    pure callback volume(/* volume */ int);
 }
 
 component ModifyServerIcon inherits TouchArea {

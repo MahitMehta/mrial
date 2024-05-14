@@ -58,6 +58,7 @@ export component ControlPanel inherits TouchArea {
 
                     MrialVolumeControl {
                         muted: ControlPanelAdapter.muted;
+                        volume: 100;
                         width: 100%;
 
                         mute => {
@@ -67,6 +68,9 @@ export component ControlPanel inherits TouchArea {
                                 resolution: ControlPanelAdapter.resolutions[ControlPanelAdapter.resolution_index].value,
                                 muted: ControlPanelAdapter.muted
                             });
+                        }
+                        volume_changed(value) => {
+                            ServerFunctions.volume(value);
                         }
                     }
                     MrialDropdown {

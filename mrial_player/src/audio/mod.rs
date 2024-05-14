@@ -15,9 +15,14 @@ impl AudioClient {
     pub fn new(sink: Sink) -> AudioClient {
         AudioClient {
             packet_constructor: PacketConstructor::new(),
-            sink,
+            sink
             // speed_adjustment_counter: 0.0
         }
+    }
+
+    pub fn set_volume(&mut self, volume: f32) {
+        debug!("Setting Volume to {}%", volume * 100.0);
+        self.sink.set_volume(volume * volume);
     }
 
     /* Experimental */

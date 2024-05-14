@@ -30,7 +30,8 @@ pub enum ConnectionAction {
     Reconnect,
     Handshake,
     UpdateState,
-    CloseApplication
+    CloseApplication,
+    Volume
 }
 
 fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) {
@@ -106,15 +107,15 @@ fn main() {
     let mut server_state = Servers::new();
     server_state.load().unwrap();
     let mut server_state_clone = server_state.try_clone();
+    populate_servers(&server_state, &app_weak);
 
     let server_id = Arc::new(Mutex::new(String::new()));
     let server_id_clone = server_id.clone();
-
-    populate_servers(&server_state, &app_weak);
+    let volume = Arc::new(Mutex::new(1.0f32));
+    let volume_clone = volume.clone();
 
     slint::invoke_from_event_loop(move || {
         let conn_sender_clone = conn_sender.clone();
-
         app_weak
             .unwrap()
             .global::<ServerFunctions>()
@@ -123,11 +124,20 @@ fn main() {
                 conn_sender_clone.send(ConnectionAction::Connect).unwrap();
             });
 
+        let conn_sender_clone = conn_sender.clone();
         app_weak
             .unwrap()
             .global::<ServerFunctions>()
             .on_disconnect(move || {
-                conn_sender.send(ConnectionAction::Disconnect).unwrap();
+                conn_sender_clone.send(ConnectionAction::Disconnect).unwrap();
+            });
+
+        app_weak
+            .unwrap()
+            .global::<ServerFunctions>()
+            .on_volume(move |value|{
+                *volume_clone.lock().unwrap() = value as f32 / 100f32;
+                conn_sender.send(ConnectionAction::Volume).unwrap();
             });
 
         let app_weak_clone = app_weak.clone();
@@ -188,6 +198,10 @@ fn main() {
                             thread::sleep(Duration::from_millis(25));
                             continue;
                         }
+                    }
+                    Some(ConnectionAction::Volume) => {
+                       // let volume = app_weake_clone.upgrade().unwrap().global::<ControlPanelAdapter>().get_volume();
+                        audio.set_volume(volume.lock().unwrap().clone());
                     }
                     Some(ConnectionAction::UpdateState) => {
                         let widths = client.get_meta().widths.clone();

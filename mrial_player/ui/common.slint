@@ -107,6 +107,62 @@ component MrialDropdownItem inherits Rectangle {
     }
 }
 
+export component MrialSlider inherits Rectangle {
+    in-out property <int> value: 0;
+    in-out property <int> min_value: 0;
+    in-out property <int> max_value: root.width / 1px;
+    in-out property <color> slider_color: Theme.bg-primary-brush;
+    private property <bool> dragging: false;
+
+    callback changed(int);
+
+    background: Theme.border-color;
+    height: 15px;
+    border-radius: 2.5px;
+
+    slider_ta := TouchArea {
+        width: parent.width;
+        height: parent.height;
+        mouse-cursor: MouseCursor.pointer;
+
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.up) {
+                dragging = false; 
+                changed(root.value);
+            }
+        }
+            
+        moved => {
+            if (self.pressed) {
+                dragging = true;
+            } 
+
+            if (dragging) {
+                if (self.mouse-x >= 0 && self.mouse-x <= parent.width) {
+                    slider.width = self.mouse-x;
+                    root.value = (slider.width / parent.width) * (root.max_value - root.min_value);
+                } else if (self.mouse-x < 0) {
+                    slider.width = 0;
+                    root.value = root.min_value;
+                } else if (self.mouse-x > parent.width) {
+                    slider.width = parent.width;
+                    root.value = root.max_value;
+                }
+            } 
+        }
+    }
+
+    slider := Rectangle {
+        x: 0;
+        width: (root.value / root.max_value) * root.width;
+        height: parent.height;
+        background: slider-ta.has-hover ? root.slider_color : Theme.secondary-border-color;
+        border-radius: 2.5px;
+
+        animate background { duration: 125ms; }
+    }
+}
+
 export component MrialDropdown inherits Rectangle{
     in property <string> label;
     in property <[IMrialDropdownItem]> items;
