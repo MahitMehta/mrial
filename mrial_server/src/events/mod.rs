@@ -61,7 +61,7 @@ impl EventsEmitter {
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub fn scroll(&self, x: i32, y: i32) {}
+    pub fn scroll(&self, _x: i32, _y: i32) {}
 
     pub fn input(&mut self, buf: &mut [u8], width: usize, height: usize) {
         if click_requested(&buf) {
@@ -132,8 +132,7 @@ impl EventsEmitter {
             } else if buf[8] == 8 {
                 self.enigo.key(Key::Backspace, Press).unwrap();
             } else if buf[8] == 9 {
-                self.enigo.key(Key::Tab, enigo::Direction::Press)
-                    .unwrap();
+                self.enigo.key(Key::Tab, enigo::Direction::Press).unwrap();
             } else if buf[8] == 10 {
                 self.enigo
                     .key(Key::Return, enigo::Direction::Click)
@@ -177,7 +176,7 @@ impl EventsThread {
         headers: Vec<u8>,
         video_server_ch_sender: Sender<VideoServerActions>,
     ) {
-        let mut conn = conn.clone();
+        let conn = conn.clone();
         let _ = thread::spawn(move || {
             let mut emitter = EventsEmitter::new();
 
@@ -187,8 +186,8 @@ impl EventsThread {
                 let packet_type = parse_packet_type(&buf);
 
                 match packet_type {
-                    EPacketType::SHAKE => {
-                        if let Ok(meta) = parse_client_state_payload(&mut buf[HEADER..size]) {
+                    EPacketType::ShakeAE => {
+                        if let Some(meta) = conn.connect_client(src, &buf[HEADER..size], &headers) {
                             conn.mute_client(src, meta.muted.try_into().unwrap());
 
                             conn.set_dimensions(
@@ -197,13 +196,16 @@ impl EventsThread {
                             );
 
                             video_server_ch_sender
+                                .send(VideoServerActions::SymKey)
+                                .unwrap();
+
+                            video_server_ch_sender
                                 .send(VideoServerActions::ConfigUpdate)
                                 .unwrap();
-                            // TODO: Need to requery headers from encoder
-                            conn.add_client(src, &headers);
-                        } else {
-                            println!("Invalid handshake packet from {:?}", src);
                         }
+                    }
+                    EPacketType::ShakeUE => {
+                        conn.initialize_client(src);
                     }
                     EPacketType::ClientState => {
                         if let Ok(meta) = parse_client_state_payload(&mut buf[HEADER..size]) {
@@ -214,19 +216,20 @@ impl EventsThread {
                                 meta.height.try_into().unwrap(),
                             );
 
-                            // if conn.get_meta().width != meta.width as usize 
-                            //     || conn.get_meta().height != meta.height as usize {
-                            // }    
+                            // TODO: Don't refresh encoder if the dimensions are the same
 
                             video_server_ch_sender
                                 .send(VideoServerActions::ConfigUpdate)
-                                .unwrap();                   
+                                .unwrap();
                         };
                     }
-                    EPacketType::PING => {
-                        conn.client_pinged(src);
+                    EPacketType::Alive => {
+                        conn.send_alive(src);
                     }
-                    EPacketType::DISCONNECT => {
+                    EPacketType::PING => {
+                        conn.received_ping(src);
+                    }
+                    EPacketType::Disconnect => {
                         conn.remove_client(src);
                         if !conn.has_clients() {
                             video_server_ch_sender

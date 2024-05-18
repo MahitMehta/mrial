@@ -41,7 +41,7 @@ impl Input {
                     break;
                 }
                 let next_input = receiver.recv().unwrap();
-                if next_input[0] == EPacketType::InternalEOL as u8 {
+                if parse_packet_type(&next_input) == EPacketType::InternalEOL {
                     inner_client.disconnect();
                     break;
                 }

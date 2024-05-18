@@ -1,0 +1,81 @@
+import { MrialHeader, MrialSubHeader, Theme } from "../common.slint";
+import { HorizontalBox } from "std-widgets.slint";
+
+component HostingTab inherits TouchArea {
+    in property <string> label;
+    in property <bool> selected;
+    callback on_click();
+
+    width: 100px;
+    height: 30px; 
+
+    mouse-cursor: root.has-hover ? pointer : default;
+    clicked => { 
+        on_click(); 
+    }
+
+    Text {
+        text: label;
+        color: selected || root.has-hover ? white : Theme.text_secondary_color;
+        padding: 10px;
+        animate color { duration: 0.25s; easing: ease-in-out; }
+    }
+}
+
+export component HostingScreen inherits VerticalLayout {
+    private property <int> tab-index: 0;
+
+    alignment: LayoutAlignment.start;
+    spacing: 15px;
+
+    VerticalLayout {
+        spacing: 5px;
+
+        MrialHeader {
+            text: "Hosting";
+        }
+        MrialSubHeader {
+            text: "Host a Mrial Server on a PC or remotely on a headless VM.";
+        }
+    }
+    Rectangle {
+        height: 1px;
+        width: parent.width - parent.padding * 2;
+        background: Theme.secondary-border-color;
+    }
+    Rectangle {
+        padding-top: 5px;
+        padding-left: 10px;
+        padding-right: 10px;
+        padding-bottom: 5px;
+
+        tab_item_overlay := Rectangle {
+            x: root.tab-index * 100px;
+            width: 100px;
+            height: 30px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 7.5px;
+            animate x { duration: 0.25s; easing: ease-in-out; }
+            Rectangle {
+                x: 10px; 
+                y: parent.height / 2 - self.height / 2; 
+                width: 5px; 
+                height: 5px; 
+                border-radius: 5px;
+                background: @linear-gradient(180deg, Theme.bg-primary-brush-end 0%, Theme.bg-primary-brush-end 100%);
+            }
+        }
+        HorizontalLayout {
+            HostingTab {
+                label: "Server";
+                selected: root.tab-index == 0;
+                on_click => { root.tab-index = 0; }
+            }
+            HostingTab {
+                label: "Users";
+                selected: root.tab-index == 1;
+                on_click => { root.tab-index = 1; }
+            }
+        }
+    }
+}

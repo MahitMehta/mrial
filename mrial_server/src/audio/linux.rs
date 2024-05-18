@@ -143,7 +143,7 @@ impl IAudioController for AudioServerThread {
                             let mut buf = [0u8; MTU];
 
                             write_static_header(
-                                EPacketType::AUDIO,
+                                EPacketType::Audio,
                                 sample.len().try_into().unwrap(),
                                 audio_packet_id,
                                 &mut buf,

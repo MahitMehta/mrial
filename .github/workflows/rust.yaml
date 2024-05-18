@@ -25,11 +25,17 @@ jobs:
       run: |
         sudo apt update
         sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev cmake
+        cargo install cargo-deb
     - name: Build
       run: |
         cd mrial_server
         cargo build --release
-    - name: Package
+    - name: Deb Package
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        cd mrial_server
+        cargo-deb
+    - name: Zip Package
       if: startsWith(github.ref, 'refs/tags/')
       run: |
         mkdir dist
@@ -44,6 +50,7 @@ jobs:
         name: dist_linux_arm64
         path: | 
           dist/*.zip
+          target/debian/*.deb
   build_linux_x86_64:
     runs-on: ubuntu-latest
     steps:
@@ -57,11 +64,17 @@ jobs:
       run: |
         sudo apt update
         sudo NEEDRESTART_MODE=a apt install -y yasm ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev
+        cargo install cargo-deb
     - name: Build
       run: |
         cd mrial_server
         cargo build --release
-    - name: Package
+    - name: Deb Package
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        cd mrial_server
+        cargo-deb
+    - name: Zip Package
       if: startsWith(github.ref, 'refs/tags/')
       run: |
         mkdir dist
@@ -76,6 +89,7 @@ jobs:
         name: dist_linux_amd64
         path: | 
           dist/*.zip
+          target/debian/*.deb
   build_macos_arm64:
     runs-on: macos-latest
     steps:

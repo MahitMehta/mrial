@@ -5,11 +5,15 @@ use std::{
     time::Duration,
 };
 
+use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
+use chacha20poly1305::{aead::KeyInit, ChaCha20Poly1305, ChaChaPoly1305};
+use ffmpeg_next::codec::debug;
 use kanal::Sender;
 use log::{debug, info};
 use mrial_proto::*;
+use rsa::{pkcs1::DecodeRsaPublicKey, RsaPublicKey};
 
-use crate::ConnectionAction;
+use crate::{storage::Server, ConnectionAction};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ConnectionState {
@@ -31,6 +35,7 @@ pub struct Client {
     socket: Option<UdpSocket>,
     state: ConnectionState,
     meta: Arc<RwLock<ClientMetaData>>,
+    sym_key: Option<ChaCha20Poly1305>,
     conn_sender: Sender<ConnectionAction>,
 }
 
@@ -41,6 +46,7 @@ impl Client {
             socket: None,
             state: ConnectionState::Disconnected,
             meta: Arc::new(RwLock::new(meta)),
+            sym_key: None,
             conn_sender,
         }
     }
@@ -79,11 +85,13 @@ impl Client {
     }
 
     pub fn disconnect(&mut self) {
-        if !self.socket_connected() { return; }
+        if !self.socket_connected() {
+            return;
+        }
 
         let mut buf = [0u8; HEADER];
         write_header(
-            EPacketType::DISCONNECT,
+            EPacketType::Disconnect,
             0,
             HEADER.try_into().unwrap(),
             0,
@@ -111,6 +119,11 @@ impl Client {
         self.socket_connected() && self.state == ConnectionState::Connected
     }
 
+    #[inline]
+    pub fn get_sym_key(&self) -> Option<ChaCha20Poly1305> {
+        self.sym_key.clone()
+    }
+
     pub fn clone(&self) -> Client {
         if let Some(socket) = &self.socket {
             let socket = socket.try_clone().unwrap();
@@ -119,6 +132,7 @@ impl Client {
                 socket: Some(socket),
                 state: self.state,
                 meta: self.meta.clone(),
+                sym_key: self.sym_key.clone(),
                 conn_sender: self.conn_sender.clone(),
             };
         }
@@ -126,6 +140,7 @@ impl Client {
         Client {
             socket_address: self.socket_address.clone(),
             socket: None,
+            sym_key: self.sym_key.clone(),
             state: ConnectionState::Disconnected,
             meta: self.meta.clone(),
             conn_sender: self.conn_sender.clone(),
@@ -175,38 +190,84 @@ impl Client {
             let _ = socket
                 .set_read_timeout(Some(Duration::from_millis(1000)))
                 .expect("Failed to Set Timeout");
-            let mut buf = [0u8; HEADER + SERVER_STATE_PAYLOAD];
+            let mut buf = [0u8; MTU];
 
-            write_header(EPacketType::SHAKE, 0, HEADER as u32, 0, &mut buf);
+            write_header(EPacketType::ShakeUE, 0, HEADER as u32, 0, &mut buf);
 
-            let payload_len = write_client_state_payload(
-                &mut buf[HEADER..HEADER + CLIENT_STATE_PAYLOAD],
-                ClientStatePayload {
-                    width: self.meta.read().unwrap().width.try_into().unwrap(),
-                    height: self.meta.read().unwrap().height.try_into().unwrap(),
-                    muted: false,
-                },
-            );
-
-            let _ = socket.send(&buf[0..HEADER + payload_len]);
-            debug!("Sent Handshake Packet");
+            let _ = socket.send(&buf[0..HEADER]);
+            debug!("Sent Initial Shake UE Packet");
 
             let (amt, _src) = match socket.recv_from(&mut buf) {
                 Ok(v) => v,
                 Err(_e) => return,
             };
 
-            if buf[0] == EPacketType::SHOOK as u8 {
-                debug!("Received Handshake Packet");
-                let _ = socket
-                    .set_read_timeout(Some(Duration::from_millis(5000)))
-                    .expect("Failed to Set Timeout");
-                if let Ok(payload) = parse_server_state_payload(&mut buf[HEADER..amt]) {
-                    self.update_client_conn_state(payload);
-                };
-            }
+            if parse_packet_type(&buf) == EPacketType::ShookUE {
+                debug!("Received Initial Shook UE Packet");
 
-            self.state = ConnectionState::Connected;
+                if let Ok(shookue_payload) = ServerShookUE::from_payload(&mut buf[HEADER..amt]) {
+                    if let Ok(pub_key) = RsaPublicKey::from_pkcs1_pem(&shookue_payload.pub_key) {
+                        debug!("Valid Public Key Received");
+
+                        let client_state = ClientStatePayload {
+                            width: self.meta.read().unwrap().width.try_into().unwrap(),
+                            height: self.meta.read().unwrap().height.try_into().unwrap(),
+                            muted: false,
+                        };
+
+                        let mut rng = rand::thread_rng();
+                        let key = ChaCha20Poly1305::generate_key(&mut rng);
+                        let cipher = ChaCha20Poly1305::new(&key);
+                        self.sym_key = Some(cipher);
+                        let key_vec = key.to_vec();
+                        let key_base64 = STANDARD_NO_PAD.encode(&key_vec);
+
+                        let username: &str = "john";
+
+                        let payload_len = ClientShakeAE::write_payload(
+                            &mut buf[HEADER..],
+                            &mut rng,
+                            pub_key,
+                            &ClientShakeAE {
+                                username: username.to_string(),
+                                sym_key: key_base64,
+                                client_state,
+                            },
+                        );
+
+                        write_header(
+                            EPacketType::ShakeAE,
+                            0,
+                            (HEADER + payload_len) as u32,
+                            0,
+                            &mut buf,
+                        );
+                        let _ = socket.send(&buf[0..HEADER + payload_len]);
+                        debug!("Sent Shake AE Packet");
+
+                        let (amt, _src) = match socket.recv_from(&mut buf) {
+                            Ok(v) => v,
+                            Err(_e) => return,
+                        };
+
+                        if parse_packet_type(&buf) == EPacketType::ShookSE {
+                            let _ = socket
+                                .set_read_timeout(Some(Duration::from_millis(5000)))
+                                .expect("Failed to Set Timeout");
+                            if let Ok(payload) = ServerShookSE::from_payload(
+                                &mut buf[HEADER..amt],
+                                self.sym_key.as_mut().unwrap(),
+                            ) {
+                                debug!("Received Valid Shook SE Packet");
+                                self.update_client_conn_state(payload.server_state);
+                            };
+
+                            // TODO: Validate if this is in the correct place
+                            self.state = ConnectionState::Connected;
+                        }
+                    }
+                }
+            }
         }
     }
 }

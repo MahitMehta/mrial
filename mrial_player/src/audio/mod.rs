@@ -1,6 +1,6 @@
-use rodio::{buffer::SamplesBuffer, Sink};
 use log::debug;
 use mrial_proto::*;
+use rodio::{buffer::SamplesBuffer, Sink};
 
 pub struct AudioClient {
     packet_constructor: PacketConstructor,
@@ -15,8 +15,7 @@ impl AudioClient {
     pub fn new(sink: Sink) -> AudioClient {
         AudioClient {
             packet_constructor: PacketConstructor::new(),
-            sink
-            // speed_adjustment_counter: 0.0
+            sink, // speed_adjustment_counter: 0.0
         }
     }
 

@@ -1,0 +1,13 @@
+[Unit]
+Description=Mrial Server
+After=syslog.target network.target network-online.target sshd.service http-daem>
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+ExecStart=/var/lib/mrial_server/scripts/startup
+
+[Install]
+WantedBy=default.target

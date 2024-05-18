@@ -1,18 +1,16 @@
 pub mod display;
 pub mod yuv;
 
+use chacha20poly1305::{aead::{Aead, AeadMutInPlace}, AeadCore, ChaCha20Poly1305};
 use display::DisplayMeta;
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use kanal::unbounded;
 use mrial_proto::*;
+use rand::rngs::ThreadRng;
 use scrap::{Capturer, Display};
 use spin_sleep;
 use std::{
-    collections::VecDeque,
-    fs::File,
-    io::{ErrorKind::WouldBlock, Write},
-    sync::RwLockReadGuard,
-    time::{Duration, Instant},
+    borrow::BorrowMut, collections::VecDeque, fs::File, io::{ErrorKind::WouldBlock, Write}, sync::RwLockReadGuard, time::{Duration, Instant}
 };
 use x264::{Encoder, Param, Picture};
 use yuv::YUVBuffer;
@@ -28,6 +26,7 @@ use self::yuv::EColorSpace;
 pub enum VideoServerActions {
     Inactive,
     ConfigUpdate,
+    SymKey
 }
 
 pub struct VideoServerThread {
@@ -41,6 +40,8 @@ pub struct VideoServerThread {
 
     par: Param,
     encoder: Encoder,
+    rng: ThreadRng,
+    sym_key: Option<ChaCha20Poly1305>
 }
 
 impl VideoServerThread {
@@ -55,6 +56,9 @@ impl VideoServerThread {
         let mut par: Param = VideoServerThread::get_parameters(conn.get_meta());
         let encoder = x264::Encoder::open(&mut par).unwrap();
 
+        let mut buf = [0u8; MTU]; 
+        write_packet_type(EPacketType::NAL, &mut buf);
+
         Self {
             conn,
             row_len,
@@ -62,10 +66,12 @@ impl VideoServerThread {
             capturer,
             frame_count: 0,
             packet_id: 1,
-            buf: [0u8; MTU],
+            buf,
 
             par,
             encoder,
+            rng: rand::thread_rng(),
+            sym_key: None
         }
     }
 
@@ -122,6 +128,11 @@ impl VideoServerThread {
                     Some(VideoServerActions::Inactive) => {
                         self.encoder = x264::Encoder::open(&mut self.par).unwrap();
                     }
+                    Some(VideoServerActions::SymKey) => {
+                        if let Some(sym_key) = self.conn.get_sym_key() {
+                            self.sym_key = Some(sym_key);
+                        }
+                    }
                     Some(VideoServerActions::ConfigUpdate) => {
                         let requested_width = self.conn.get_meta().width;
                         let requested_height = self.conn.get_meta().height;
@@ -153,13 +164,24 @@ impl VideoServerThread {
 
                         self.encoder = x264::Encoder::open(&mut self.par).unwrap();
 
-                        headers = self.encoder.get_headers().unwrap();
-                        let header_bytes = headers.as_bytes();
-
-                        let mut buf = [0u8; MTU];
-                        write_header(EPacketType::NAL, 0, HEADER.try_into().unwrap(), 0, &mut buf);
-                        buf[HEADER..HEADER + header_bytes.len()].copy_from_slice(header_bytes);
-                        self.conn.broadcast(&buf[0..HEADER + header_bytes.len()]);
+                        if let Some(sym_key) = &self.sym_key {
+                            headers = self.encoder.get_headers().unwrap();
+                            let header_bytes = headers.as_bytes();
+                            let nonce = ChaCha20Poly1305::generate_nonce(&mut self.rng);
+                            let mut ciphertext = sym_key.encrypt(&nonce, header_bytes).unwrap();
+                            ciphertext.extend_from_slice(&nonce);
+    
+                            let mut buf = [0u8; MTU];
+                            write_header(
+                                EPacketType::NAL, 
+                                0, 
+                                (HEADER + ciphertext.len()) as u32,
+                                0,
+                                &mut buf
+                            );
+                            buf[HEADER..HEADER + ciphertext.len()].copy_from_slice(&ciphertext);
+                            self.conn.broadcast(&buf[0..HEADER + ciphertext.len()]);
+                        }
 
                         pic = Picture::from_param(&self.par).unwrap();
 
@@ -172,6 +194,7 @@ impl VideoServerThread {
             }
 
             if !self.conn.has_clients() {
+                self.conn.filter_clients();
                 std::thread::sleep(Duration::from_millis(250));
                 continue;
             }
@@ -211,37 +234,41 @@ impl VideoServerThread {
                         self.frame_count += 1;
 
                         if let Some((nal, _, _)) = self.encoder.encode(&pic).unwrap() {
-                            let bitstream = nal.as_bytes();
+                            if let Some(sym_key) = &self.sym_key {
+                                let bitstream = nal.as_bytes();
+                                let nonce = ChaCha20Poly1305::generate_nonce(&mut self.rng);
+                                let mut ciphertext = sym_key.encrypt(&nonce, bitstream).unwrap();
+                                ciphertext.extend_from_slice(&nonce);
+                                
+                                let packets = (ciphertext.len() as f64 / PAYLOAD as f64).ceil() as usize;
 
-                            let packets = (bitstream.len() as f64 / PAYLOAD as f64).ceil() as usize;
-
-                            write_static_header(
-                                EPacketType::NAL,
-                                bitstream.len().try_into().unwrap(),
-                                self.packet_id,
-                                &mut self.buf,
-                            );
-
-                            self.packet_id += 1;
-
-                            for i in 0..packets {
-                                write_packets_remaining(
-                                    (packets - i - 1).try_into().unwrap(),
+                                write_var_frame_header(
+                                    ciphertext.len().try_into().unwrap(),
+                                    self.packet_id,
                                     &mut self.buf,
                                 );
 
-                                let start = i * PAYLOAD;
-                                let addition = if start + PAYLOAD <= bitstream.len() {
-                                    PAYLOAD
-                                } else {
-                                    bitstream.len() - start
-                                };
-                                self.buf[HEADER..addition + HEADER]
-                                    .copy_from_slice(&bitstream[start..(addition + start)]);
+                                self.packet_id += 1;
 
-                                self.conn.broadcast(&self.buf[0..addition + HEADER]);
+                                for i in 0..packets {
+                                    write_packets_remaining(
+                                        (packets - i - 1).try_into().unwrap(),
+                                        &mut self.buf,
+                                    );
+
+                                    let start = i * PAYLOAD;
+                                    let addition = if start + PAYLOAD <= ciphertext.len() {
+                                        PAYLOAD
+                                    } else {
+                                        ciphertext.len() - start
+                                    };
+                                    self.buf[HEADER..addition + HEADER]
+                                        .copy_from_slice(&ciphertext[start..(addition + start)]);
+
+                                    self.conn.broadcast(&self.buf[0..addition + HEADER]);
+                                }
+                                frames += 1;
                             }
-                            frames += 1;
                         }
 
                         if fps_time.elapsed().as_millis() > 1000 && frames > 0 {
@@ -254,8 +281,8 @@ impl VideoServerThread {
                             fps_time = Instant::now();
                         }
 
-                        if sleep.elapsed().as_millis() > 0 && sleep.elapsed().as_millis() < 16 {
-                            let delay = 16 - sleep.elapsed().as_millis();
+                        if sleep.elapsed().as_millis() > 0 && sleep.elapsed().as_millis() < 17 {
+                            let delay = 17 - sleep.elapsed().as_millis();
                             spin_sleep::sleep(Duration::from_millis(delay as u64));
                         }
                     }

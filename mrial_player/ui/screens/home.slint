@@ -3,6 +3,7 @@ import { Button , VerticalBox , ProgressIndicator} from "std-widgets.slint";
 import { Server, IServer, ServerFunctions } from "../components/server.slint";
 import { Footer } from "../components/footer.slint";
 import { CreateServer } from "create_server.slint";
+import { HostingScreen } from "hosting.slint";
 
 export global HomePageAdapter {
     in-out property <[IServer]> servers: [];
@@ -123,6 +124,13 @@ export component HomeScreen inherits Screen {
             width: parent.width - navbar.width;
 
             Rectangle {
+                VerticalLayout {
+                    padding: 15px;
+                    visible: nav_page == 2;
+                    spacing: 10px;
+
+                    HostingScreen {}
+                }
                 VerticalLayout {
                     alignment: LayoutAlignment.start;
                     visible: nav_page == 1; 

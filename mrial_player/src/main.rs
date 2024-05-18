@@ -18,8 +18,8 @@ use std::{rc::Rc, thread};
 
 use i_slint_backend_winit::WinitWindowAccessor;
 use kanal::unbounded;
-use slint::{ComponentHandle, SharedString, VecModel};
 use log::{debug, info};
+use slint::{ComponentHandle, SharedString, VecModel};
 
 slint::include_modules!();
 
@@ -31,7 +31,7 @@ pub enum ConnectionAction {
     Handshake,
     UpdateState,
     CloseApplication,
-    Volume
+    Volume,
 }
 
 fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) {
@@ -99,8 +99,10 @@ fn main() {
 
     let conn_sender_clone = conn_sender.clone();
     app.window().on_close_requested(move || {
-        info!("Application Close Requested"); 
-        conn_sender_clone.send(ConnectionAction::CloseApplication).unwrap();
+        info!("Application Close Requested");
+        conn_sender_clone
+            .send(ConnectionAction::CloseApplication)
+            .unwrap();
         slint::CloseRequestResponse::KeepWindowShown
     });
 
@@ -129,13 +131,15 @@ fn main() {
             .unwrap()
             .global::<ServerFunctions>()
             .on_disconnect(move || {
-                conn_sender_clone.send(ConnectionAction::Disconnect).unwrap();
+                conn_sender_clone
+                    .send(ConnectionAction::Disconnect)
+                    .unwrap();
             });
 
         app_weak
             .unwrap()
             .global::<ServerFunctions>()
-            .on_volume(move |value|{
+            .on_volume(move |value| {
                 *volume_clone.lock().unwrap() = value as f32 / 100f32;
                 conn_sender.send(ConnectionAction::Volume).unwrap();
             });
@@ -200,7 +204,6 @@ fn main() {
                         }
                     }
                     Some(ConnectionAction::Volume) => {
-                       // let volume = app_weake_clone.upgrade().unwrap().global::<ControlPanelAdapter>().get_volume();
                         audio.set_volume(volume.lock().unwrap().clone());
                     }
                     Some(ConnectionAction::UpdateState) => {
@@ -257,7 +260,7 @@ fn main() {
                         if client.connected() {
                             input.close_send_loop();
                         }
-                        
+
                         client.disconnect();
                         let app_weak_clone: slint::Weak<MainWindow> = app_weak.clone();
                         let _ = app_weak.upgrade_in_event_loop(move |_| {
@@ -277,7 +280,9 @@ fn main() {
                         let app_weak_clone = app_weak.clone();
                         let rgb = vec![0; client.get_meta().width * client.get_meta().height * 3];
                         if let Ok(pixel_buffer) = VideoThread::rgb_to_slint_pixel_buffer(
-                            &rgb, client.get_meta().width as u32, client.get_meta().height as u32,
+                            &rgb,
+                            client.get_meta().width as u32,
+                            client.get_meta().height as u32,
                         ) {
                             let _ = slint::invoke_from_event_loop(move || {
                                 app_weak_clone
@@ -295,7 +300,7 @@ fn main() {
                     let packet_type = parse_packet_type(&buf);
 
                     match packet_type {
-                        EPacketType::AUDIO => audio.play_audio_stream(&buf, number_of_bytes),
+                        EPacketType::Audio => audio.play_audio_stream(&buf, number_of_bytes),
                         EPacketType::NAL => video.packet(&buf, &client, number_of_bytes),
                         _ => {}
                     }

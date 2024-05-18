@@ -1,31 +1,54 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error, net::{self, UdpSocket}};
 
-#[derive(Debug)]
+use chacha20poly1305::{aead::Aead, ChaCha20Poly1305};
+
+use crate::SE_NONCE;
+
+// use chacha20poly1305::{aead::{AeadMut, AeadMutInPlace}, AeadCore, ChaCha20Poly1305};
+// use rand::rngs::ThreadRng;
+
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum EPacketType {
-    SHAKE = 0,
-    SHOOK = 1,
+    /// Header (Unecrypted)
+    ShakeUE = 0,
+    /// Header (Unecrypted) + JSON Containing Public Key (Unencrypted)
+    ShookUE = 1,
+    /// Header (Unecrypted) + Byte stream (Encrypted)
     NAL = 2,
     InputState = 3,
-    AUDIO = 4,
-    DISCONNECT = 5,
+    /// Header (Unecrypted) + Byte stream (Encrypted)
+    Audio = 4,
+    /// Header (Unecrypted)
+    Disconnect = 5,
+    /// Header (Unecrypted)
     PING = 6,
     ClientState = 7,
     ServerState = 8,
-    InternalEOL = 13,
+    /// Header (Unecrypted) + JSON Containing Generated Symmetric Key
+    /// Using Public Key + Credential Hash (Asymmetrically Encrypted)
+    ShakeAE = 9,
+    // Header (Unecrypted) + JSON Containing Server State (Symmetrically Encrypted)
+    ShookSE = 10,
+    Alive = 11,
+    // TODO: Add Server Pings in addition to Client Pings
+    InternalEOL = 13
 }
 
 impl From<u8> for EPacketType {
     fn from(v: u8) -> Self {
         match v {
-            0 => EPacketType::SHAKE,
-            1 => EPacketType::SHOOK,
+            0 => EPacketType::ShakeUE,
+            1 => EPacketType::ShookUE,
             2 => EPacketType::NAL,
             3 => EPacketType::InputState,
-            4 => EPacketType::AUDIO,
-            5 => EPacketType::DISCONNECT,
+            4 => EPacketType::Audio,
+            5 => EPacketType::Disconnect,
             6 => EPacketType::PING,
             7 => EPacketType::ClientState,
             8 => EPacketType::ServerState,
+            9 => EPacketType::ShakeAE,
+            10 => EPacketType::ShookSE,
+            11 => EPacketType::Alive,
             13 => EPacketType::InternalEOL,
             _ => panic!("Invalid Packet Type"),
         }
@@ -45,10 +68,6 @@ pub const PAYLOAD: usize = MTU - HEADER;
 // Payload Schema
 // variables sized unencrypted bytes (MAX = MTU - HEADER)
 
-// let start = SystemTime::now();
-// let since_the_epoch = start.duration_since(UNIX_EPOCH).unwrap();
-// println!("{}", since_the_epoch.subsec_millis());
-
 #[inline]
 pub fn write_static_header(
     packet_type: EPacketType,
@@ -59,6 +78,21 @@ pub fn write_static_header(
     buf[0] = packet_type as u8;
     buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
     buf[7] = packet_id;
+}
+
+#[inline]
+pub fn write_var_frame_header(
+    real_packet_size: u32,
+    packet_id: u8,
+    buf: &mut [u8],
+) {
+    buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
+    buf[7] = packet_id;
+}
+
+#[inline]
+pub fn write_packet_type(packet_type: EPacketType, buf: &mut [u8]) {
+    buf[0] = packet_type as u8;
 }
 
 #[inline]
@@ -108,6 +142,78 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
     let packet_id = parse_packet_id(buf);
 
     (packet_type, packets_remaining, real_packet_size, packet_id)
+}
+
+// pub struct PacketDeployer {
+//     buf: [u8; MTU],
+//     socket: UdpSocket,
+//     packet_type: EPacketType
+// }
+
+// impl PacketDeployer {
+//     pub fn new(socket: UdpSocket, packet_type: EPacketType) -> Self {
+//         let mut buf = [0u8; MTU];
+//         write_packet_type(packet_type, &mut buf);
+
+//         Self {
+//             buf,
+//             socket,
+//             packet_type
+//         }
+//     }
+
+//     #[inline]
+//     pub fn encrypted_frame(
+//         &mut self, 
+//         frame: &mut [u8], 
+//         rng: ThreadRng,
+//         mut sym_key: ChaCha20Poly1305
+//     ) -> (Vec<u8>, Vec<u8>){
+//         let nonce = ChaCha20Poly1305::generate_nonce(rng);
+//         let auth_tag = sym_key.encrypt_in_place_detached(
+//             &nonce, &[0u8; 0], frame).unwrap();
+
+//         (auth_tag.to_vec(), nonce.to_vec())
+//     }
+
+//     #[inline]
+//     pub fn frame_chunks(
+//         &mut self, 
+//         frame: &mut [u8], 
+//         packets_remaining: u16,
+//         packet_id: u8,
+//         rng: ThreadRng,
+//         sym_key: ChaCha20Poly1305
+//     ) {
+//         write_variable_header(packets_remaining, packet_id, &mut self.buf);
+//         let (auth_tag, nounce) = self.encrypted_frame(
+//             frame, rng, sym_key);
+ 
+//         let packets = (frame.len() as f64 / PAYLOAD as f64).ceil() as usize;
+//     }
+
+//     pub fn try_clone(&self) -> Result<Self, Box<(dyn serde::ser::StdError + 'static)>> {
+//         Ok(Self {
+//             buf: self.buf,
+//             socket: self.socket.try_clone()?,
+//             packet_type: self.packet_type
+//         })
+//     }   
+// }
+
+pub fn decrypt_frame(
+    sym_key: ChaCha20Poly1305,
+    encrypted_frame: &[u8]
+) -> Option<Vec<u8>> {
+    let encrypted_payload = &encrypted_frame[0..encrypted_frame.len() - SE_NONCE];
+    let nonce = &encrypted_frame[encrypted_frame.len() - 12..encrypted_frame.len()];
+    let nonce = nonce.try_into().map_err(|_| "Corrupted SE Nonce").unwrap();
+
+    if let Ok(decrypted_payload) = sym_key.decrypt(nonce, encrypted_payload) {
+        return Some(decrypted_payload);
+    }
+
+    None
 }
 
 pub struct PacketConstructor {

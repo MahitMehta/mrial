@@ -8,7 +8,7 @@
 # Linux
 
 1. Install libxrandr-dev, libxcb-randr0-dev
-
+2. Make sure user is added to display manager's group (such as lightdm's)
 
 # Run Server
 1. Install libxdo-dev

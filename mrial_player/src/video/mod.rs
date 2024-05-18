@@ -300,9 +300,17 @@ impl VideoThread {
 
     #[inline]
     pub fn packet(&mut self, buf: &[u8], client: &Client, number_of_bytes: usize) {
-        let nalu = match self
+        let encrypted_nalu = match self
             .packet_constructor
             .assemble_packet(buf, number_of_bytes)
+        {
+            Some(encrypted_nalu) => encrypted_nalu,
+            None => return,
+        };
+
+        let nalu = match decrypt_frame(
+            client.get_sym_key().unwrap(), 
+            &encrypted_nalu) 
         {
             Some(nalu) => nalu,
             None => return,

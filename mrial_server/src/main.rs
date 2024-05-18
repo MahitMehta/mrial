@@ -9,6 +9,7 @@ use video::{VideoServerActions, VideoServerThread};
 
 #[tokio::main]
 async fn main() {
+    pretty_env_logger::init_timed();
     let conn: Connection = Connection::new();
 
     let mut video_server = VideoServerThread::new(conn.clone());
