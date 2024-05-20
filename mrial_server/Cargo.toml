@@ -42,6 +42,3 @@ assets = [
     ["../linux/debian/*", "var/lib/mrial_server/scripts/", "755"]
 ]
 maintainer-scripts = "../linux/debian"
-
-[package.metadata.deb.systemd-units]
-unit-scripts = "../linux/debian"
