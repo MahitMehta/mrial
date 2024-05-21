@@ -308,8 +308,11 @@ impl VideoThread {
             None => return,
         };
 
+        let sym_key = client.get_sym_key();
+        let sym_key = sym_key.read().unwrap();
+
         let nalu = match decrypt_frame(
-            client.get_sym_key().unwrap(), 
+            sym_key.as_ref().unwrap(), 
             &encrypted_nalu) 
         {
             Some(nalu) => nalu,

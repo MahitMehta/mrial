@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 Restart=always
 RestartSec=10
-ExecStart=/var/lib/mrial_server/scripts/startup
+ExecStart=/var/lib/mrial_server/scripts/startup.sh
 
 [Install]
 WantedBy=default.target

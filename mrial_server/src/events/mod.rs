@@ -5,7 +5,8 @@ use enigo::{
     Enigo, Key, Keyboard, Mouse, Settings,
 };
 use kanal::Sender;
-use mrial_proto::{input::*, packet::*, parse_client_state_payload};
+use log::debug;
+use mrial_proto::{input::*, packet::*, ClientStatePayload, JSONPayloadSE};
 
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
@@ -208,9 +209,17 @@ impl EventsThread {
                         conn.initialize_client(src);
                     }
                     EPacketType::ClientState => {
-                        if let Ok(meta) = parse_client_state_payload(&mut buf[HEADER..size]) {
-                            conn.mute_client(src, meta.muted.try_into().unwrap());
+                        let sym_key = conn.get_sym_key();
+                        if sym_key.is_none() { continue; }
 
+
+                        if let Ok(meta) = ClientStatePayload::from_payload(
+                            &mut buf[HEADER..size],
+                            &mut sym_key.unwrap(),
+                        ) {
+                            debug!("Client State: {:?}", meta);
+
+                            conn.mute_client(src, meta.muted.try_into().unwrap());
                             conn.set_dimensions(
                                 meta.width.try_into().unwrap(),
                                 meta.height.try_into().unwrap(),

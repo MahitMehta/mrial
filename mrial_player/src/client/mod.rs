@@ -35,7 +35,7 @@ pub struct Client {
     socket: Option<UdpSocket>,
     state: ConnectionState,
     meta: Arc<RwLock<ClientMetaData>>,
-    sym_key: Option<ChaCha20Poly1305>,
+    sym_key: Arc<RwLock<Option<ChaCha20Poly1305>>>,
     conn_sender: Sender<ConnectionAction>,
 }
 
@@ -46,7 +46,7 @@ impl Client {
             socket: None,
             state: ConnectionState::Disconnected,
             meta: Arc::new(RwLock::new(meta)),
-            sym_key: None,
+            sym_key: Arc::new(RwLock::new(None)),
             conn_sender,
         }
     }
@@ -120,10 +120,10 @@ impl Client {
     }
 
     #[inline]
-    pub fn get_sym_key(&self) -> Option<ChaCha20Poly1305> {
+    pub fn get_sym_key(&self) -> Arc<RwLock<Option<ChaCha20Poly1305>>> {
         self.sym_key.clone()
     }
-
+    
     pub fn clone(&self) -> Client {
         if let Some(socket) = &self.socket {
             let socket = socket.try_clone().unwrap();
@@ -218,7 +218,7 @@ impl Client {
                         let mut rng = rand::thread_rng();
                         let key = ChaCha20Poly1305::generate_key(&mut rng);
                         let cipher = ChaCha20Poly1305::new(&key);
-                        self.sym_key = Some(cipher);
+                        *self.sym_key.write().unwrap() = Some(cipher);
                         let key_vec = key.to_vec();
                         let key_base64 = STANDARD_NO_PAD.encode(&key_vec);
 
@@ -256,7 +256,7 @@ impl Client {
                                 .expect("Failed to Set Timeout");
                             if let Ok(payload) = ServerShookSE::from_payload(
                                 &mut buf[HEADER..amt],
-                                self.sym_key.as_mut().unwrap(),
+                                self.sym_key.read().unwrap().clone().as_mut().unwrap(),
                             ) {
                                 debug!("Received Valid Shook SE Packet");
                                 self.update_client_conn_state(payload.server_state);

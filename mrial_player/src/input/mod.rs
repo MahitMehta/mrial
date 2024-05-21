@@ -1,4 +1,5 @@
 use kanal::{unbounded, Receiver, Sender};
+use log::debug;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
@@ -331,6 +332,7 @@ impl Input {
 
             let client_state_sender: Sender<Vec<u8>> = sender.clone();
             let client_state_sender_connected = connected.clone();
+            let sym_key = client.get_sym_key();
 
             app_weak
                 .unwrap()
@@ -347,15 +349,23 @@ impl Input {
                         .collect();
                     let (width, height) = (items[0], items[1]);
 
-                    let mut buf = [0; CLIENT_STATE_PAYLOAD + HEADER];
-                    println!("State Update: {:?}", state.muted);
-                    let size = write_client_state_payload(
-                        &mut buf[HEADER..],
-                        ClientStatePayload {
-                            width,
-                            height,
-                            muted: state.muted,
-                        },
+                    let mut buf = [0; MTU];
+                    
+                    let client_state = ClientStatePayload {
+                        width,
+                        height,
+                        muted: state.muted,
+                    };
+                    let sym_key = sym_key.read().unwrap(); 
+                    let mut sym_key = sym_key.clone().unwrap();
+                    let rng = &mut rand::thread_rng();
+                    debug!("Client State: {:?}", client_state);
+
+                    let size = ClientStatePayload::write_payload(
+                        &mut buf[HEADER..], 
+                        rng, 
+                        &mut sym_key, 
+                        &client_state
                     );
 
                     write_header(
@@ -363,7 +373,7 @@ impl Input {
                         0,
                         size.try_into().unwrap(),
                         0,
-                        &mut buf,
+                        &mut buf[0..HEADER + size],
                     );
 
                     client_state_sender

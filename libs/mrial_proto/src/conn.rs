@@ -15,6 +15,8 @@ pub struct ClientStatePayload {
     pub muted: bool,
 }
 
+impl JSONPayloadSE for ClientStatePayload {}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ServerStatePayload {
     pub widths: Vec<u16>,
@@ -139,20 +141,4 @@ pub trait JSONPayloadAE: serde::Serialize + serde::de::DeserializeOwned {
 
         Ok(payload)
     }
-}
-
-pub fn write_client_state_payload(buf: &mut [u8], payload: ClientStatePayload) -> usize {
-    let serialized_payload = serde_json::to_string(&payload).unwrap();
-    let bytes = serialized_payload.as_bytes();
-    let len = bytes.len();
-    buf[0..len].copy_from_slice(bytes);
-
-    len
-}
-
-pub fn parse_client_state_payload(buf: &mut [u8]) -> Result<ClientStatePayload, serde_json::Error> {
-    let serialized_payload = std::str::from_utf8(buf).unwrap();
-    let payload: ClientStatePayload = serde_json::from_str(serialized_payload)?;
-
-    Ok(payload)
 }

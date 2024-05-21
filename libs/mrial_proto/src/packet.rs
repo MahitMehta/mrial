@@ -202,7 +202,7 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
 // }
 
 pub fn decrypt_frame(
-    sym_key: ChaCha20Poly1305,
+    sym_key: &ChaCha20Poly1305,
     encrypted_frame: &[u8]
 ) -> Option<Vec<u8>> {
     let encrypted_payload = &encrypted_frame[0..encrypted_frame.len() - SE_NONCE];

@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json;
 use std::{
     error::Error,
     fs::{self, File, OpenOptions},
@@ -130,7 +129,7 @@ impl Storage<ServerState> for Servers {
         let data_dir = os_data_dir.join(&self.db_path);
 
         fs::create_dir_all(&data_dir)?;
-
+       
         let mut file = OpenOptions::new()
             .write(true)
             .create(true)
