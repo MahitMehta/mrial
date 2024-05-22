@@ -36,7 +36,7 @@ xrandr = "0.2.0"
 libyuv-sys = { path = "../libs/libyuv-sys" }
 
 [package.metadata.deb]
-depends = [] 
+depends = ["libxdo-dev"] 
 assets = [
     ["../target/release/mrial_server", "usr/bin/mrial_server", "755"],
     ["../linux/debian/*", "var/lib/mrial_server/scripts/", "755"]

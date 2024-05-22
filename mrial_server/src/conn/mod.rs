@@ -11,7 +11,7 @@ use std::{
 
 use mrial_proto::{
     packet::*, ClientShakeAE, ClientStatePayload, JSONPayloadAE, JSONPayloadSE, JSONPayloadUE,
-    ServerShookSE, ServerShookUE, ServerStatePayload, SERVER_PING_TOLERANCE, SERVER_STATE_PAYLOAD,
+    ServerShookSE, ServerShookUE, ServerStatePayload, SERVER_PING_TOLERANCE,
 };
 
 use crate::video::display::DisplayMeta;
@@ -62,8 +62,6 @@ pub struct Connection {
     clients: Arc<RwLock<HashMap<String, Client>>>,
     meta: Arc<RwLock<ServerMetaData>>,
     socket: UdpSocket,
-    // audio_deployer: PacketDeployer,
-    // video_deployer: PacketDeployer,
 }
 
 impl Connection {
@@ -80,9 +78,7 @@ impl Connection {
                 width: 0,
                 height: 0,
             })),
-            socket: socket.try_clone().unwrap(),
-            // audio_deployer: PacketDeployer::new(socket.try_clone().unwrap(), EPacketType::Audio),
-            // video_deployer: PacketDeployer::new(socket, EPacketType::NAL),
+            socket: socket.try_clone().unwrap()
         }
     }
 
@@ -180,7 +176,13 @@ impl Connection {
         let src_str = src.to_string();
 
         if let Some(priv_key) = self.get_client_priv_key(&src_str) {
-            let payload = ClientShakeAE::from_payload(encypyted_payload, priv_key).unwrap();
+            let payload = match ClientShakeAE::from_payload(encypyted_payload, priv_key) {
+                Ok(payload) => payload,
+                Err(_) => {
+                    debug!("Failed to Decrypt Client Shake AE Payload");
+                    return None;
+                }
+            };
 
             // TODO: Validate User Credentials
             debug!("Client Shake AE by User: {:?}", payload.username);
@@ -307,8 +309,6 @@ impl Connection {
             clients: self.clients.clone(),
             meta: self.meta.clone(),
             socket: self.socket.try_clone().unwrap(),
-            // audio_deployer: self.audio_deployer.try_clone().unwrap(),
-            // video_deployer: self.video_deployer.try_clone().unwrap()
         }
     }
 }

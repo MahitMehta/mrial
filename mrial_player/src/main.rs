@@ -118,14 +118,18 @@ fn main() {
 
     slint::invoke_from_event_loop(move || {
         let conn_sender_clone = conn_sender.clone();
+        let app_weak_clone = app_weak.clone();
         app_weak
             .unwrap()
             .global::<ServerFunctions>()
             .on_connect(move |name| {
+                app_weak_clone.unwrap()
+                    .global::<VideoState>()
+                    .set_connected(false);
                 *server_id_clone.lock().unwrap() = name.to_string();
                 conn_sender_clone.send(ConnectionAction::Connect).unwrap();
             });
-
+        
         let conn_sender_clone = conn_sender.clone();
         app_weak
             .unwrap()
@@ -240,7 +244,16 @@ fn main() {
                         client.connect();
 
                         match client.connection_state() {
-                            ConnectionState::Connected => input.send_loop(&client),
+                            ConnectionState::Connected => {
+                                input.send_loop(&client);
+                                let app_weak_clone: slint::Weak<MainWindow> = app_weak.clone();
+                                let _ = app_weak.upgrade_in_event_loop(move |_| {
+                                    app_weak_clone
+                                        .unwrap()
+                                        .global::<VideoState>()
+                                        .set_connected(true);
+                                });
+                            },
                             ConnectionState::Connecting => {
                                 thread::sleep(Duration::from_millis(1000));
                                 conn_channel.0.send(ConnectionAction::Handshake).unwrap();

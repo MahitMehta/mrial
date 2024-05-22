@@ -1,12 +1,9 @@
-use chacha20poly1305::{aead::AeadMut, AeadCore, ChaCha20Poly1305};
+use std::str::Utf8Error;
+
+use chacha20poly1305::{aead::AeadMut, AeadCore, ChaCha20Poly1305, Error};
 use rand::rngs::ThreadRng;
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
-
-use crate::{HEADER, MTU};
-
-pub const CLIENT_STATE_PAYLOAD: usize = 512 - HEADER;
-pub const SERVER_STATE_PAYLOAD: usize = MTU - HEADER;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientStatePayload {
@@ -108,8 +105,8 @@ pub trait JSONPayloadUE: serde::Serialize + serde::de::DeserializeOwned {
         len
     }
 
-    fn from_payload(buf: &mut [u8]) -> Result<Self, serde_json::Error> {
-        let serialized_payload = std::str::from_utf8(buf).unwrap();
+    fn from_payload(buf: &mut [u8]) -> Result<Self, Box<dyn std::error::Error>> {
+        let serialized_payload = std::str::from_utf8(buf)?;
         let payload: Self = serde_json::from_str(serialized_payload)?;
 
         Ok(payload)
@@ -134,9 +131,9 @@ pub trait JSONPayloadAE: serde::Serialize + serde::de::DeserializeOwned {
         len
     }
 
-    fn from_payload(buf: &[u8], priv_key: RsaPrivateKey) -> Result<Self, serde_json::Error> {
-        let unencypted_payload = priv_key.decrypt(Pkcs1v15Encrypt, &buf).unwrap();
-        let serialized_payload = std::str::from_utf8(&unencypted_payload).unwrap();
+    fn from_payload(buf: &[u8], priv_key: RsaPrivateKey) -> Result<Self, Box<dyn std::error::Error>> {
+        let unencypted_payload = priv_key.decrypt(Pkcs1v15Encrypt, &buf)?;
+        let serialized_payload = std::str::from_utf8(&unencypted_payload)?;
         let payload: Self = serde_json::from_str(serialized_payload)?;
 
         Ok(payload)

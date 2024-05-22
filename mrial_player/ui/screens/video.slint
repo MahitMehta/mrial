@@ -14,9 +14,14 @@ export global VideoFunctions {
     pure callback scroll(/* x */ length, /* y */ length);
 }
 
+export global VideoState {
+    in property <bool> connected: false;
+}
+
 export component VideoScreen inherits Screen {
     in property <image> video-frame <=> image.source;
     in-out property <bool> cp_button_attached: false;
+    property<duration> loading_animation_duration: 1500ms;
 
     background: black;
 
@@ -76,6 +81,30 @@ export component VideoScreen inherits Screen {
                     VideoFunctions.mouse_move(touch.mouse-x, touch.mouse-y, self.pressed);
                 }
             }
+            status := Rectangle {
+                x: parent.width / 2 - self.width / 2;
+                y: parent.height / 2 - self.height / 2;  
+                visible: !VideoState.connected;
+                HorizontalLayout {
+                    width: 300px;
+                    height: 32px;
+                    spacing: 10px;
+                    Image {
+                        source: @image-url("../../assets/icons/spinner.png");
+                        width: 32px;
+                        height: 32px;
+                        rotation-angle: VideoState.connected ? 0deg : 360deg * animation-tick() / loading_animation_duration;
+                    }
+                    VerticalLayout {
+                        alignment: LayoutAlignment.center;
+                        Text {
+                            text: "Establishing MRDP Secure Tunnel";
+                            font-size: 15px;
+                            color: white; 
+                        }
+                    }
+                }
+            }
             control_panel := ControlPanel {
                 x: control_panel_button.x + control_panel_button.width + 10px;
                 y: control-panel-button.y;
@@ -95,6 +124,12 @@ export component VideoScreen inherits Screen {
                 border-width: 1px;
                 border-color: Theme.bg-secondary-color;
                 background: Theme.bg-primary-color;
+                clip: true;
+                Image {
+                    source: @image-url("../../assets/imgs/logo_x128t.png");
+                    width: parent.width;
+                    height: parent.height;
+                }
             }
         }
     }

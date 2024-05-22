@@ -1,7 +1,7 @@
 import "../assets/fonts/Inknut_Antiqua/InknutAntiqua-Bold.ttf";
 
 import { VerticalBox, Button } from "std-widgets.slint";
-import { VideoScreen, VideoFunctions } from "screens/video.slint";
+import { VideoScreen, VideoFunctions, VideoState } from "screens/video.slint";
 import { ControlPanelAdapter, ControlPanelFunctions } from "components/control_panel.slint";
 import { LoginScreen } from "screens/login.slint";
 import { HomeScreen, HomePageAdapter } from "screens/home.slint";
@@ -11,6 +11,7 @@ import { GlobalVars } from "common.slint";
 
 export { GlobalVars }
 export { 
+    VideoState,
     VideoFunctions, 
     ServerFunctions, 
     CreateServerFunctions,
