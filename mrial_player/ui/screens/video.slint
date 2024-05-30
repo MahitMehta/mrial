@@ -3,6 +3,7 @@ import { VerticalBox, Button } from "std-widgets.slint";
 import { MrialButton, ButtonType } from "../common.slint";
 import { ServerFunctions } from "../components/server.slint";
 import { ControlPanel } from "../components/control_panel.slint";
+import { Barial } from "../components/barial.slint";
 
 export global VideoFunctions {
     pure callback mouse_move(/* x */ length, /* y */ length, /* pressed */ bool);
@@ -30,12 +31,12 @@ export component VideoScreen inherits Screen {
         image := Image {
             image-rendering: ImageRendering.pixelated;
             padding: 0;
-            touch := TouchArea {
+            video_ta := TouchArea {
                 clicked => {
-                    if (touch.mouse-x > control_panel_button.x && 
-                        touch.mouse-x < control_panel_button.x + control_panel_button.width && 
-                        touch.mouse-y > control_panel_button.y && 
-                        touch.mouse-y < control_panel_button.y + control_panel_button.height 
+                    if (video_ta.mouse-x > control_panel_button.x && 
+                        video_ta.mouse-x < control_panel_button.x + control_panel_button.width && 
+                        video_ta.mouse-y > control_panel_button.y && 
+                        video_ta.mouse-y < control_panel_button.y + control_panel_button.height 
                     ) {
                         if (control-panel.visible) {
                             control_panel.visible = false; 
@@ -49,37 +50,42 @@ export component VideoScreen inherits Screen {
                     accept
                 }
                 pointer-event(event) => {
-                    if (touch.mouse-x >= control_panel_button.x && 
-                        touch.mouse-x <= control_panel_button.x + control_panel_button.width && 
-                        touch.mouse-y >= control_panel_button.y && 
-                        touch.mouse-y <= control_panel_button.y + control_panel_button.height
+                    if (video_ta.mouse-x >= control_panel_button.x && 
+                        video_ta.mouse-x <= control_panel_button.x + control_panel_button.width && 
+                        video_ta.mouse-y >= control_panel_button.y && 
+                        video_ta.mouse-y <= control_panel_button.y + control_panel_button.height
                     ) {
                         if (event.kind == PointerEventKind.up) {
                             cp_button_attached = false; 
                         }
                     } else if (event.kind == PointerEventKind.up) {
                         
-                        VideoFunctions.click(touch.mouse-x, touch.mouse-y, event.button);
+                        VideoFunctions.click(video_ta.mouse-x, video_ta.mouse-y, event.button);
                     } else if (event.kind == PointerEventKind.move) {
-                        VideoFunctions.mouse_move(touch.mouse-x, touch.mouse-y, false);
+                        VideoFunctions.mouse_move(video_ta.mouse-x, video_ta.mouse-y, false);
                     }
                 }
                 moved => {
-                    if (touch.mouse-x >= control_panel_button.x && 
-                        touch.mouse-x <= control_panel_button.x + control_panel_button.width && 
-                        touch.mouse-y >= control_panel_button.y && 
-                        touch.mouse-y <= control_panel_button.y + control_panel_button.height && self.pressed) {
+                    if (video_ta.mouse-x >= control_panel_button.x && 
+                        video_ta.mouse-x <= control_panel_button.x + control_panel_button.width && 
+                        video_ta.mouse-y >= control_panel_button.y && 
+                        video_ta.mouse-y <= control_panel_button.y + control_panel_button.height && self.pressed) {
                             cp-button-attached = true;
                     }
 
                     if (cp-button-attached) {
-                        control_panel_button.x = touch.mouse-x - control_panel_button.width / 2;
-                        control_panel_button.y = touch.mouse-y - control_panel_button.height / 2;
+                        control_panel_button.x = video_ta.mouse-x - control_panel_button.width / 2;
+                        control_panel_button.y = video_ta.mouse-y - control_panel_button.height / 2;
                         return;
                     }
 
-                    VideoFunctions.mouse_move(touch.mouse-x, touch.mouse-y, self.pressed);
+                    VideoFunctions.mouse_move(video_ta.mouse-x, video_ta.mouse-y, self.pressed);
                 }
+            }
+            status_bar := Barial {
+                x: 0; 
+                y: 0; 
+                visible: control-panel.visible;
             }
             status := Rectangle {
                 x: parent.width / 2 - self.width / 2;
@@ -122,9 +128,14 @@ export component VideoScreen inherits Screen {
                 height: 35px;
                 border-radius: 7.5px;
                 border-width: 1px;
+                // border-color: control-panel.visible ? 
+                //     Theme.secondary-border-color : 
+                //     Theme.bg-secondary-color;
                 border-color: Theme.bg-secondary-color;
                 background: Theme.bg-primary-color;
                 clip: true;
+                // animate border-color { duration: 150ms; }
+
                 Image {
                     source: @image-url("../../assets/imgs/logo_x128t.png");
                     width: parent.width;

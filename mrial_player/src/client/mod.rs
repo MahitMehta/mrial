@@ -245,25 +245,29 @@ impl Client {
                         let _ = socket.send(&buf[0..HEADER + payload_len]);
                         debug!("Sent Shake AE Packet");
 
-                        let (amt, _src) = match socket.recv_from(&mut buf) {
-                            Ok(v) => v,
-                            Err(_e) => return,
-                        };
-
-                        if parse_packet_type(&buf) == EPacketType::ShookSE {
-                            let _ = socket
-                                .set_read_timeout(Some(Duration::from_millis(5000)))
-                                .expect("Failed to Set Timeout");
-                            if let Ok(payload) = ServerShookSE::from_payload(
-                                &mut buf[HEADER..amt],
-                                self.sym_key.read().unwrap().clone().as_mut().unwrap(),
-                            ) {
-                                debug!("Received Valid Shook SE Packet");
-                                self.update_client_conn_state(payload.server_state);
+                        // Wait for Shook SE Packet by Waiting at most a 100 Packets
+                        for _ in 0u8..100 {
+                            let (amt, _src) = match socket.recv_from(&mut buf) {
+                                Ok(v) => v,
+                                Err(_e) => return,
                             };
 
-                            // TODO: Validate if this is in the correct place
-                            self.state = ConnectionState::Connected;
+                            if parse_packet_type(&buf) == EPacketType::ShookSE {
+                                let _ = socket
+                                    .set_read_timeout(Some(Duration::from_millis(5000)))
+                                    .expect("Failed to Set Timeout");
+                                if let Ok(payload) = ServerShookSE::from_payload(
+                                    &mut buf[HEADER..amt],
+                                    self.sym_key.read().unwrap().clone().as_mut().unwrap(),
+                                ) {
+                                    debug!("Received Valid Shook SE Packet");
+                                    self.update_client_conn_state(payload.server_state);
+
+                                    // TODO: Validate if this is in the correct place
+                                    self.state = ConnectionState::Connected;
+                                    break; 
+                                };                           
+                            }
                         }
                     }
                 }

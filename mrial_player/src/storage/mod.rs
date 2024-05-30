@@ -12,6 +12,8 @@ pub struct Server {
     pub address: String,
     pub port: u16,
     pub os: String,
+    pub username: String,
+    pub pass: String
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -83,7 +85,7 @@ impl Servers {
         }
     }
 
-    pub fn add(&mut self, name: String, address: String, port: u16, os: String) {
+    pub fn add(&mut self, name: String, address: String, port: u16, os: String, username: String, pass: String) {
         if let Some(state) = self.state.lock().unwrap().as_mut() {
             // TODO: display duplicate server error in slint
             for server in &state.servers {
@@ -97,6 +99,8 @@ impl Servers {
                 address,
                 port,
                 os,
+                username,
+                pass
             });
         }
     }

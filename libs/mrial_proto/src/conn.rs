@@ -1,6 +1,4 @@
-use std::str::Utf8Error;
-
-use chacha20poly1305::{aead::AeadMut, AeadCore, ChaCha20Poly1305, Error};
+use chacha20poly1305::{aead::AeadMut, AeadCore, ChaCha20Poly1305};
 use rand::rngs::ThreadRng;
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};

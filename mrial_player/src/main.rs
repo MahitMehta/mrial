@@ -107,9 +107,15 @@ fn main() {
     });
 
     let mut server_state = Servers::new();
-    server_state.load().unwrap();
     let mut server_state_clone = server_state.try_clone();
-    populate_servers(&server_state, &app_weak);
+    match server_state.load() {
+        Ok(_) => {
+            populate_servers(&server_state, &app_weak);
+        }
+        Err(e) => {
+            debug!("{}", e);
+        }
+    }
 
     let server_id = Arc::new(Mutex::new(String::new()));
     let server_id_clone = server_id.clone();
@@ -153,12 +159,19 @@ fn main() {
         app_weak
             .unwrap()
             .global::<CreateServerFunctions>()
-            .on_add(move |name, ip_addr, port| {
+            .on_add(move |
+                name, 
+                ip_addr, 
+                port,
+                username,
+                pass| {
                 server_state_create_clone.add(
                     name.to_string(),
                     ip_addr.to_string(),
                     port.parse::<u16>().unwrap(),
                     "ubuntu".to_string(),
+                    username.to_string(),
+                    pass.to_string(),
                 );
 
                 populate_servers(&server_state_create_clone, &app_weak_clone);
@@ -228,6 +241,14 @@ fn main() {
                                 .unwrap()
                                 .global::<ControlPanelAdapter>()
                                 .set_resolutions(resolutions_model.into());
+                            app_weak_clone
+                                .unwrap()
+                                .global::<BarialState>()
+                                .set_user(SharedString::from("user"));
+                            app_weak_clone
+                                .unwrap()
+                                .global::<BarialState>()
+                                .set_server_name(SharedString::from("mahitm_compute"));
                         });
                     }
                     Some(ConnectionAction::Connect) => {
