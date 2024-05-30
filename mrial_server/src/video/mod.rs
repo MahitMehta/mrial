@@ -5,6 +5,7 @@ use chacha20poly1305::{aead::{Aead, AeadMutInPlace}, AeadCore, ChaCha20Poly1305}
 use display::DisplayMeta;
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use kanal::unbounded;
+use log::debug;
 use mrial_proto::*;
 use rand::rngs::ThreadRng;
 use scrap::{Capturer, Display};
@@ -271,9 +272,9 @@ impl VideoServerThread {
                             }
                         }
 
-                        if fps_time.elapsed().as_millis() > 1000 && frames > 0 {
+                        if fps_time.elapsed().as_secs() >= 1 && frames > 0 {
                             self.conn.filter_clients();
-                            println!(
+                            debug!(
                                 "FPS: {}",
                                 frames as f32 / fps_time.elapsed().as_secs() as f32
                             );

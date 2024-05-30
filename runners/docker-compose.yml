@@ -12,6 +12,7 @@ services:
       LABELS: linux,arm64
     security_opt:
       - label:disable
+    restart: always
     volumes:
       - '/var/run/docker.sock:/var/run/docker.sock'
       - '/tmp/runner:/tmp/runner'

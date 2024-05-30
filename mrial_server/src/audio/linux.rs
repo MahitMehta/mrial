@@ -132,13 +132,6 @@ impl IAudioController for AudioServerThread {
 
                             let sample: &[u8] = &samples[0..(n_samples * n_channels * 2) as usize];
 
-                            // let i32_slice = unsafe {
-                            //     std::slice::from_raw_parts(
-                            //         sample.as_ptr() as *const i32,
-                            //         sample.len() / std::mem::size_of::<i32>()
-                            //     )
-                            // };
-
                             let packets = (sample.len() as f64 / PAYLOAD as f64).ceil() as usize;
                             let mut buf = [0u8; MTU];
 
@@ -161,6 +154,7 @@ impl IAudioController for AudioServerThread {
                                 } else {
                                     sample.len() - start
                                 };
+                                
                                 buf[HEADER..].copy_from_slice(&sample[start..start + addition]);
                                 conn.broadcast_audio(&buf);
                             }

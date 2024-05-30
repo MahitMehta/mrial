@@ -1,3 +1,4 @@
+use log::debug;
 use serde::{Deserialize, Serialize};
 use std::{
     error::Error,
@@ -12,6 +13,8 @@ pub struct Server {
     pub address: String,
     pub port: u16,
     pub os: String,
+    pub username: String,
+    pub pass: String
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -83,7 +86,7 @@ impl Servers {
         }
     }
 
-    pub fn add(&mut self, name: String, address: String, port: u16, os: String) {
+    pub fn add(&mut self, name: String, address: String, port: u16, os: String, username: String, pass: String) {
         if let Some(state) = self.state.lock().unwrap().as_mut() {
             // TODO: display duplicate server error in slint
             for server in &state.servers {
@@ -97,6 +100,8 @@ impl Servers {
                 address,
                 port,
                 os,
+                username,
+                pass
             });
         }
     }
@@ -118,10 +123,16 @@ impl Storage<ServerState> for Servers {
 
         let reader = BufReader::new(file);
 
-        let state: StorageWrapper<ServerState> = serde_json::from_reader(reader)?;
-        *self.state.lock().unwrap() = Some(state.data);
+        if let Ok(wrapped_state) = 
+            serde_json::from_reader::<BufReader<File>, StorageWrapper<ServerState>>(reader) {
+            *self.state.lock().unwrap() = Some(wrapped_state.data);
+            return Ok(());
+        }
 
-        Ok(())
+        *self.state.lock().unwrap() = Some(ServerState {
+            servers: Vec::new(),
+        });
+        Err("Failed to Load Servers".into())
     }
 
     fn save(&self) -> Result<(), Box<dyn Error>> {
@@ -142,6 +153,7 @@ impl Storage<ServerState> for Servers {
 
         let json = serde_json::to_string(&value)?;
         file.write_all(json.as_bytes())?;
+        debug!("Saved Data to Disk @ {:?}", data_dir);
 
         Ok(())
     }

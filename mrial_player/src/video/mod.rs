@@ -12,6 +12,8 @@ use kanal::{unbounded, Receiver, Sender};
 use mrial_proto::*;
 
 use super::slint_generatedMainWindow::ControlPanelAdapter;
+use super::slint_generatedMainWindow::BarialState;
+
 use slint::{ComponentHandle, Model};
 
 use crate::client::Client;
@@ -197,6 +199,9 @@ impl VideoThread {
         let receiver = self.channel.1.clone();
         let _video_thread = thread::spawn(move || {
             let meta_clone = client.get_meta_clone();
+            let mut fps_clock = std::time::Instant::now();
+            let mut frame_count = 0u8; 
+            let mut fps = 0u8;
 
             let mut previous_width = 0;
             let mut previous_height = 0;
@@ -260,6 +265,14 @@ impl VideoThread {
                     }
 
                     if let Some(rgb) = &mut rgb_buffer {
+                        frame_count += 1;
+                        if fps_clock.elapsed().as_secs() >= 1 {
+                            fps_clock = std::time::Instant::now();
+                            debug!("FPS: {}", frame_count);
+                            fps = frame_count;
+                            frame_count = 0;
+                        }
+
                         rgb.read_444_for_rgb8(
                             yuv_frame.data(0),
                             yuv_frame.data(1),
@@ -277,6 +290,10 @@ impl VideoThread {
                                 super::slint_generatedMainWindow::MainWindow,
                             > = app_weak.clone();
                             let _ = slint::invoke_from_event_loop(move || {
+                                app_copy.unwrap()
+                                    .global::<BarialState>()
+                                    .set_fps(fps as i32);
+
                                 app_copy
                                     .unwrap()
                                     .set_video_frame(slint::Image::from_rgb8(pixel_buffer));

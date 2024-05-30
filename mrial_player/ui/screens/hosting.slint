@@ -77,5 +77,55 @@ export component HostingScreen inherits VerticalLayout {
                 on_click => { root.tab-index = 1; }
             }
         }
+        VerticalLayout {
+            y: 150px;
+            visible: root.tab-index == 0;
+            alignment: LayoutAlignment.center;
+
+            HorizontalLayout {
+                alignment: LayoutAlignment.center;
+                spacing: 5px;
+
+                VerticalLayout {
+                    alignment: LayoutAlignment.center;
+                    Image {
+                        width: 15px;
+                        height: 15px;
+                        colorize: Theme.yellow_color;
+                        source: @image-url("../../assets/icons/warning.svg");
+                    }
+                }
+                Text {
+                    text: "In-app hosting configuration not supported.";
+                    color: Theme.text_secondary_color;
+                    font-size: 15px;
+                }
+            }
+        }
+        VerticalLayout {
+            y: 150px;
+            visible: root.tab-index == 1;
+            alignment: LayoutAlignment.center;
+
+            HorizontalLayout {
+                alignment: LayoutAlignment.center;
+                spacing: 5px;
+
+                VerticalLayout {
+                    alignment: LayoutAlignment.center;
+                    Image {
+                        width: 15px;
+                        height: 15px;
+                        colorize: Theme.yellow_color;
+                        source: @image-url("../../assets/icons/warning.svg");
+                    }
+                }
+                Text {
+                    text: "In-app user management not supported.";
+                    color: Theme.text_secondary_color;
+                    font-size: 15px;
+                }
+            }
+        }
     }
 }

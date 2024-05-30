@@ -1,7 +1,13 @@
 import { MrialButton, MrialTextInput, Theme, MrialHeader, MrialSubHeader } from "../common.slint";
 
 export global CreateServerFunctions {
-    pure callback add(/* server name */ string, /* ip address */ string, /* port */ string);
+    pure callback add(
+        /* server name */ string, 
+        /* ip address */ string, 
+        /* port */ string,
+        /* username */ string,
+        /* password */ string
+        );
 }
 
 export component CreateServer inherits VerticalLayout {
@@ -62,13 +68,46 @@ export component CreateServer inherits VerticalLayout {
             }
         }
     }
+    HorizontalLayout {
+        spacing: 10px;
+        VerticalLayout {
+            spacing: 5px;
+            Text {
+                text: "Username";
+                color: Theme.text-primary-color;
+            }
+            username := MrialTextInput {
+                input-type: InputType.text;
+                width: 125px;
+                height: 30px;
+            }
+        }
+        VerticalLayout {
+            spacing: 5px;
+            Text {
+                text: "Password";
+                color: Theme.text-primary-color;
+            }
+            pass := MrialTextInput {
+                input-type: InputType.password;
+                width: 125px;
+                height: 30px;
+            }
+        }
+    }
     MrialButton {
         width: 125px;
         has-icon: true;
         icon:  @image-url("../../assets/icons/server.svg");
         label: "Add Server";
         clicked => {
-            CreateServerFunctions.add(name.value, ip-addr.value, port.value);
+            CreateServerFunctions.add(
+                name.value, 
+                ip-addr.value, 
+                port.value,
+                username.value,
+                pass.value
+            );
         }
     }
 }
