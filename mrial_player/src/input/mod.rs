@@ -350,22 +350,22 @@ impl Input {
                     let (width, height) = (items[0], items[1]);
 
                     let mut buf = [0; MTU];
-                    
+
                     let client_state = ClientStatePayload {
                         width,
                         height,
                         muted: state.muted,
                     };
-                    let sym_key = sym_key.read().unwrap(); 
+                    let sym_key = sym_key.read().unwrap();
                     let mut sym_key = sym_key.clone().unwrap();
                     let rng = &mut rand::thread_rng();
                     debug!("Client State: {:?}", client_state);
 
                     let size = ClientStatePayload::write_payload(
-                        &mut buf[HEADER..], 
-                        rng, 
-                        &mut sym_key, 
-                        &client_state
+                        &mut buf[HEADER..],
+                        rng,
+                        &mut sym_key,
+                        &client_state,
                     );
 
                     write_header(

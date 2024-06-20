@@ -1,11 +1,11 @@
 import { Screen, Theme , MrialButton, ButtonType , MrialTextInput, MrialHeader , MrialSubHeader} from "../common.slint";
-import { Button , VerticalBox , ProgressIndicator} from "std-widgets.slint";
+import { Button , VerticalBox , ProgressIndicator, ScrollView} from "std-widgets.slint";
 import { Server, IServer, ServerFunctions } from "../components/server.slint";
 import { Footer } from "../components/footer.slint";
 import { CreateServer } from "create_server.slint";
 import { HostingScreen } from "hosting.slint";
 
-export global HomePageAdapter {
+export global HomeAdapter {
     in-out property <[IServer]> servers: [];
 }
 
@@ -125,17 +125,18 @@ export component HomeScreen inherits Screen {
 
             Rectangle {
                 VerticalLayout {
-                    padding: 15px;
+                    padding-right: 0px;
                     visible: nav_page == 2;
                     spacing: 10px;
 
-                    HostingScreen {}
+                    HostingScreen {
+                        window_height: root.height;
+                    }
                 }
                 VerticalLayout {
                     alignment: LayoutAlignment.start;
                     visible: nav_page == 1; 
                     padding: 15px;
-                    spacing: 15px;
 
                     VerticalLayout {
                         spacing: 5px;
@@ -148,20 +149,28 @@ export component HomeScreen inherits Screen {
                         }
                     }
                     Rectangle {
+                        height: 15px;
+                    }
+                    Rectangle {
                         height: 1px;
                         width: parent.width - parent.padding * 2;
                         background: Theme.secondary-border-color;
                     }
 
-                    HorizontalLayout {
-                        spacing: 10px;
-                        
-                        for server in HomePageAdapter.servers: Server {
-                            server: server;
-        
-                            connect => {
-                                root.set_current_subpage(2);
-                                ServerFunctions.connect(server.name);
+                    ScrollView {
+                        height: 100%;
+                        width: parent.width - parent.padding * 2;
+                        HorizontalLayout {
+                            padding-top: 15px;
+                            spacing: 10px;
+                            
+                            for server in HomeAdapter.servers: Server {
+                                server: server;
+            
+                                connect => {
+                                    root.set_current_subpage(2);
+                                    ServerFunctions.connect(server.name);
+                                }
                             }
                         }
                     }

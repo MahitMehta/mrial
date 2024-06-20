@@ -33,6 +33,7 @@ impl JSONPayloadUE for ServerShookUE {}
 pub struct ClientShakeAE {
     pub client_state: ClientStatePayload,
     pub username: String,
+    pub pass: String,
     pub sym_key: String,
 }
 
@@ -129,7 +130,10 @@ pub trait JSONPayloadAE: serde::Serialize + serde::de::DeserializeOwned {
         len
     }
 
-    fn from_payload(buf: &[u8], priv_key: RsaPrivateKey) -> Result<Self, Box<dyn std::error::Error>> {
+    fn from_payload(
+        buf: &[u8],
+        priv_key: RsaPrivateKey,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let unencypted_payload = priv_key.decrypt(Pkcs1v15Encrypt, &buf)?;
         let serialized_payload = std::str::from_utf8(&unencypted_payload)?;
         let payload: Self = serde_json::from_str(serialized_payload)?;

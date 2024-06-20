@@ -1,4 +1,8 @@
-use std::{collections::HashMap, error::Error, net::{self, UdpSocket}};
+use std::{
+    collections::HashMap,
+    error::Error,
+    net::{self, UdpSocket},
+};
 
 use chacha20poly1305::{aead::Aead, ChaCha20Poly1305};
 
@@ -31,7 +35,7 @@ pub enum EPacketType {
     ShookSE = 10,
     Alive = 11,
     // TODO: Add Server Pings in addition to Client Pings
-    InternalEOL = 13
+    InternalEOL = 13,
 }
 
 impl From<u8> for EPacketType {
@@ -81,11 +85,7 @@ pub fn write_static_header(
 }
 
 #[inline]
-pub fn write_var_frame_header(
-    real_packet_size: u32,
-    packet_id: u8,
-    buf: &mut [u8],
-) {
+pub fn write_var_frame_header(real_packet_size: u32, packet_id: u8, buf: &mut [u8]) {
     buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
     buf[7] = packet_id;
 }
@@ -164,8 +164,8 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
 
 //     #[inline]
 //     pub fn encrypted_frame(
-//         &mut self, 
-//         frame: &mut [u8], 
+//         &mut self,
+//         frame: &mut [u8],
 //         rng: ThreadRng,
 //         mut sym_key: ChaCha20Poly1305
 //     ) -> (Vec<u8>, Vec<u8>){
@@ -178,8 +178,8 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
 
 //     #[inline]
 //     pub fn frame_chunks(
-//         &mut self, 
-//         frame: &mut [u8], 
+//         &mut self,
+//         frame: &mut [u8],
 //         packets_remaining: u16,
 //         packet_id: u8,
 //         rng: ThreadRng,
@@ -188,7 +188,7 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
 //         write_variable_header(packets_remaining, packet_id, &mut self.buf);
 //         let (auth_tag, nounce) = self.encrypted_frame(
 //             frame, rng, sym_key);
- 
+
 //         let packets = (frame.len() as f64 / PAYLOAD as f64).ceil() as usize;
 //     }
 
@@ -198,13 +198,10 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
 //             socket: self.socket.try_clone()?,
 //             packet_type: self.packet_type
 //         })
-//     }   
+//     }
 // }
 
-pub fn decrypt_frame(
-    sym_key: &ChaCha20Poly1305,
-    encrypted_frame: &[u8]
-) -> Option<Vec<u8>> {
+pub fn decrypt_frame(sym_key: &ChaCha20Poly1305, encrypted_frame: &[u8]) -> Option<Vec<u8>> {
     let encrypted_payload = &encrypted_frame[0..encrypted_frame.len() - SE_NONCE];
     let nonce = &encrypted_frame[encrypted_frame.len() - 12..encrypted_frame.len()];
     let nonce = nonce.try_into().map_err(|_| "Corrupted SE Nonce").unwrap();

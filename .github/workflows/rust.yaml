@@ -29,7 +29,7 @@ jobs:
     - name: Build
       run: |
         cd mrial_server
-        cargo build --release
+        CC=clang CXX=clang++ cargo build --release
     - name: Deb Package
       if: startsWith(github.ref, 'refs/tags/')
       run: |

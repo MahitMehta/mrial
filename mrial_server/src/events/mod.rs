@@ -177,7 +177,7 @@ impl EventsThread {
         headers: Vec<u8>,
         video_server_ch_sender: Sender<VideoServerActions>,
     ) {
-        let conn = conn.clone();
+        let mut conn = conn.clone();
         let _ = thread::spawn(move || {
             let mut emitter = EventsEmitter::new();
 
@@ -210,8 +210,9 @@ impl EventsThread {
                     }
                     EPacketType::ClientState => {
                         let sym_key = conn.get_sym_key();
-                        if sym_key.is_none() { continue; }
-
+                        if sym_key.is_none() {
+                            continue;
+                        }
 
                         if let Ok(meta) = ClientStatePayload::from_payload(
                             &mut buf[HEADER..size],

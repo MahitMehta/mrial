@@ -3,12 +3,13 @@
 members = [
     "mrial_player",
     "mrial_server",
-    "libs/mrial_proto"
+    "libs/mrial_proto", 
+    "libs/mrial_fs"
 ]
 
 exclude = [ "libs" ]
 
 [workspace.package]
-version = "0.1.12"
+version = "0.1.13"
 authors = ["Mahit Mehta", "Marco Ngai"]
 license = "GPL-3.0-only"

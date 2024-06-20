@@ -1,4 +1,4 @@
-version: '2.3'
+name: mrial-arm64-gh-actions
 services:
   worker:
     image: myoung34/github-runner:ubuntu-noble

@@ -11,8 +11,8 @@ use kanal::{unbounded, Receiver, Sender};
 
 use mrial_proto::*;
 
-use super::slint_generatedMainWindow::ControlPanelAdapter;
 use super::slint_generatedMainWindow::BarialState;
+use super::slint_generatedMainWindow::ControlPanelAdapter;
 
 use slint::{ComponentHandle, Model};
 
@@ -200,7 +200,7 @@ impl VideoThread {
         let _video_thread = thread::spawn(move || {
             let meta_clone = client.get_meta_clone();
             let mut fps_clock = std::time::Instant::now();
-            let mut frame_count = 0u8; 
+            let mut frame_count = 0u8;
             let mut fps = 0u8;
 
             let mut previous_width = 0;
@@ -290,7 +290,8 @@ impl VideoThread {
                                 super::slint_generatedMainWindow::MainWindow,
                             > = app_weak.clone();
                             let _ = slint::invoke_from_event_loop(move || {
-                                app_copy.unwrap()
+                                app_copy
+                                    .unwrap()
                                     .global::<BarialState>()
                                     .set_fps(fps as i32);
 
@@ -328,10 +329,7 @@ impl VideoThread {
         let sym_key = client.get_sym_key();
         let sym_key = sym_key.read().unwrap();
 
-        let nalu = match decrypt_frame(
-            sym_key.as_ref().unwrap(), 
-            &encrypted_nalu) 
-        {
+        let nalu = match decrypt_frame(sym_key.as_ref().unwrap(), &encrypted_nalu) {
             Some(nalu) => nalu,
             None => return,
         };

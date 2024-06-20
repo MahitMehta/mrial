@@ -15,6 +15,7 @@ mouse-rs = "0.4.2"
 enigo = "0.2.0-rc2"
 cfg-if = "0.1"
 mrial_proto = { path = "../libs/mrial_proto" }
+mrial_fs = { path = "../libs/mrial_fs" }
 spin_sleep = "1.1.1"
 flacenc = { version = "0.3.1" }
 kanal = "0.1.0-pre8"

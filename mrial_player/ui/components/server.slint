@@ -1,5 +1,5 @@
 import { Button , VerticalBox , GridBox } from "std-widgets.slint";
-import { Theme , MrialButton, ButtonType } from "../common.slint";
+import { Theme , MrialButton, ButtonType, ModifyIcon } from "../common.slint";
 
 export global ServerFunctions {
     pure callback connect(/* server_id */ string);
@@ -7,24 +7,6 @@ export global ServerFunctions {
     pure callback delete(/* server_id */ string);
     pure callback copy(/* address (ip + port) */ string);
     pure callback volume(/* volume */ int);
-}
-
-component ModifyServerIcon inherits TouchArea {
-    in-out property <image> source;
-    in-out property <color> color: Theme.text-primary-color;
-    in-out property <color> hover_color: Theme.text-primary-color;
-
-    mouse-cursor: MouseCursor.pointer;
-
-    Rectangle {
-        Image {
-            source: source;
-            width: 20px;
-            height: 20px;
-            colorize: root.has-hover ? hover-color : color;
-            animate colorize { duration: 150ms; }
-        }
-    }
 }
 
 component SpecBox inherits Rectangle{
@@ -112,13 +94,14 @@ export component Server inherits TouchArea {
                 alignment: LayoutAlignment.center;
                 spacing: 5px;
 
-                ModifyServerIcon {
+                // TODO: Implement Modify Server Functionality
+                ModifyIcon {
                     source: @image-url("../../assets/icons/edit.svg");
                     color: Theme.text-secondary-color;
                     hover-color: Theme.text-secondary-color;
                     clicked => { } 
                 }
-                ModifyServerIcon {
+                ModifyIcon {
                     source: @image-url("../../assets/icons/copy.svg");
                     color: Theme.text-secondary-color;
                     hover-color: Theme.blue_color;
@@ -126,7 +109,7 @@ export component Server inherits TouchArea {
                         ServerFunctions.copy(server.address + ":" + server.port);
                     }
                 }
-                ModifyServerIcon {
+                ModifyIcon {
                     source: @image-url("../../assets/icons/trash.svg");
                     color: Theme.text-secondary-color;
                     hover-color: Theme.red_color;

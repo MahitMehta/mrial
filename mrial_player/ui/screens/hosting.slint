@@ -1,5 +1,15 @@
-import { MrialHeader, MrialSubHeader, Theme } from "../common.slint";
-import { HorizontalBox } from "std-widgets.slint";
+import { MrialHeader, MrialSubHeader, Theme, MrialTextInput, MrialButton, ButtonType } from "../common.slint";
+import { HorizontalBox, ScrollView } from "std-widgets.slint";
+import { User, IUser } from "../components/user.slint";
+
+export global HostingAdapter {
+    in-out property <[IUser]> users: [];
+}
+
+export global HostingFunctions {
+    pure callback add_user(/* username */ string, /* password */ string);
+    pure callback remove_user(/* username */ string);
+}
 
 component HostingTab inherits TouchArea {
     in property <string> label;
@@ -23,10 +33,13 @@ component HostingTab inherits TouchArea {
 }
 
 export component HostingScreen inherits VerticalLayout {
+    in property <length> window_height;
     private property <int> tab-index: 0;
 
     alignment: LayoutAlignment.start;
     spacing: 15px;
+    padding-top: 15px;
+    padding-left: 15px;
 
     VerticalLayout {
         spacing: 5px;
@@ -40,17 +53,13 @@ export component HostingScreen inherits VerticalLayout {
     }
     Rectangle {
         height: 1px;
-        width: parent.width - parent.padding * 2;
+        width: parent.width - parent.padding-left * 2;
         background: Theme.secondary-border-color;
     }
     Rectangle {
-        padding-top: 5px;
-        padding-left: 10px;
-        padding-right: 10px;
-        padding-bottom: 5px;
-
         tab_item_overlay := Rectangle {
             x: root.tab-index * 100px;
+            y: 0px; 
             width: 100px;
             height: 30px;
             background: rgba(255,255,255,0.05);
@@ -76,9 +85,14 @@ export component HostingScreen inherits VerticalLayout {
                 selected: root.tab-index == 1;
                 on_click => { root.tab-index = 1; }
             }
+            HostingTab {
+                label: "Add User";
+                selected: root.tab-index == 2;
+                on_click => { root.tab-index = 2; }
+            }
         }
         VerticalLayout {
-            y: 150px;
+            y: 50px;
             visible: root.tab-index == 0;
             alignment: LayoutAlignment.center;
 
@@ -103,27 +117,94 @@ export component HostingScreen inherits VerticalLayout {
             }
         }
         VerticalLayout {
-            y: 150px;
+            y: 50px;
             visible: root.tab-index == 1;
             alignment: LayoutAlignment.center;
+            spacing: 10px;
+            
+            property <length> desired_height: HostingAdapter.users.length * (65px + 10px);
+            property <length> max_dropdown_height: window_height - 200px;
 
-            HorizontalLayout {
-                alignment: LayoutAlignment.center;
-                spacing: 5px;
-
+            ScrollView {
+                width: 100%;
+                height: desired_height > max_dropdown_height ? max_dropdown_height : desired_height;
                 VerticalLayout {
-                    alignment: LayoutAlignment.center;
-                    Image {
-                        width: 15px;
-                        height: 15px;
-                        colorize: Theme.yellow_color;
-                        source: @image-url("../../assets/icons/warning.svg");
+                    spacing: 10px;
+                    padding-right: 20px;
+                    for user[i] in HostingAdapter.users: User {
+                        width: 100%;
+                        user: user;
+        
+                        remove => {
+                            HostingFunctions.remove_user(user.username);
+                        }
                     }
                 }
-                Text {
-                    text: "In-app user management not supported.";
-                    color: Theme.text_secondary_color;
-                    font-size: 15px;
+            }
+        
+            // TODO: Show Warning Message on Particular OSs 
+            // HorizontalLayout {
+            //     alignment: LayoutAlignment.center;
+            //     spacing: 5px;
+
+            //     VerticalLayout {
+            //         alignment: LayoutAlignment.center;
+            //         Image {
+            //             width: 15px;
+            //             height: 15px;
+            //             colorize: Theme.yellow_color;
+            //             source: @image-url("../../assets/icons/warning.svg");
+            //         }
+            //     }
+            //     Text {
+            //         text: "In-app user management not supported.";
+            //         color: Theme.text_secondary_color;
+            //         font-size: 15px;
+            //     }
+            // }
+        }
+        VerticalLayout {
+            y: 50px;
+            visible: root.tab-index == 2;
+            padding: 10px;
+            spacing: 10px;
+            width: 100%;
+            alignment: LayoutAlignment.start;
+
+            HorizontalLayout {
+                spacing: 10px;
+
+                new_username := MrialTextInput {
+                    placeholder: "Username";
+                    input-type: InputType.text;
+                    width: 125px;
+                    height: 30px;
+                }
+                new_pass := MrialTextInput {
+                    placeholder: "Password";
+                    input-type: InputType.password;
+                    width: 125px;
+                    height: 30px;
+                }
+            }
+
+            MrialButton {
+                width: 100px;
+                label: "Add User";
+                disabled: new_username.value == "" || new_pass.value == "";
+                type: ButtonType.gradient;
+
+                clicked => {
+                    if (new_username.value != "" && new_pass.value != "") {
+                        HostingFunctions.add_user(new_username.value, new_pass.value);
+                        root.tab-index = 1;
+
+                        new-username.value = "";
+                        new-pass.value = "";
+
+                        new-username.clear-focus();
+                        new-pass.clear-focus();
+                    }
                 }
             }
         }

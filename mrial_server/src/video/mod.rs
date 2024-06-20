@@ -1,17 +1,19 @@
 pub mod display;
 pub mod yuv;
 
-use chacha20poly1305::{aead::{Aead, AeadMutInPlace}, AeadCore, ChaCha20Poly1305};
+use chacha20poly1305::{aead::Aead, AeadCore, ChaCha20Poly1305};
 use display::DisplayMeta;
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use kanal::unbounded;
-use log::debug;
 use mrial_proto::*;
 use rand::rngs::ThreadRng;
 use scrap::{Capturer, Display};
-use spin_sleep;
 use std::{
-    borrow::BorrowMut, collections::VecDeque, fs::File, io::{ErrorKind::WouldBlock, Write}, sync::RwLockReadGuard, time::{Duration, Instant}
+    collections::VecDeque,
+    fs::File,
+    io::{ErrorKind::WouldBlock, Write},
+    sync::RwLockReadGuard,
+    time::{Duration, Instant},
 };
 use x264::{Encoder, Param, Picture};
 use yuv::YUVBuffer;
@@ -27,7 +29,7 @@ use self::yuv::EColorSpace;
 pub enum VideoServerActions {
     Inactive,
     ConfigUpdate,
-    SymKey
+    SymKey,
 }
 
 pub struct VideoServerThread {
@@ -42,7 +44,7 @@ pub struct VideoServerThread {
     par: Param,
     encoder: Encoder,
     rng: ThreadRng,
-    sym_key: Option<ChaCha20Poly1305>
+    sym_key: Option<ChaCha20Poly1305>,
 }
 
 impl VideoServerThread {
@@ -57,7 +59,7 @@ impl VideoServerThread {
         let mut par: Param = VideoServerThread::get_parameters(conn.get_meta());
         let encoder = x264::Encoder::open(&mut par).unwrap();
 
-        let mut buf = [0u8; MTU]; 
+        let mut buf = [0u8; MTU];
         write_packet_type(EPacketType::NAL, &mut buf);
 
         Self {
@@ -72,7 +74,7 @@ impl VideoServerThread {
             par,
             encoder,
             rng: rand::thread_rng(),
-            sym_key: None
+            sym_key: None,
         }
     }
 
@@ -171,14 +173,14 @@ impl VideoServerThread {
                             let nonce = ChaCha20Poly1305::generate_nonce(&mut self.rng);
                             let mut ciphertext = sym_key.encrypt(&nonce, header_bytes).unwrap();
                             ciphertext.extend_from_slice(&nonce);
-    
+
                             let mut buf = [0u8; MTU];
                             write_header(
-                                EPacketType::NAL, 
-                                0, 
+                                EPacketType::NAL,
+                                0,
                                 (HEADER + ciphertext.len()) as u32,
                                 0,
-                                &mut buf
+                                &mut buf,
                             );
                             buf[HEADER..HEADER + ciphertext.len()].copy_from_slice(&ciphertext);
                             self.conn.broadcast(&buf[0..HEADER + ciphertext.len()]);
@@ -240,8 +242,9 @@ impl VideoServerThread {
                                 let nonce = ChaCha20Poly1305::generate_nonce(&mut self.rng);
                                 let mut ciphertext = sym_key.encrypt(&nonce, bitstream).unwrap();
                                 ciphertext.extend_from_slice(&nonce);
-                                
-                                let packets = (ciphertext.len() as f64 / PAYLOAD as f64).ceil() as usize;
+
+                                let packets =
+                                    (ciphertext.len() as f64 / PAYLOAD as f64).ceil() as usize;
 
                                 write_var_frame_header(
                                     ciphertext.len().try_into().unwrap(),
@@ -274,10 +277,10 @@ impl VideoServerThread {
 
                         if fps_time.elapsed().as_secs() >= 1 && frames > 0 {
                             self.conn.filter_clients();
-                            debug!(
-                                "FPS: {}",
-                                frames as f32 / fps_time.elapsed().as_secs() as f32
-                            );
+                            // debug!(
+                            //     "FPS: {}",
+                            //     frames as f32 / fps_time.elapsed().as_secs() as f32
+                            // );
                             frames = 0;
                             fps_time = Instant::now();
                         }

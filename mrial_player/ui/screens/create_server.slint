@@ -1,4 +1,4 @@
-import { MrialButton, MrialTextInput, Theme, MrialHeader, MrialSubHeader } from "../common.slint";
+import { MrialButton, MrialTextInput, Theme, MrialHeader, MrialSubHeader, ButtonType } from "../common.slint";
 
 export global CreateServerFunctions {
     pure callback add(
@@ -31,68 +31,38 @@ export component CreateServer inherits VerticalLayout {
     }
     HorizontalLayout {
         spacing: 10px;
-        VerticalLayout {
-            spacing: 5px;
-            Text {
-                text: "Server Name";
-                color: Theme.text-primary-color;
-            }
-            name := MrialTextInput {
-                input-type: InputType.text;
-                width: 125px;
-                height: 30px;
-            }
+        name := MrialTextInput {
+            placeholder: "Server Name";
+            input-type: InputType.text;
+            width: 125px;
+            height: 30px;
         }
-        VerticalLayout {
-            spacing: 5px;
-            Text {
-                text: "IP Address";
-                color: Theme.text-primary-color;
-            }
-            ip_addr := MrialTextInput {
-                input-type: InputType.text;
-                width: 125px;
-                height: 30px;
-            }
+        ip_addr := MrialTextInput {
+            placeholder: "IP Address";
+            input-type: InputType.text;
+            width: 125px;
+            height: 30px;
         }
-        VerticalLayout {
-            spacing: 5px;
-            Text {
-                text: "Port";
-                color: Theme.text-primary-color;
-            }
-            port := MrialTextInput {
-                width: 125px;
-                height: 30px;
-                input-type: InputType.number;
-            }
+        port := MrialTextInput {
+            placeholder: "Port";
+            width: 125px;
+            height: 30px;
+            input-type: InputType.number;
         }
     }
     HorizontalLayout {
         spacing: 10px;
-        VerticalLayout {
-            spacing: 5px;
-            Text {
-                text: "Username";
-                color: Theme.text-primary-color;
-            }
-            username := MrialTextInput {
-                input-type: InputType.text;
-                width: 125px;
-                height: 30px;
-            }
+        username := MrialTextInput {
+            placeholder: "Username";
+            input-type: InputType.text;
+            width: 125px;
+            height: 30px;
         }
-        VerticalLayout {
-            spacing: 5px;
-            Text {
-                text: "Password";
-                color: Theme.text-primary-color;
-            }
-            pass := MrialTextInput {
-                input-type: InputType.password;
-                width: 125px;
-                height: 30px;
-            }
+        pass := MrialTextInput {
+            placeholder: "Password";
+            input-type: InputType.password;
+            width: 125px;
+            height: 30px;
         }
     }
     MrialButton {
@@ -100,7 +70,21 @@ export component CreateServer inherits VerticalLayout {
         has-icon: true;
         icon:  @image-url("../../assets/icons/server.svg");
         label: "Add Server";
+        disabled: name.value == "" || 
+                  ip-addr.value == "" || 
+                  port.value == "" || 
+                  username.value == "" || 
+                  pass.value == "";
+        type: ButtonType.gradient;
         clicked => {
+            if (name.value == "" || 
+                ip-addr.value == "" || 
+                port.value == "" || 
+                username.value == "" || 
+                pass.value == "") {
+                return;
+            }
+
             CreateServerFunctions.add(
                 name.value, 
                 ip-addr.value, 
@@ -108,6 +92,12 @@ export component CreateServer inherits VerticalLayout {
                 username.value,
                 pass.value
             );
+
+            name.value = "";
+            ip-addr.value = "";
+            port.value = "";
+            username.value = "";
+            pass.value = "";
         }
     }
 }

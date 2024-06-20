@@ -1,0 +1,56 @@
+import { Theme, ModifyIcon } from "../common.slint";
+
+export struct IUser {
+    username: string,
+    enabled: bool,
+}
+
+export component User inherits Rectangle {
+    in property <IUser> user;
+
+    callback remove();
+
+    drop-shadow-color: Theme.drop_shadow_color;
+    drop-shadow-blur: 10px;
+    height: 65px;
+    width: 100%;
+    border-width: 2px;
+    border-radius: 5px;
+    border-color: Theme.border-color;   
+    background: Theme.bg_primary_color;
+    animate border-color { duration: 0.25s; }
+
+    HorizontalLayout {
+        alignment: LayoutAlignment.space-between;
+        padding: 10px;
+        
+        VerticalLayout {
+            alignment: LayoutAlignment.center;
+
+            VerticalLayout {
+                spacing: 5px;
+                Text {
+                    font-size: 14px;
+                    color: white;
+                    text: user.username;
+                }
+                Text {
+                    font-size: 14px;
+                    font-italic: true;
+                    color: Theme.text-secondary-color;
+                    text: "full permissions";
+                }
+            }
+        }
+        HorizontalLayout {
+            ModifyIcon {
+                source: @image-url("../../assets/icons/trash.svg");
+                color: Theme.text-secondary-color;
+                hover-color: Theme.red_color;
+                clicked => { 
+                    remove();
+                }
+            }
+        }
+    }
+}

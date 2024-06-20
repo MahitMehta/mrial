@@ -1,14 +1,20 @@
 # Install
 
-# Windows
+## Windows
 
 1. choco install pkgconfiglite (to install pkg-config)
 2. Follow the instructions found on this website to compile x264 (https://www.roxlu.com/2016/057/compiling-x264-on-windows-with-msvc)
 
-# Linux
+## Linux 
 
 1. Install libxrandr-dev, libxcb-randr0-dev
 2. Make sure user is added to display manager's group (such as lightdm's)
+
+# Build
+
+## Linux
+
+1. Requires GCC v14 or higher or Clang v18 or higher
 
 # Run Server
 1. Install libxdo-dev

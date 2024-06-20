@@ -1,0 +1,27 @@
+import { Screen, MrialTextInput , MrialButton, Theme, ButtonType } from "../common.slint";
+import { VerticalBox , Button , HorizontalBox} from "std-widgets.slint";
+import { Footer } from "../components/footer.slint";
+
+export component StartScreen inherits Screen {
+    VerticalLayout {
+        height: root.height;
+        alignment: LayoutAlignment.center;
+
+        HorizontalLayout {
+            alignment: LayoutAlignment.center;
+
+            MrialButton {
+                width: 150px;
+                type: ButtonType.gradient;
+                label: "Continue Decentralized";
+
+                clicked => {
+                    root.set_current_subpage(1);
+                }
+            }
+        }
+    }
+    Footer {
+        y: root.height - self.preferred-height;
+    }
+}

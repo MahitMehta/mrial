@@ -1,6 +1,7 @@
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
 use chacha20poly1305::{aead::KeyInit, ChaCha20Poly1305};
 use log::debug;
+use mrial_fs::{storage::StorageMultiType, Users};
 use rsa::{pkcs1::EncodeRsaPublicKey, RsaPrivateKey, RsaPublicKey};
 use std::{
     collections::HashMap,
@@ -62,6 +63,7 @@ pub struct Connection {
     clients: Arc<RwLock<HashMap<String, Client>>>,
     meta: Arc<RwLock<ServerMetaData>>,
     socket: UdpSocket,
+    users: Users,
 }
 
 impl Connection {
@@ -71,14 +73,16 @@ impl Connection {
             "Failed to Bind UDP Socket at Port:{}",
             SERVER_DEFAULT_PORT
         ));
+        let users = Users::new();
 
         Self {
+            users,
             clients: Arc::new(RwLock::new(HashMap::new())),
             meta: Arc::new(RwLock::new(ServerMetaData {
                 width: 0,
                 height: 0,
             })),
-            socket: socket.try_clone().unwrap()
+            socket: socket.try_clone().unwrap(),
         }
     }
 
@@ -94,11 +98,11 @@ impl Connection {
     pub fn send_alive(&self, src: SocketAddr) {
         let mut buf = [0u8; HEADER];
         write_header(
-            EPacketType::Alive, 
-            0, 
+            EPacketType::Alive,
+            0,
             HEADER.try_into().unwrap(),
-            0, 
-            &mut buf
+            0,
+            &mut buf,
         );
         self.socket.send_to(&buf, src).unwrap();
     }
@@ -156,22 +160,24 @@ impl Connection {
     }
 
     pub fn get_sym_key(&self) -> Option<ChaCha20Poly1305> {
-        if let Some(client) = self.clients
+        if let Some(client) = self
+            .clients
             .read()
             .unwrap()
             .values()
-            .find(|client| client.is_connected() && client.sym_key.is_some()) {
-                return client.sym_key.clone();
-            }
+            .find(|client| client.is_connected() && client.sym_key.is_some())
+        {
+            return client.sym_key.clone();
+        }
 
         None
     }
 
     pub fn connect_client(
-        &self,
+        &mut self,
         src: SocketAddr,
         encypyted_payload: &[u8],
-        headers: &[u8],
+        _headers: &[u8],
     ) -> Option<ClientStatePayload> {
         let src_str = src.to_string();
 
@@ -186,6 +192,23 @@ impl Connection {
 
             // TODO: Validate User Credentials
             debug!("Client Shake AE by User: {:?}", payload.username);
+            match self.users.load() {
+                Ok(_) => {
+                    if self
+                        .users
+                        .find_user_by_credentials(&payload.username, &payload.pass)
+                        .is_none()
+                    {
+                        debug!("User Not Found, Failed to Authenticate");
+                        return None;
+                    }
+                }
+                Err(_) => {
+                    debug!("Failed to Reload Users, Failed to Authenticate");
+                    return None;
+                }
+            }
+            debug!("User Found, Authenticated");
 
             if let Some(client) = self.clients.write().unwrap().get_mut(&src_str) {
                 let sym_key_vec = STANDARD_NO_PAD.decode(&payload.sym_key).unwrap();
@@ -231,6 +254,7 @@ impl Connection {
                     .send_to(&buf[..HEADER + payload_len], &src)
                     .unwrap();
 
+                // TODO: Send NAL Header
                 // let mut buf = [0u8; MTU];
                 // write_header(EPacketType::NAL, 0, HEADER.try_into().unwrap(), 0, &mut buf);
                 // buf[HEADER..HEADER + headers.len()].copy_from_slice(headers);
@@ -308,6 +332,7 @@ impl Connection {
         Self {
             clients: self.clients.clone(),
             meta: self.meta.clone(),
+            users: self.users.clone(),
             socket: self.socket.try_clone().unwrap(),
         }
     }

@@ -1,15 +1,15 @@
 mod audio;
 mod client;
 mod input;
-mod storage;
 mod video;
 
 use audio::AudioClient;
 use cli_clipboard::{ClipboardContext, ClipboardProvider};
 use client::{Client, ClientMetaData, ConnectionState};
 use input::Input;
+use mrial_fs::Server;
+use mrial_fs::{storage::StorageMultiType, Servers, User, Users};
 use mrial_proto::*;
-use storage::{Servers, Storage};
 use video::VideoThread;
 
 use std::sync::{Arc, Mutex};
@@ -34,25 +34,37 @@ pub enum ConnectionAction {
     Volume,
 }
 
-fn populate_servers(server_state: &Servers, app_weak: &slint::Weak<MainWindow>) {
-    if let Some(servers) = server_state.get_servers() {
-        let slint_servers = Rc::new(VecModel::default());
-        for server in servers {
-            slint_servers.push(IServer {
-                name: SharedString::from(server.name),
-                address: SharedString::from(server.address),
-                port: server.port.into(),
-                os: SharedString::from(server.os),
-                ram: 24,
-                storage: 40,
-                vcpu: 4,
-            });
-        }
-        app_weak
-            .unwrap()
-            .global::<HomePageAdapter>()
-            .set_servers(slint_servers.into());
+fn populate_users(users: Vec<User>, app_weak: &slint::Weak<MainWindow>) {
+    let slint_users = Rc::new(VecModel::default());
+    for user in users {
+        slint_users.push(IUser {
+            username: SharedString::from(user.username),
+            enabled: true,
+        });
     }
+    app_weak
+        .unwrap()
+        .global::<HostingAdapter>()
+        .set_users(slint_users.into());
+}
+
+fn populate_servers(servers: Vec<Server>, app_weak: &slint::Weak<MainWindow>) {
+    let slint_servers = Rc::new(VecModel::default());
+    for server in servers {
+        slint_servers.push(IServer {
+            name: SharedString::from(server.name),
+            address: SharedString::from(server.address),
+            port: server.port.into(),
+            os: SharedString::from(server.os),
+            ram: 24,
+            storage: 40,
+            vcpu: 4,
+        });
+    }
+    app_weak
+        .unwrap()
+        .global::<HomeAdapter>()
+        .set_servers(slint_servers.into());
 }
 
 fn main() {
@@ -93,6 +105,14 @@ fn main() {
             height,
             widths: vec![],
             heights: vec![],
+            server: Server {
+                name: String::new(),
+                address: String::new(),
+                port: 0,
+                os: String::new(),
+                username: String::new(),
+                pass: String::new(),
+            },
         },
         conn_channel.0.clone(),
     );
@@ -106,21 +126,86 @@ fn main() {
         slint::CloseRequestResponse::KeepWindowShown
     });
 
-    let mut server_state = Servers::new();
-    let mut server_state_clone = server_state.try_clone();
-    match server_state.load() {
+    let volume = Arc::new(Mutex::new(1.0f32));
+    let volume_clone = volume.clone();
+
+    // =========== Start USER Management ============
+
+    let mut users_storage = Users::new();
+    match users_storage.load() {
         Ok(_) => {
-            populate_servers(&server_state, &app_weak);
+            debug!("Users Loaded");
+
+            let users = users_storage.users.get().unwrap();
+            populate_users(users, &app_weak)
         }
         Err(e) => {
-            debug!("{}", e);
+            debug!("Failed to Load Users: {}", e);
+        }
+    }
+
+    let app_weak_clone = app_weak.clone();
+    slint::invoke_from_event_loop(move || {
+        let mut users_storage_copy = users_storage.clone();
+        let app_weak_add_clone = app_weak_clone.clone();
+        app_weak_clone
+            .unwrap()
+            .global::<HostingFunctions>()
+            .on_add_user(move |username, pass| {
+                match users_storage_copy.add(User {
+                    username: username.to_string(),
+                    pass: pass.to_string(),
+                }) {
+                    Ok(_) => {
+                        debug!("User Added: {}", username);
+                        let users = users_storage_copy.users.get().unwrap();
+                        populate_users(users, &app_weak_add_clone);
+                        users_storage_copy.save().unwrap();
+                    }
+                    Err(e) => {
+                        debug!("Failed to Add User: {}", e);
+                    }
+                }
+            });
+        app_weak_clone
+            .unwrap()
+            .global::<HostingFunctions>()
+            .on_remove_user(
+                move |username| match users_storage.remove(username.to_string()) {
+                    Ok(_) => {
+                        debug!("User Removed: {}", username);
+                        let users = users_storage.users.get().unwrap();
+                        populate_users(users, &app_weak_clone);
+                        users_storage.save().unwrap();
+                    }
+                    Err(e) => {
+                        debug!("Failed to Remove User: {}", e);
+                    }
+                },
+            );
+    })
+    .unwrap();
+
+    // =========== END USER Management ============
+    // --------------------------------------------
+    // =========== Start Server Functions Management ============
+
+    let mut servers_storage = Servers::new();
+    let mut servers_storage_clone = servers_storage.clone();
+    match servers_storage.load() {
+        Ok(_) => {
+            debug!("Servers Loaded");
+
+            let servers = servers_storage.servers.get().unwrap();
+            populate_servers(servers, &app_weak)
+        }
+        Err(e) => {
+            debug!("Failed to Load Servers: {}", e);
         }
     }
 
     let server_id = Arc::new(Mutex::new(String::new()));
     let server_id_clone = server_id.clone();
-    let volume = Arc::new(Mutex::new(1.0f32));
-    let volume_clone = volume.clone();
 
     slint::invoke_from_event_loop(move || {
         let conn_sender_clone = conn_sender.clone();
@@ -129,13 +214,14 @@ fn main() {
             .unwrap()
             .global::<ServerFunctions>()
             .on_connect(move |name| {
-                app_weak_clone.unwrap()
+                app_weak_clone
+                    .unwrap()
                     .global::<VideoState>()
                     .set_connected(false);
                 *server_id_clone.lock().unwrap() = name.to_string();
                 conn_sender_clone.send(ConnectionAction::Connect).unwrap();
             });
-        
+
         let conn_sender_clone = conn_sender.clone();
         app_weak
             .unwrap()
@@ -155,38 +241,45 @@ fn main() {
             });
 
         let app_weak_clone = app_weak.clone();
-        let mut server_state_create_clone = server_state_clone.try_clone();
-        app_weak
-            .unwrap()
-            .global::<CreateServerFunctions>()
-            .on_add(move |
-                name, 
-                ip_addr, 
-                port,
-                username,
-                pass| {
-                server_state_create_clone.add(
-                    name.to_string(),
-                    ip_addr.to_string(),
-                    port.parse::<u16>().unwrap(),
-                    "ubuntu".to_string(),
-                    username.to_string(),
-                    pass.to_string(),
-                );
-
-                populate_servers(&server_state_create_clone, &app_weak_clone);
-                server_state_create_clone.save().unwrap();
-            });
+        let mut servers_storage_remove_clone = servers_storage_clone.clone();
+        app_weak.unwrap().global::<CreateServerFunctions>().on_add(
+            move |name, ip_addr, port, username, pass| match servers_storage_clone.add(Server {
+                name: name.to_string(),
+                address: ip_addr.to_string(),
+                port: port.parse::<u16>().unwrap(),
+                os: "ubuntu".to_string(),
+                username: username.to_string(),
+                pass: pass.to_string(),
+            }) {
+                Ok(_) => {
+                    debug!("Server Added: {}", username);
+                    let servers = servers_storage_clone.servers.get().unwrap();
+                    populate_servers(servers, &app_weak_clone);
+                    servers_storage_clone.save().unwrap();
+                }
+                Err(e) => {
+                    debug!("Failed to Add User: {}", e);
+                }
+            },
+        );
 
         let app_weak_clone = app_weak.clone();
         app_weak
             .unwrap()
             .global::<ServerFunctions>()
-            .on_delete(move |name| {
-                server_state_clone.delete(name.to_string());
-                populate_servers(&server_state_clone, &app_weak_clone);
-                server_state_clone.save().unwrap();
-            });
+            .on_delete(
+                move |name| match servers_storage_remove_clone.remove(name.to_string()) {
+                    Ok(_) => {
+                        debug!("Server Removed: {}", name);
+                        let servers = servers_storage_remove_clone.servers.get().unwrap();
+                        populate_servers(servers, &app_weak_clone);
+                        servers_storage_remove_clone.save().unwrap();
+                    }
+                    Err(e) => {
+                        debug!("Failed to Remove Server: {}", e);
+                    }
+                },
+            );
 
         app_weak
             .unwrap()
@@ -194,6 +287,8 @@ fn main() {
             .on_copy(move |address| clipboard_ctx.set_contents(address.to_string()).unwrap());
     })
     .unwrap();
+
+    // =========== End Server Functions Management ============
 
     let app_weak = app.as_weak();
 
@@ -226,6 +321,8 @@ fn main() {
                     Some(ConnectionAction::UpdateState) => {
                         let widths = client.get_meta().widths.clone();
                         let heights = client.get_meta().heights.clone();
+                        let username = client.get_meta().server.username.clone();
+                        let server_name = client.get_meta().server.name.clone();
 
                         let app_weak_clone = app_weak.clone();
                         let _ = slint::invoke_from_event_loop(move || {
@@ -244,17 +341,31 @@ fn main() {
                             app_weak_clone
                                 .unwrap()
                                 .global::<BarialState>()
-                                .set_user(SharedString::from("user"));
+                                .set_user(SharedString::from(username));
                             app_weak_clone
                                 .unwrap()
                                 .global::<BarialState>()
-                                .set_server_name(SharedString::from("mahitm_compute"));
+                                .set_server_name(SharedString::from(server_name));
                         });
                     }
                     Some(ConnectionAction::Connect) => {
                         let server_id = server_id.lock().unwrap().clone();
-                        if let Some(server) = server_state.find_server(server_id) {
-                            client.set_socket_address(server.address, server.port);
+                        if let Some(server) = servers_storage.find(server_id) {
+                            client.set_socket_address(&server.address, server.port);
+                            let meta = client.get_meta_clone();
+                            meta.write().unwrap().server = server.clone();
+
+                            let app_weak_clone = app_weak.clone();
+                            let _ = slint::invoke_from_event_loop(move || {
+                                app_weak_clone
+                                    .unwrap()
+                                    .global::<BarialState>()
+                                    .set_user(SharedString::from(server.username));
+                                app_weak_clone
+                                    .unwrap()
+                                    .global::<BarialState>()
+                                    .set_server_name(SharedString::from(server.name));
+                            });
                         }
 
                         client.set_state(ConnectionState::Connecting);
@@ -274,7 +385,7 @@ fn main() {
                                         .global::<VideoState>()
                                         .set_connected(true);
                                 });
-                            },
+                            }
                             ConnectionState::Connecting => {
                                 thread::sleep(Duration::from_millis(1000));
                                 conn_channel.0.send(ConnectionAction::Handshake).unwrap();

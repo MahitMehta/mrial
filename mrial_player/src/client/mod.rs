@@ -6,14 +6,14 @@ use std::{
 };
 
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
-use chacha20poly1305::{aead::KeyInit, ChaCha20Poly1305, ChaChaPoly1305};
-use ffmpeg_next::codec::debug;
+use chacha20poly1305::{aead::KeyInit, ChaCha20Poly1305};
 use kanal::Sender;
 use log::{debug, info};
+use mrial_fs::Server;
 use mrial_proto::*;
 use rsa::{pkcs1::DecodeRsaPublicKey, RsaPublicKey};
 
-use crate::{storage::Server, ConnectionAction};
+use crate::ConnectionAction;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ConnectionState {
@@ -28,6 +28,7 @@ pub struct ClientMetaData {
     pub height: usize,
     pub widths: Vec<u16>,
     pub heights: Vec<u16>,
+    pub server: Server
 }
 
 pub struct Client {
@@ -59,7 +60,7 @@ impl Client {
         self.meta.read().unwrap()
     }
 
-    pub fn set_socket_address(&mut self, ip_addr: String, port: u16) {
+    pub fn set_socket_address(&mut self, ip_addr: &String, port: u16) {
         self.socket_address = format!("{}:{}", ip_addr, port);
     }
 
@@ -123,7 +124,7 @@ impl Client {
     pub fn get_sym_key(&self) -> Arc<RwLock<Option<ChaCha20Poly1305>>> {
         self.sym_key.clone()
     }
-    
+
     pub fn clone(&self) -> Client {
         if let Some(socket) = &self.socket {
             let socket = socket.try_clone().unwrap();
@@ -222,14 +223,13 @@ impl Client {
                         let key_vec = key.to_vec();
                         let key_base64 = STANDARD_NO_PAD.encode(&key_vec);
 
-                        let username: &str = "john";
-
                         let payload_len = ClientShakeAE::write_payload(
                             &mut buf[HEADER..],
                             &mut rng,
                             pub_key,
                             &ClientShakeAE {
-                                username: username.to_string(),
+                                username: self.meta.read().unwrap().server.username.clone(),
+                                pass: self.meta.read().unwrap().server.pass.clone(),
                                 sym_key: key_base64,
                                 client_state,
                             },
@@ -265,8 +265,8 @@ impl Client {
 
                                     // TODO: Validate if this is in the correct place
                                     self.state = ConnectionState::Connected;
-                                    break; 
-                                };                           
+                                    break;
+                                };
                             }
                         }
                     }

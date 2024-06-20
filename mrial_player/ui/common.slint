@@ -1,5 +1,12 @@
 import { VerticalBox, ScrollView } from "std-widgets.slint";
 
+export enum ButtonType {
+    basic,
+    gradient,
+    negative,
+    positive
+}
+
 export global Theme {
     out property <color> border_color: rgb(29, 29, 29);
     out property <color> secondary-border-color: rgb(45, 45, 45);
@@ -253,17 +260,10 @@ export component MrialDropdown inherits Rectangle{
     }
 }
 
-
-export enum ButtonType {
-    basic,
-    gradient,
-    negative,
-    positive
-}
-
 export component MrialButton inherits Rectangle {
     in property <string> label;
     in property <ButtonType> type: ButtonType.gradient;
+    in property <bool> disabled: false;
    
     in property <image> icon;
     in property <bool> has_icon: false;
@@ -273,26 +273,22 @@ export component MrialButton inherits Rectangle {
     width: 100%;
     height: 35px;
     border-radius: 7.5px;
-
-    init => {
-        if (type == ButtonType.gradient) {
-            self.background = Theme.bg-primary-brush;
-        } else if (type == ButtonType.negative) {
-            self.border-width = 2px; 
-            self.background = Theme.bg_negative_brush;
-        } else if (type == ButtonType.positive) {
-            self.background = Theme.bg-positive-brush;
-        } else if (type == ButtonType.basic) {
-            self.background = Theme.bg-primary-color;
-        }
-    }
-
-    opacity: touch-area.has-hover ? 0.8 : 1.0;
+    background: 
+        type == ButtonType.gradient ? Theme.bg-primary-brush : 
+            type == ButtonType.negative ? Theme.bg_negative_brush :
+                type == ButtonType.positive ? Theme.bg_positive_brush : Theme.bg-primary-color;
+    
+    border-width: type == ButtonType.negative ? 2px : 0;
+    opacity: touch-area.has-hover || self.disabled ? 0.8 : 1.0;
     animate opacity { duration: 250ms; }
 
     touch_area := TouchArea {
-        mouse-cursor: MouseCursor.pointer;
-        clicked => { clicked(); }
+        mouse-cursor: disabled ? MouseCursor.not-allowed : MouseCursor.pointer;
+        clicked => { 
+            if !disabled {
+                clicked(); 
+            }
+        }
     }
 
     HorizontalLayout {
@@ -320,14 +316,46 @@ export component MrialButton inherits Rectangle {
     }
 }
 
+export component ModifyIcon inherits TouchArea {
+    in-out property <image> source;
+    in-out property <color> color: Theme.text-primary-color;
+    in-out property <color> hover_color: Theme.text-primary-color;
+
+    mouse-cursor: MouseCursor.pointer;
+
+    Rectangle {
+        Image {
+            source: source;
+            width: 20px;
+            height: 20px;
+            colorize: root.has-hover ? hover-color : color;
+            animate colorize { duration: 150ms; }
+        }
+    }
+}
+
 export component MrialTextInput inherits Rectangle {
     in-out property <InputType> input-type <=> text_input.input-type;
     in-out property <string> value <=> text_input.text;
+    in-out property <string> placeholder: "";
+
+    forward-focus: text_input;
 
     background: Theme.bg-primary-color;
-    border-color: Theme.border_color;
+    border-color: text_input.has-focus ? Theme.secondary-border-color : Theme.border_color;
     border-width: 2px;
     border-radius: 7.5px;
+
+    animate border-color { duration: 150ms; }
+
+    text_placeholder := Text {
+        visible: root.value == "";
+        x: 12px;
+        text: placeholder;
+        color: Theme.text-secondary-color;
+        font-size: 12px;
+        vertical-alignment: TextVerticalAlignment.center;
+    }
 
     text_input := TextInput {
         x: 10px;
