@@ -3336,7 +3336,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_fs"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "dirs",
  "log",
@@ -3348,7 +3348,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_player"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64",
  "chacha20poly1305",
@@ -3374,7 +3374,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_proto"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "chacha20poly1305",
  "rand",
@@ -3385,7 +3385,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_server"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64",
  "cfg-if 0.1.10",

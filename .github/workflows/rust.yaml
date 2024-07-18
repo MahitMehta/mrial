@@ -26,10 +26,14 @@ jobs:
         sudo apt update
         sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev cmake
         cargo install cargo-deb
-    - name: Build
+    - name: Build Server
       run: |
         cd mrial_server
         CC=clang CXX=clang++ cargo build --release
+    - name: Build Player
+      run: |
+        cd mrial_player
+        cargo build --release --all-features
     - name: Deb Package
       if: startsWith(github.ref, 'refs/tags/')
       run: |
@@ -41,6 +45,7 @@ jobs:
         mkdir dist
         mkdir -p mrial_linux_arm64/bin
         cp target/release/mrial_server mrial_linux_arm64/bin/
+        cp target/release/mrial_player mrial_linux_arm64/bin/
         zip -r mrial_linux_arm64.zip mrial_linux_arm64
         mv mrial_linux_arm64.zip dist/
         mv target/debian/*.deb dist/
@@ -66,10 +71,14 @@ jobs:
         sudo apt update
         sudo NEEDRESTART_MODE=a apt install -y yasm ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev
         cargo install cargo-deb
-    - name: Build
+    - name: Build Server
       run: |
         cd mrial_server
         cargo build --release
+    - name: Build Player
+      run: |
+        cd mrial_player
+        cargo build --release --all-features
     - name: Deb Package
       if: startsWith(github.ref, 'refs/tags/')
       run: |
@@ -81,6 +90,7 @@ jobs:
         mkdir dist
         mkdir -p mrial_linux_x86_64/bin
         cp target/release/mrial_server mrial_linux_x86_64/bin/
+        cp target/release/mrial_player mrial_linux_x86_64/bin/
         zip -r mrial_linux_x86_64.zip mrial_linux_x86_64
         mv mrial_linux_x86_64.zip dist/
         mv target/debian/*.deb dist/
