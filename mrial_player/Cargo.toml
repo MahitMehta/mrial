@@ -9,8 +9,8 @@ version.workspace = true
 
 [dependencies]
 rodio = "0.17.3"
-slint = "1.6.0"
-i-slint-backend-winit = { version = "1.6.0", features = [ "renderer-femtovg", "renderer-software" ]}
+slint = "1.7.0"
+i-slint-backend-winit = { version = "1.7.0", features = [ "renderer-femtovg", "renderer-software" ]}
 mrial_proto = { path = "../libs/mrial_proto" }
 mrial_fs = { path = "../libs/mrial_fs" }
 kanal = "0.1.0-pre8"
@@ -34,7 +34,7 @@ libyuv-sys = { path = "../libs/libyuv-sys" }
 libyuv-sys = { path = "../libs/libyuv-sys" }
 
 [build-dependencies] 
-slint-build = "1.6.0"
+slint-build = "1.7.0"
 
 [features]
 build_ffmpeg = ["ffmpeg-next/build"]

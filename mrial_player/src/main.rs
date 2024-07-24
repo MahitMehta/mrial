@@ -80,7 +80,7 @@ fn main() {
 
     let (width, height) = app
         .window()
-        .with_winit_window(|winit_window: &winit::window::Window| {
+        .with_winit_window(|winit_window| {
             let monitor = winit_window.primary_monitor().unwrap();
             let scale_factor = monitor.scale_factor();
             let size = monitor.size();
