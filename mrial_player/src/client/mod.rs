@@ -28,7 +28,7 @@ pub struct ClientMetaData {
     pub height: usize,
     pub widths: Vec<u16>,
     pub heights: Vec<u16>,
-    pub server: Server
+    pub server: Server,
 }
 
 pub struct Client {

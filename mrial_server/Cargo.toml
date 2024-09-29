@@ -1,6 +1,6 @@
 [package]
 name = "mrial_server"
-edition = "2021"
+edition.workspace = true
 authors.workspace = true
 license.workspace = true
 version.workspace = true

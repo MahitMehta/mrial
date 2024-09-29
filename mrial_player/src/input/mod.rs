@@ -1,5 +1,7 @@
+use input::{Key, KeyEvent};
 use kanal::{unbounded, Receiver, Sender};
 use log::debug;
+use slint::SharedString;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
@@ -138,12 +140,12 @@ impl Input {
                     }
 
                     input::write_click(
+                        &mut buf[HEADER..],
                         x - x_offset,
                         y - y_offset,
-                        (win_width as usize) - (x_offset as usize * 2),
-                        (win_height as usize) - (y_offset as usize * 2),
+                        win_width - x_offset * 2.0,
+                        win_height - y_offset * 2.0,
                         button == PointerEventButton::Right,
-                        &mut buf[HEADER..],
                     );
 
                     click_sender.send(buf.to_vec()).unwrap();
@@ -173,22 +175,15 @@ impl Input {
                         return;
                     }
 
-                    let mut payload = [0; input::PAYLOAD];
+                    input::write_mouse_move(
+                        &mut buf[HEADER..],
+                        x - x_offset,
+                        y - y_offset,
+                        win_width - x_offset * 2.0,
+                        win_height - y_offset * 2.0,
+                        pressed,
+                    );
 
-                    let ele_width = (win_width as usize) - (x_offset as usize * 2);
-                    let ele_height = (win_height as usize) - (y_offset as usize * 2);
-
-                    let x_percent =
-                        ((x - x_offset) / (ele_width as f32) * 10000.0).round() as u16 + 1;
-                    let y_percent =
-                        ((y - y_offset) / (ele_height as f32) * 10000.0).round() as u16 + 1;
-
-                    payload[10..12].copy_from_slice(&x_percent.to_be_bytes());
-                    payload[12..14].copy_from_slice(&y_percent.to_be_bytes());
-
-                    payload[14] = pressed as u8;
-
-                    buf[HEADER..HEADER + input::PAYLOAD].copy_from_slice(&payload);
                     mouse_move_sender.send(buf.to_vec()).unwrap();
                 });
 
@@ -198,53 +193,17 @@ impl Input {
             app_weak
                 .unwrap()
                 .global::<KeyVideoFunctions>()
-                .on_scroll(move |x, y| {
+                .on_scroll(move |delta_x, delta_y| {
                     if !*scroll_connected.lock().unwrap() {
                         return;
                     }
-                    let mut payload = [0; input::PAYLOAD];
 
-                    if x == 0.0 && y == 0.0 {
+                    if delta_x == 0.0 && delta_y == 0.0 {
                         return;
                     }
 
-                    payload[14..16].copy_from_slice(&(x as i16).to_be_bytes());
-                    payload[16..18].copy_from_slice(&(y as i16).to_be_bytes());
-
-                    buf[HEADER..HEADER + input::PAYLOAD].copy_from_slice(&payload);
+                    input::write_scroll(&mut buf[HEADER..], delta_x as i16, delta_y as i16);
                     scroll_sender.send(buf.to_vec()).unwrap();
-                });
-
-            let arrow_pressed_sender = sender.clone();
-            let arrow_pressed_connected = connected.clone();
-
-            app_weak
-                .unwrap()
-                .global::<KeyVideoFunctions>()
-                .on_arrow_pressed(move |event, direction| {
-                    if !*arrow_pressed_connected.lock().unwrap() {
-                        return;
-                    }
-                    let mut payload = [0; input::PAYLOAD];
-
-                    payload[1] = event.modifiers.shift.into();
-                    payload[2] = event.modifiers.alt.into();
-                    payload[3] = event.modifiers.meta.into();
-
-                    if direction == 0 {
-                        payload[8] = 18; // Up
-                    } else if direction == 1 {
-                        payload[8] = 19; // Down
-                    } else if direction == 2 {
-                        payload[8] = 20; // Left
-                    } else if direction == 3 {
-                        payload[8] = 21; // Right
-                    }
-
-                    println!("Arrow Key Pressed: {:?}", direction);
-
-                    buf[HEADER..HEADER + input::PAYLOAD].copy_from_slice(&payload);
-                    arrow_pressed_sender.send(buf.to_vec()).unwrap();
                 });
 
             let key_pressed_sender = sender.clone();
@@ -257,29 +216,58 @@ impl Input {
                     if !*key_pressed_connected.lock().unwrap() {
                         return;
                     }
-                    let mut payload = [0; input::PAYLOAD];
 
-                    match event.text.bytes().next() {
-                        Some(key) => {
-                            payload[0] = event.modifiers.control.into();
-                            payload[1] = event.modifiers.shift.into();
-                            payload[2] = event.modifiers.alt.into();
-                            payload[3] = event.modifiers.meta.into();
+                    buf[HEADER + 0] =
+                        if event.text == SharedString::from(slint::platform::Key::Meta) {
+                            KeyEvent::Press.into() // Mac: Command Key
+                        } else {
+                            KeyEvent::None.into()
+                        };
+                    buf[HEADER + 1] =
+                        if event.text == SharedString::from(slint::platform::Key::Shift) {
+                            KeyEvent::Press.into()
+                        } else {
+                            KeyEvent::None.into()
+                        };
+                    buf[HEADER + 2] = if event.text == SharedString::from(slint::platform::Key::Alt)
+                    {
+                        KeyEvent::Press.into()
+                    } else {
+                        KeyEvent::None.into()
+                    };
+                    buf[HEADER + 3] =
+                        if event.text == SharedString::from(slint::platform::Key::Control) {
+                            KeyEvent::Press.into()
+                        } else {
+                            KeyEvent::None.into()
+                        };
+                    debug!("Pressed Modifiers: {:?}", &buf[HEADER..HEADER + 4]);
 
-                            println!("Key Pressed: {}", key);
-                            if key != 17 {
-                                payload[8] = key.into();
+                    if event.text == SharedString::from(slint::platform::Key::DownArrow) {
+                        buf[HEADER + 8] = Key::DownArrow.into();
+                    } else if event.text == SharedString::from(slint::platform::Key::UpArrow) {
+                        buf[HEADER + 8] = Key::UpArrow.into();
+                    } else if event.text == SharedString::from(slint::platform::Key::LeftArrow) {
+                        buf[HEADER + 8] = Key::LeftArrow.into();
+                    } else if event.text == SharedString::from(slint::platform::Key::RightArrow) {
+                        buf[HEADER + 8] = Key::RightArrow.into();
+                    } else {
+                        // TODO: Only first byte of key, need to handle multi-byte keys (emoji, etc)
+                        let mut key_bytes = event.text.bytes();
+                        if key_bytes.len() == 1 {
+                            let key = key_bytes.next().unwrap();
+                            if key != 17 && key != 16 && key != 18 && key != 23 {
+                                buf[HEADER + 8] = key;
                             }
-
-                            println!("Key Pressed: {}", buf[HEADER + 8]);
-
-                            buf[HEADER..HEADER + input::PAYLOAD].copy_from_slice(&payload);
-                            key_pressed_sender.send(buf.to_vec()).unwrap();
-                        }
-                        None => {
-                            println!("Key Pressed: None");
+                        } else {
+                            debug!("Original Key Pressed Input: {:?}", event.text);
                         }
                     }
+
+                    debug!("Key Pressed: {}", buf[HEADER + 8]);
+
+                    key_pressed_sender.send(buf.to_vec()).unwrap();
+                    buf[HEADER + 8] = 0; // Reset key
                 });
 
             let key_released_sender: Sender<Vec<u8>> = sender.clone();
@@ -292,42 +280,59 @@ impl Input {
                     if !*key_released_connected.lock().unwrap() {
                         return;
                     }
-                    let mut payload = [0; input::PAYLOAD];
 
-                    match event.text.bytes().next() {
-                        Some(key) => {
-                            payload[0] = if event.modifiers.control {
-                                event.modifiers.control as u8 + 1
-                            } else {
-                                0
-                            };
-                            payload[1] = if event.modifiers.shift {
-                                event.modifiers.shift as u8 + 1
-                            } else {
-                                0
-                            };
-                            payload[2] = if event.modifiers.alt {
-                                event.modifiers.alt as u8 + 1
-                            } else {
-                                0
-                            };
-                            payload[3] = if event.modifiers.meta {
-                                event.modifiers.meta as u8 + 1
-                            } else {
-                                0
-                            };
+                    buf[HEADER + 0] =
+                        if event.text == SharedString::from(slint::platform::Key::Meta) {
+                            KeyEvent::Release.into() // Mac: Command Key
+                        } else {
+                            KeyEvent::None.into()
+                        };
+                    buf[HEADER + 1] =
+                        if event.text == SharedString::from(slint::platform::Key::Shift) {
+                            KeyEvent::Release.into()
+                        } else {
+                            KeyEvent::None.into()
+                        };
+                    buf[HEADER + 2] = if event.text == SharedString::from(slint::platform::Key::Alt)
+                    {
+                        KeyEvent::Release.into()
+                    } else {
+                        KeyEvent::None.into()
+                    };
+                    buf[HEADER + 3] =
+                        if event.text == SharedString::from(slint::platform::Key::Control) {
+                            KeyEvent::Release.into()
+                        } else {
+                            KeyEvent::None.into()
+                        };
+                    debug!(
+                        "Released Modifiers Keys: {:?}",
+                        &buf[HEADER + 0..HEADER + 4]
+                    );
 
-                            if key != 17 {
-                                payload[9] = key;
+                    if event.text == SharedString::from(slint::platform::Key::DownArrow) {
+                        buf[HEADER + 9] = Key::DownArrow.into();
+                    } else if event.text == SharedString::from(slint::platform::Key::UpArrow) {
+                        buf[HEADER + 9] = Key::UpArrow.into();
+                    } else if event.text == SharedString::from(slint::platform::Key::LeftArrow) {
+                        buf[HEADER + 9] = Key::LeftArrow.into();
+                    } else if event.text == SharedString::from(slint::platform::Key::RightArrow) {
+                        buf[HEADER + 9] = Key::RightArrow.into();
+                    } else {
+                        let mut key_bytes = event.text.bytes();
+                        if key_bytes.len() == 1 {
+                            let key = key_bytes.next().unwrap();
+                            if key != 17 && key != 16 && key != 18 && key != 23 {
+                                buf[HEADER + 9] = key;
                             }
-
-                            buf[HEADER..HEADER + input::PAYLOAD].copy_from_slice(&payload);
-                            key_released_sender.send(buf.to_vec()).unwrap();
-                        }
-                        None => {
-                            println!("Key Pressed: None");
+                        } else {
+                            debug!("Original Key Released Input: {:?}", event.text);
                         }
                     }
+
+                    debug!("Key Released: {}", buf[HEADER + 9]);
+                    key_released_sender.send(buf.to_vec()).unwrap();
+                    buf[HEADER + 9] = 0; // Reset key
                 });
 
             let client_state_sender: Sender<Vec<u8>> = sender.clone();

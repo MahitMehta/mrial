@@ -1,10 +1,6 @@
-use std::{
-    collections::HashMap,
-    error::Error,
-    net::{self, UdpSocket},
-};
-
 use chacha20poly1305::{aead::Aead, ChaCha20Poly1305};
+use log::{debug, trace};
+use std::collections::HashMap;
 
 use crate::SE_NONCE;
 
@@ -201,6 +197,7 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
 //     }
 // }
 
+#[inline]
 pub fn decrypt_frame(sym_key: &ChaCha20Poly1305, encrypted_frame: &[u8]) -> Option<Vec<u8>> {
     let encrypted_payload = &encrypted_frame[0..encrypted_frame.len() - SE_NONCE];
     let nonce = &encrypted_frame[encrypted_frame.len() - 12..encrypted_frame.len()];
@@ -287,9 +284,12 @@ impl PacketConstructor {
         let potential_packet_size = cache_packet_size + (packet_unit.len() - HEADER);
 
         if potential_packet_size == real_packet_size as usize {
-            println!("Will Reconstruct Packet");
+            debug!("Will Reconstruct Packet");
         } else {
-            println!("Caching for Future Reconstruction");
+            debug!(
+                "Caching, Packet Built: {}%",
+                (cache_packet_size as f64 / real_packet_size as f64) * 100.0
+            );
         }
     }
 
@@ -391,6 +391,9 @@ impl PacketConstructor {
         true
     }
 
+    // 1 2 3 4 5
+    // 1 5 2 4 3 3 4 2 5 1
+
     #[inline]
     pub fn assemble_packet(&mut self, buf: &[u8], number_of_bytes: usize) -> Option<Vec<u8>> {
         let packets_remaining = parse_packets_remaining(buf);
@@ -399,13 +402,10 @@ impl PacketConstructor {
         if self.previous_subpacket_number != (packets_remaining + 1) as i16
             && self.previous_subpacket_number > 0
         {
-            // ### DEBUG ###
-            {
-                println!(
-                    "Packet Order Mixup: {} -> {}",
-                    self.previous_subpacket_number, packets_remaining
-                );
-            }
+            debug!(
+                "Packet Order Mixup: {} -> {}",
+                self.previous_subpacket_number, packets_remaining
+            );
 
             self.order_mismatch = true;
         }

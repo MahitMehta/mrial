@@ -32,8 +32,9 @@ export component MainWindow inherits Window {
     in-out property <int> page: 0;
     in-out property <image> video-frame;
 
-    min-width: 725px;
+    min-width: 550px;
     min-height: 500px;
+    preferred-width: 725px;
 
     title: GlobalVars.app_name;
     padding: 0;
@@ -42,27 +43,13 @@ export component MainWindow inherits Window {
     key-handler := FocusScope {
         key-pressed(event) => {
             if root.page == 2 {
-                if (event.text == Key.UpArrow) {
-                    VideoFunctions.arrow_pressed(event, 0);
-                } else if (event.text == Key.RightArrow) {
-                    VideoFunctions.arrow_pressed(event, 1);
-                } else if (event.text == Key.DownArrow) {
-                    VideoFunctions.arrow_pressed(event, 2);
-                } else if (event.text == Key.LeftArrow) {
-                    VideoFunctions.arrow_pressed(event, 3);
-                } else {
-                    VideoFunctions.key_pressed(event);
-                }
+                VideoFunctions.key_pressed(event);
             }
             accept
         }
         key-released(event) => {
             if root.page == 2 {
-                if (event.text == Key.DownArrow) {
-                    // VideoFunctions.arrow_released(Key.DownArrow);
-                 } else {
-                     VideoFunctions.key-released(event);
-                 }
+                VideoFunctions.key-released(event);
             }
             accept
         }

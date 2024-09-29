@@ -1,5 +1,5 @@
 [workspace]
-
+resolver = "2"
 members = [
     "mrial_player",
     "mrial_server",
@@ -13,3 +13,4 @@ exclude = [ "libs" ]
 version = "0.1.14"
 authors = ["Mahit Mehta", "Marco Ngai"]
 license = "GPL-3.0-only"
+edition = "2021"

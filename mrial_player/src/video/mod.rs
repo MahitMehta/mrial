@@ -19,9 +19,9 @@ use slint::{ComponentHandle, Model};
 use crate::client::Client;
 
 pub struct VideoThread {
+    pub channel: (Sender<Vec<u8>>, Receiver<Vec<u8>>),
     packet_constructor: PacketConstructor,
     clock: std::time::Instant,
-    pub channel: (Sender<Vec<u8>>, Receiver<Vec<u8>>),
     ping_buf: [u8; HEADER],
     file: Option<File>,
 }
@@ -211,7 +211,7 @@ impl VideoThread {
             loop {
                 let buf = match receiver.recv() {
                     Ok(buf) => buf,
-                    Err(e) => {
+                    Err(_e) => {
                         debug!("Video Tunnel Closed");
                         break;
                     }

@@ -2,7 +2,7 @@ use std::thread;
 
 use enigo::{
     Direction::{Press, Release},
-    Enigo, Key, Keyboard, Mouse, Settings,
+    Enigo, Keyboard, Mouse, Settings,
 };
 use kanal::Sender;
 use log::debug;
@@ -65,7 +65,7 @@ impl EventsEmitter {
     pub fn scroll(&self, _x: i32, _y: i32) {}
 
     pub fn input(&mut self, buf: &mut [u8], width: usize, height: usize) {
-        if click_requested(&buf) {
+        if click_requested(buf) {
             let (x, y, right) = parse_click(buf, width, height);
 
             let _ = &self.mouse.move_to(x, y);
@@ -79,23 +79,19 @@ impl EventsEmitter {
                     .button(enigo::Button::Left, enigo::Direction::Click);
             }
         }
-        if mouse_move_requested(&buf) {
-            let x_percent = u16::from_be_bytes(buf[10..12].try_into().unwrap()) - 1;
-            let y_percent = u16::from_be_bytes(buf[12..14].try_into().unwrap()) - 1;
 
-            let x: i32 = (x_percent as f32 / 10000.0 * width as f32).round() as i32;
-            let y = (y_percent as f32 / 10000.0 * height as f32).round() as i32;
-
+        if mouse_move_requested(buf) {
+            let (x, y, pressed) = parse_mouse_move(buf, width as f32, height as f32);
             let _ = &self.mouse.move_to(x, y);
 
-            // TODO: handle right mouse button too
-            if buf[14] == 1 {
+            if pressed {
                 let _ = &self
                     .enigo
                     .button(enigo::Button::Left, enigo::Direction::Press);
             }
         }
-        if buf[15] != 0 || buf[17] != 0 {
+
+        if scroll_requested(&buf) {
             let x_delta = i16::from_be_bytes(buf[14..16].try_into().unwrap());
             let y_delta = i16::from_be_bytes(buf[16..18].try_into().unwrap());
 
@@ -104,60 +100,100 @@ impl EventsEmitter {
             }
         }
 
-        if buf[0] == 1 {
-            self.enigo.key(Key::Control, Press).unwrap();
-        } else if buf[0] == 2 {
-            self.enigo.key(Key::Control, Release).unwrap();
-        }
-        if buf[1] == 1 {
-            self.enigo.key(Key::Shift, Press).unwrap();
-        } else if buf[1] == 2 {
-            self.enigo.key(Key::Shift, Release).unwrap();
+        if is_control_pressed(buf) {
+            self.enigo.key(enigo::Key::Control, Press).unwrap();
+        } else if is_control_released(buf) {
+            self.enigo.key(enigo::Key::Control, Release).unwrap();
         }
 
-        if buf[2] == 1 {
-            self.enigo.key(Key::Alt, Press).unwrap();
-        } else if buf[2] == 2 {
-            self.enigo.key(Key::Alt, Release).unwrap();
+        if is_shift_pressed(buf) {
+            self.enigo.key(enigo::Key::Shift, Press).unwrap();
+        } else if is_shift_released(buf) {
+            self.enigo.key(enigo::Key::Shift, Release).unwrap();
         }
 
-        if buf[3] == 1 {
-            self.enigo.key(Key::Meta, Press).unwrap();
-        } else if buf[3] == 2 {
-            self.enigo.key(Key::Meta, Release).unwrap();
+        if is_alt_pressed(buf) {
+            self.enigo.key(enigo::Key::Alt, Press).unwrap();
+        } else if is_alt_released(buf) {
+            self.enigo.key(enigo::Key::Alt, Release).unwrap();
         }
 
-        if buf[8] != 0 {
-            if buf[8] == 32 {
-                self.enigo.key(Key::Space, enigo::Direction::Click).unwrap();
-            } else if buf[8] == 8 {
-                self.enigo.key(Key::Backspace, Press).unwrap();
-            } else if buf[8] == 9 {
-                self.enigo.key(Key::Tab, enigo::Direction::Press).unwrap();
-            } else if buf[8] == 10 {
+        if is_meta_pressed(buf) {
+            self.enigo.key(enigo::Key::Meta, Press).unwrap();
+        } else if is_meta_released(buf) {
+            self.enigo.key(enigo::Key::Meta, Release).unwrap();
+        }
+
+        match Key::from(buf[8]) {
+            Key::None => {}
+            Key::Backspace => {
+                self.enigo.key(enigo::Key::Backspace, Press).unwrap();
+            }
+            Key::DownArrow => {
+                self.enigo.key(enigo::Key::DownArrow, Press).unwrap();
+            }
+            Key::UpArrow => {
+                self.enigo.key(enigo::Key::UpArrow, Press).unwrap();
+            }
+            Key::LeftArrow => {
+                self.enigo.key(enigo::Key::LeftArrow, Press).unwrap();
+            }
+            Key::RightArrow => {
+                self.enigo.key(enigo::Key::RightArrow, Press).unwrap();
+            }
+            Key::Space => {
                 self.enigo
-                    .key(Key::Return, enigo::Direction::Click)
+                    .key(enigo::Key::Space, enigo::Direction::Press)
                     .unwrap();
-            } else if buf[8] >= 33 {
-                // add ascii range check
-
+            }
+            Key::Tab => {
                 self.enigo
-                    .key(Key::Unicode((buf[8]) as char), Press)
+                    .key(enigo::Key::Tab, enigo::Direction::Press)
+                    .unwrap();
+            }
+            Key::Return => {
+                self.enigo
+                    .key(enigo::Key::Return, enigo::Direction::Click)
+                    .unwrap();
+            }
+            Key::Unicode => {
+                self.enigo
+                    .key(enigo::Key::Unicode((buf[8]) as char), Press)
                     .unwrap();
             }
         }
 
-        if buf[9] != 0 {
-            if buf[9] == 32 {
-                self.enigo.key(Key::Space, Release).unwrap();
-            } else if buf[9] == 8 {
-                self.enigo.key(Key::Backspace, Release).unwrap();
-            } else if buf[9] == 9 {
-                self.enigo.key(Key::Tab, Release).unwrap();
-            } else if buf[9] >= 33 {
-                // add ascii range check
+        match Key::from(buf[9]) {
+            Key::None => {}
+            Key::Backspace => {
+                self.enigo.key(enigo::Key::Backspace, Release).unwrap();
+            }
+            Key::Space => {
                 self.enigo
-                    .key(Key::Unicode((buf[9]) as char), Release)
+                    .key(enigo::Key::Space, enigo::Direction::Release)
+                    .unwrap();
+            }
+            Key::DownArrow => {
+                self.enigo.key(enigo::Key::DownArrow, Release).unwrap();
+            }
+            Key::UpArrow => {
+                self.enigo.key(enigo::Key::UpArrow, Release).unwrap();
+            }
+            Key::LeftArrow => {
+                self.enigo.key(enigo::Key::LeftArrow, Release).unwrap();
+            }
+            Key::RightArrow => {
+                self.enigo.key(enigo::Key::RightArrow, Release).unwrap();
+            }
+            Key::Tab => {
+                self.enigo
+                    .key(enigo::Key::Tab, enigo::Direction::Release)
+                    .unwrap();
+            }
+            Key::Return => {}
+            Key::Unicode => {
+                self.enigo
+                    .key(enigo::Key::Unicode((buf[9]) as char), Release)
                     .unwrap();
             }
         }
