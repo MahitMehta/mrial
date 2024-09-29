@@ -9,6 +9,9 @@ use video::{VideoServerActions, VideoServerThread};
 
 #[tokio::main]
 async fn main() {
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
+    println!("Starting Mrial Server Version {}\n", VERSION);
+
     pretty_env_logger::init_timed();
     let conn: Connection = Connection::new();
 
