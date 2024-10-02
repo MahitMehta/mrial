@@ -8,4 +8,4 @@ Player for the Mrial Server using Slint + FFmpeg
 
 # MacOS Player
 1. brew install rust yasm ffmpeg 
-2. RUST_LOG=debug cargo run --release --all-features
+2. RUST_LOG=mrial_player=debug,mrial_proto=debug cargo run --release --all-features

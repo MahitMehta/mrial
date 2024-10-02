@@ -38,3 +38,4 @@ slint-build = "1.7.2"
 
 [features]
 build_ffmpeg = ["ffmpeg-next/build"]
+stat = ["mrial_proto/stat"]

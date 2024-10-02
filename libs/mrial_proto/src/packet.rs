@@ -1,11 +1,8 @@
 use chacha20poly1305::{aead::Aead, ChaCha20Poly1305};
-use log::{debug, trace};
+use log::{trace, debug};
 use std::collections::HashMap;
 
 use crate::SE_NONCE;
-
-// use chacha20poly1305::{aead::{AeadMut, AeadMutInPlace}, AeadCore, ChaCha20Poly1305};
-// use rand::rngs::ThreadRng;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum EPacketType {
@@ -140,63 +137,6 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
     (packet_type, packets_remaining, real_packet_size, packet_id)
 }
 
-// pub struct PacketDeployer {
-//     buf: [u8; MTU],
-//     socket: UdpSocket,
-//     packet_type: EPacketType
-// }
-
-// impl PacketDeployer {
-//     pub fn new(socket: UdpSocket, packet_type: EPacketType) -> Self {
-//         let mut buf = [0u8; MTU];
-//         write_packet_type(packet_type, &mut buf);
-
-//         Self {
-//             buf,
-//             socket,
-//             packet_type
-//         }
-//     }
-
-//     #[inline]
-//     pub fn encrypted_frame(
-//         &mut self,
-//         frame: &mut [u8],
-//         rng: ThreadRng,
-//         mut sym_key: ChaCha20Poly1305
-//     ) -> (Vec<u8>, Vec<u8>){
-//         let nonce = ChaCha20Poly1305::generate_nonce(rng);
-//         let auth_tag = sym_key.encrypt_in_place_detached(
-//             &nonce, &[0u8; 0], frame).unwrap();
-
-//         (auth_tag.to_vec(), nonce.to_vec())
-//     }
-
-//     #[inline]
-//     pub fn frame_chunks(
-//         &mut self,
-//         frame: &mut [u8],
-//         packets_remaining: u16,
-//         packet_id: u8,
-//         rng: ThreadRng,
-//         sym_key: ChaCha20Poly1305
-//     ) {
-//         write_variable_header(packets_remaining, packet_id, &mut self.buf);
-//         let (auth_tag, nounce) = self.encrypted_frame(
-//             frame, rng, sym_key);
-
-//         let packets = (frame.len() as f64 / PAYLOAD as f64).ceil() as usize;
-//     }
-
-//     pub fn try_clone(&self) -> Result<Self, Box<(dyn serde::ser::StdError + 'static)>> {
-//         Ok(Self {
-//             buf: self.buf,
-//             socket: self.socket.try_clone()?,
-//             packet_type: self.packet_type
-//         })
-//     }
-// }
-
 #[inline]
 pub fn decrypt_frame(sym_key: &ChaCha20Poly1305, encrypted_frame: &[u8]) -> Option<Vec<u8>> {
     let encrypted_payload = &encrypted_frame[0..encrypted_frame.len() - SE_NONCE];
@@ -210,20 +150,52 @@ pub fn decrypt_frame(sym_key: &ChaCha20Poly1305, encrypted_frame: &[u8]) -> Opti
     None
 }
 
+pub fn subpacket_count(len: u32) -> u16 {
+    (len as f64 / PAYLOAD as f64).ceil() as u16
+}
+
+pub fn calculate_frame_size(packet: &Vec<Vec<u8>>) -> usize {
+    (packet.len() - 1) * PAYLOAD + packet.last().unwrap().len() - HEADER
+}
+
 pub struct PacketConstructor {
-    packet: Vec<Vec<u8>>,
+    packets: Vec<Vec<u8>>,
     previous_subpacket_number: i16,
     order_mismatch: bool,
     cached_packets: HashMap<u8, Vec<Vec<u8>>>,
+    previous_packet_id: i16,
+
+    #[cfg(feature = "stat")]
+    recieved_packets: u8,
+    #[cfg(feature = "stat")]
+    potential_packets: u8,
+    #[cfg(feature = "stat")]
+    latest_packet_id: i16,
+    #[cfg(feature = "stat")]
+    received_subpackets: f64,
+    #[cfg(feature = "stat")]
+    potential_subpackets: f64,
 }
 
 impl PacketConstructor {
     pub fn new() -> Self {
         Self {
-            packet: Vec::new(),
+            packets: Vec::new(),
             previous_subpacket_number: -1,
             order_mismatch: false,
             cached_packets: HashMap::new(),
+            previous_packet_id: -1,
+
+            #[cfg(feature = "stat")]
+            recieved_packets: 0,
+            #[cfg(feature = "stat")]
+            potential_packets: 0,
+            #[cfg(feature = "stat")]
+            latest_packet_id: -1,
+            #[cfg(feature = "stat")]
+            received_subpackets: 0.0,
+            #[cfg(feature = "stat")]
+            potential_subpackets: 0.0,
         }
     }
 
@@ -231,14 +203,14 @@ impl PacketConstructor {
     // Cache previously dropped/out of order messages and reassemble them
     #[inline]
     fn reconstruct_when_deficient(&mut self) -> bool {
-        let last_packet_id = parse_packet_id(self.packet.last().unwrap());
+        let last_packet_id = parse_packet_id(self.packets.last().unwrap());
         if let Some(_cached_packets) = self.cached_packets.get(&last_packet_id) {
-            println!("TODO: Append Found Cached Packets");
+            debug!("TODO: Append Found Cached Packets");
         } else {
-            println!("Cached Packet Units for Potential Future Reconstruction");
+            debug!("Cached Packet Units for Potential Future Reconstruction");
             // TODO: implement a way of clearing all packets that have an id in incoming cached packets
 
-            for packet in &self.packet {
+            for packet in &self.packets {
                 PacketConstructor::cache_packet(
                     &mut self.cached_packets,
                     packet,
@@ -248,7 +220,7 @@ impl PacketConstructor {
         }
 
         self.order_mismatch = false;
-        self.packet.clear();
+        self.packets.clear();
         return false;
     }
 
@@ -268,9 +240,9 @@ impl PacketConstructor {
         current_packet_id: u8,
     ) {
         if !cached_packets.contains_key(&current_packet_id) {
-            // ### DEBUG ###
+            // ### debug ###
             {
-                println!(
+                trace!(
                     "No Cache for Previous Packet ID (Frame: {current_packet_id}) so dropped Packet Unit: {:?}", 
                     parse_packets_remaining(packet_unit)
                 );
@@ -286,7 +258,7 @@ impl PacketConstructor {
         if potential_packet_size == real_packet_size as usize {
             debug!("Will Reconstruct Packet");
         } else {
-            debug!(
+            trace!(
                 "Caching, Packet Built: {}%",
                 (cache_packet_size as f64 / real_packet_size as f64) * 100.0
             );
@@ -312,14 +284,10 @@ impl PacketConstructor {
     // TODO: Find Method to Clear Cached Packets
     #[inline]
     fn filter_packet(&mut self) {
-        // ### DEBUG ###
-        {
-            println!("Filtering Packets");
-        }
+        debug!("Filtering Packets");
 
-        let last_packet_id = parse_packet_id(self.packet.last().unwrap());
-
-        self.packet.retain(|packet_unit| {
+        let last_packet_id = parse_packet_id(self.packets.last().unwrap());
+        self.packets.retain(|packet_unit| {
             let current_packet_id = parse_packet_id(&packet_unit);
             if current_packet_id != last_packet_id {
                 if current_packet_id < last_packet_id {
@@ -329,14 +297,11 @@ impl PacketConstructor {
                         current_packet_id,
                     );
                 } else {
-                    // ### DEBUG ###
-                    {
-                        println!(
-                            "Caching Packet Unit {:?} with Packet ID {}",
-                            parse_packets_remaining(packet_unit),
-                            current_packet_id
-                        );
-                    }
+                    debug!(
+                        "Caching Packet Unit {:?} with Packet ID {}",
+                        parse_packets_remaining(packet_unit),
+                        current_packet_id
+                    );
 
                     PacketConstructor::cache_packet(
                         &mut self.cached_packets,
@@ -351,67 +316,131 @@ impl PacketConstructor {
         });
     }
 
+    #[cfg(feature = "stat")]
+    fn print_packet_order(&mut self) {
+        debug!("Packet Type: {:?}", EPacketType::from(self.packets[0][0]));
+        let mut packet_order = String::new();
+        for packet in &self.packets {
+            if self.latest_packet_id != parse_packet_id(packet) as i16 {
+                self.potential_subpackets += subpacket_count(parse_real_packet_size(packet)) as f64;
+                self.latest_packet_id = parse_packet_id(packet) as i16;
+            }
+            packet_order.push_str(&format!(
+                "{}-{}, ",
+                parse_packet_id(&packet),
+                parse_packets_remaining(&packet)
+            ));
+        }
+        debug!("Subpackets: {} (Packet ID:{})", 
+            subpacket_count(parse_real_packet_size(self.packets.last().unwrap())),
+            parse_packet_id(self.packets.last().unwrap())
+        );
+        debug!("Packet Order: {}", packet_order);
+    }
+
     #[inline]
     fn handle_order_mismatch(&mut self, real_packet_size: usize) -> bool {
-        // ### DEBUG ###
-        {
-            println!("Packet Type: {:?}", EPacketType::from(self.packet[0][0]));
-            for i in &self.packet {
-                print!("{:?}, ", parse_packet_id(i));
+        // TODO: Is this neccessary?
+        self.packets.sort_by(|a, b| {
+            let a_id = parse_packet_id(&a);
+            let b_id = parse_packet_id(&b);
+
+            if a_id != b_id {
+                let forward_diff = b_id.wrapping_sub(a_id);
+                let backward_diff = a_id.wrapping_sub(b_id);
+                return forward_diff.cmp(&backward_diff);
             }
-            println!();
-        }
 
-        let packet_size =
-            (self.packet.len() - 1) * PAYLOAD + self.packet.last().unwrap().len() - HEADER;
-        if real_packet_size > packet_size {
-            return self.reconstruct_when_deficient();
-        } else if real_packet_size < packet_size {
-            self.filter_packet();
-
-            // ### DEBUG ###
-            {
-                let nal_size =
-                    (self.packet.len() - 1) * PAYLOAD + self.packet.last().unwrap().len() - HEADER;
-                println!(
-                    "Packet Size After Fix: {} vs {}",
-                    nal_size, real_packet_size
-                );
-            }
-        }
-
-        self.packet.sort_by(|a, b| {
             let a_size = parse_packets_remaining(&a);
             let b_size = parse_packets_remaining(&b);
             b_size.cmp(&a_size)
         });
+
+        #[cfg(feature = "stat")]
+        self.print_packet_order();
+
+        let frame_size = calculate_frame_size(&self.packets);
+        if real_packet_size > frame_size {
+            return self.reconstruct_when_deficient();
+        } else if real_packet_size < frame_size {
+            self.filter_packet();
+
+            if cfg!(feature = "stat") {
+                let updated_frame_size = calculate_frame_size(&self.packets);
+                debug!(
+                    "Packet Size After Fix: {} vs {}",
+                    updated_frame_size, real_packet_size
+                );
+            }
+        }
 
         self.order_mismatch = false;
 
         true
     }
 
-    // 1 2 3 4 5
-    // 1 5 2 4 3 3 4 2 5 1
+    #[cfg(feature = "stat")]
+    pub fn calculate_yield(&mut self, current_packet_id: u8) {
+        use log::info;
+
+        if self.latest_packet_id != parse_packet_id(&self.packets[0]) as i16 {
+            self.potential_subpackets +=
+                subpacket_count(parse_real_packet_size(&self.packets[0])) as f64;
+            self.latest_packet_id = parse_packet_id(&self.packets[0]) as i16;
+        }
+
+        self.recieved_packets += 1;
+        if self.previous_packet_id != -1 {
+            self.potential_packets += current_packet_id.wrapping_sub(self.previous_packet_id as u8);
+        } else {
+            self.potential_packets += 1;
+        }
+
+        if self.potential_packets >= 100 {
+            info!(
+                "Packet Yield: {}% ({}/{})",
+                self.received_subpackets / self.potential_subpackets * 100.0,
+                self.received_subpackets,
+                self.potential_subpackets
+            );
+            info!("Frame Yield: {}%", self.recieved_packets);
+
+            self.recieved_packets = 0;
+            self.potential_packets = 0;
+
+            self.received_subpackets = 0.0;
+            self.potential_subpackets = 0.0;
+        }
+    }
+
+    #[cfg(feature = "stat")]
+    pub fn increment_subpacket_count(&mut self) {
+        self.received_subpackets += 1.0;
+    }
 
     #[inline]
     pub fn assemble_packet(&mut self, buf: &[u8], number_of_bytes: usize) -> Option<Vec<u8>> {
         let packets_remaining = parse_packets_remaining(buf);
         let real_packet_size = parse_real_packet_size(buf);
+        let packet_id = parse_packet_id(buf);
 
         if self.previous_subpacket_number != (packets_remaining + 1) as i16
             && self.previous_subpacket_number > 0
         {
-            debug!(
+            trace!(
                 "Packet Order Mixup: {} -> {}",
-                self.previous_subpacket_number, packets_remaining
+                self.previous_subpacket_number,
+                packets_remaining
             );
 
             self.order_mismatch = true;
         }
         self.previous_subpacket_number = packets_remaining as i16;
 
-        self.packet.push(buf[..number_of_bytes].to_vec());
+        self.packets.push(buf[..number_of_bytes].to_vec());
+        #[cfg(feature = "stat")]
+        self.increment_subpacket_count();
+
         if packets_remaining != 0 {
             return None;
         }
@@ -422,11 +451,15 @@ impl PacketConstructor {
         }
 
         let mut assembled_packet = Vec::new();
-        for packet in &self.packet {
+        for packet in &self.packets {
             assembled_packet.extend_from_slice(&packet[HEADER..]);
         }
-        self.packet.clear();
 
+        #[cfg(feature = "stat")]
+        self.calculate_yield(packet_id);
+
+        self.previous_packet_id = packet_id as i16;
+        self.packets.clear();
         Some(assembled_packet)
     }
 }

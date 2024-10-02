@@ -184,7 +184,7 @@ impl VideoThread {
         _conn_sender: Sender<super::ConnectionAction>,
         client: Client,
     ) {
-        use log::debug;
+        use log::{debug, trace};
 
         use crate::video::convert::RGBBuffer;
 
@@ -268,7 +268,7 @@ impl VideoThread {
                         frame_count += 1;
                         if fps_clock.elapsed().as_secs() >= 1 {
                             fps_clock = std::time::Instant::now();
-                            debug!("FPS: {}", frame_count);
+                            trace!("FPS: {}", frame_count);
                             fps = frame_count;
                             frame_count = 0;
                         }

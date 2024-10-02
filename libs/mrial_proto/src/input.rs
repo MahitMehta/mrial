@@ -75,7 +75,7 @@ impl Into<u8> for KeyEvent {
     fn into(self) -> u8 {
         self as u8
     }
-}   
+}
 
 impl PartialEq<u8> for KeyEvent {
     fn eq(&self, other: &u8) -> bool {
