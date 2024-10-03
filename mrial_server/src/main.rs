@@ -5,7 +5,7 @@ mod video;
 
 use audio::{AudioServerThread, IAudioController};
 use conn::Connection;
-use video::{VideoServerActions, VideoServerThread};
+use video::{VideoServerAction, VideoServerThread};
 
 #[tokio::main]
 async fn main() {

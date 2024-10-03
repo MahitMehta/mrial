@@ -1,12 +1,12 @@
 pub mod display;
 pub mod yuv;
 
-use chacha20poly1305::{aead::Aead, AeadCore, ChaCha20Poly1305};
+use deploy::PacketDeployer;
 use display::DisplayMeta;
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use kanal::unbounded;
+use log::debug;
 use mrial_proto::*;
-use rand::rngs::ThreadRng;
 use scrap::{Capturer, Display};
 use std::{
     collections::VecDeque,
@@ -26,25 +26,23 @@ use crate::{
 use self::yuv::EColorSpace;
 
 #[derive(PartialEq)]
-pub enum VideoServerActions {
+pub enum VideoServerAction {
     Inactive,
     ConfigUpdate,
     SymKey,
 }
 
 pub struct VideoServerThread {
-    conn: Connection,
+    pool: ThreadPool,
+    yuv_handles: VecDeque<RemoteHandle<YUVBuffer>>,
     file: Option<File>,
-    capturer: Capturer,
-    frame_count: i64,
-    packet_id: u8,
-    buf: [u8; MTU],
     row_len: usize,
-
     par: Param,
+    pic: Picture,
+    capturer: Capturer,
     encoder: Encoder,
-    rng: ThreadRng,
-    sym_key: Option<ChaCha20Poly1305>,
+    deployer: PacketDeployer,
+    conn: Connection,
 }
 
 impl VideoServerThread {
@@ -54,27 +52,26 @@ impl VideoServerThread {
 
         conn.set_dimensions(capturer.width(), capturer.height());
 
+        let pool = ThreadPool::builder().pool_size(1).create().unwrap();
+        let yuv_handles = VecDeque::new();
+
         let row_len = 4 * conn.get_meta().width * conn.get_meta().width;
 
         let mut par: Param = VideoServerThread::get_parameters(conn.get_meta());
         let encoder = x264::Encoder::open(&mut par).unwrap();
-
-        let mut buf = [0u8; MTU];
-        write_packet_type(EPacketType::NAL, &mut buf);
+        let pic = Picture::from_param(&par).unwrap();
 
         Self {
-            conn,
+            pool,
+            yuv_handles,
             row_len,
             file: None,
-            capturer,
-            frame_count: 0,
-            packet_id: 1,
-            buf,
-
             par,
+            pic,
+            capturer,
             encoder,
-            rng: rand::thread_rng(),
-            sym_key: None,
+            deployer: PacketDeployer::new(EPacketType::NAL),
+            conn,
         }
     }
 
@@ -104,95 +101,81 @@ impl VideoServerThread {
         par
     }
 
+    fn handle_server_action(&mut self, server_action: Option<VideoServerAction>) {
+        match server_action {
+            Some(VideoServerAction::Inactive) => {
+                self.encoder = x264::Encoder::open(&mut self.par).unwrap();
+            }
+            Some(VideoServerAction::SymKey) => {
+                if let Some(sym_key) = self.conn.get_sym_key() {
+                    self.deployer.set_sym_key(sym_key.clone());
+                }
+            }
+            Some(VideoServerAction::ConfigUpdate) => {
+                let requested_width = self.conn.get_meta().width;
+                let requested_height = self.conn.get_meta().height;
+
+                if requested_width == self.capturer.width() as usize
+                    && requested_height == self.capturer.height() as usize
+                {
+                    return;
+                }
+
+                let _updated_resolution =
+                    match DisplayMeta::update_display_resolution(requested_width, requested_height)
+                    {
+                        Ok(updated) => updated,
+                        Err(e) => {
+                            debug!("Error updating display resolution: {}", e);
+                            false
+                        }
+                    };
+
+                let display = Display::primary().unwrap();
+                self.capturer = Capturer::new(display).unwrap();
+
+                self.conn
+                    .set_dimensions(self.capturer.width(), self.capturer.height());
+
+                self.par = VideoServerThread::get_parameters(self.conn.get_meta());
+                self.encoder = x264::Encoder::open(&mut self.par).unwrap();
+
+                if self.deployer.has_sym_key() {
+                    let headers = self.encoder.get_headers().unwrap();
+                    let header_bytes = headers.as_bytes();
+                    self.deployer.prepare(
+                        &header_bytes,
+                        Box::new(|subpacket| {
+                            self.conn.broadcast(&subpacket);
+                        }),
+                    );
+                }
+
+                self.pic = Picture::from_param(&self.par).unwrap();
+
+                self.yuv_handles.clear();
+            }
+            None => {
+                return;
+            }
+        }
+    }
+
     #[inline]
     pub async fn run(&mut self) {
-        let (ch_sender, ch_receiver) = unbounded::<VideoServerActions>();
-
-        let mut pic = Picture::from_param(&self.par).unwrap();
-
-        let pool = ThreadPool::builder().pool_size(1).create().unwrap();
-        let mut yuv_handles: VecDeque<RemoteHandle<YUVBuffer>> = VecDeque::new();
+        let (ch_sender, ch_receiver) = unbounded::<VideoServerAction>();
 
         let mut frames = 0u8;
         let mut fps_time = Instant::now();
 
-        let mut headers = self.encoder.get_headers().unwrap();
-
-        let events = EventsThread::new();
-        events.run(
-            &mut self.conn,
-            headers.as_bytes().to_vec(),
-            ch_sender.clone(),
-        );
+        // Send update to client to update headers
+        let headers = self.encoder.get_headers().unwrap();
+        EventsThread::run(&self.conn, headers.as_bytes().to_vec(), ch_sender.clone());
 
         loop {
             while ch_receiver.len() > 0 {
-                match ch_receiver.try_recv_realtime().unwrap() {
-                    Some(VideoServerActions::Inactive) => {
-                        self.encoder = x264::Encoder::open(&mut self.par).unwrap();
-                    }
-                    Some(VideoServerActions::SymKey) => {
-                        if let Some(sym_key) = self.conn.get_sym_key() {
-                            self.sym_key = Some(sym_key);
-                        }
-                    }
-                    Some(VideoServerActions::ConfigUpdate) => {
-                        let requested_width = self.conn.get_meta().width;
-                        let requested_height = self.conn.get_meta().height;
-
-                        if requested_width == self.capturer.width() as usize
-                            && requested_height == self.capturer.height() as usize
-                        {
-                            continue;
-                        }
-
-                        let _updated_resolution = match DisplayMeta::update_display_resolution(
-                            requested_width,
-                            requested_height,
-                        ) {
-                            Ok(updated) => updated,
-                            Err(e) => {
-                                println!("Error updating display resolution: {}", e);
-                                false
-                            }
-                        };
-
-                        let display = Display::primary().unwrap();
-                        self.capturer = Capturer::new(display).unwrap();
-
-                        self.conn
-                            .set_dimensions(self.capturer.width(), self.capturer.height());
-
-                        self.par = VideoServerThread::get_parameters(self.conn.get_meta());
-
-                        self.encoder = x264::Encoder::open(&mut self.par).unwrap();
-
-                        if let Some(sym_key) = &self.sym_key {
-                            headers = self.encoder.get_headers().unwrap();
-                            let header_bytes = headers.as_bytes();
-                            let nonce = ChaCha20Poly1305::generate_nonce(&mut self.rng);
-                            let mut ciphertext = sym_key.encrypt(&nonce, header_bytes).unwrap();
-                            ciphertext.extend_from_slice(&nonce);
-
-                            let mut buf = [0u8; MTU];
-                            write_header(
-                                EPacketType::NAL,
-                                0,
-                                (HEADER + ciphertext.len()) as u32,
-                                0,
-                                &mut buf,
-                            );
-                            buf[HEADER..HEADER + ciphertext.len()].copy_from_slice(&ciphertext);
-                            self.conn.broadcast(&buf[0..HEADER + ciphertext.len()]);
-                        }
-
-                        pic = Picture::from_param(&self.par).unwrap();
-
-                        yuv_handles.clear();
-                    }
-                    None => {
-                        break;
-                    }
+                if let Ok(server_action) = ch_receiver.try_recv_realtime() {
+                    self.handle_server_action(server_action);
                 }
             }
 
@@ -219,68 +202,39 @@ impl VideoServerThread {
                         );
                         yuv
                     };
-                    yuv_handles.push_back(pool.spawn_with_handle(cvt_rgb_yuv).unwrap());
+                    self.yuv_handles
+                        .push_back(self.pool.spawn_with_handle(cvt_rgb_yuv).unwrap());
 
                     // set to 1 to increase FPS at the cost of latency, or 0  for the opposite effect
-                    if yuv_handles.len() > 0 {
-                        //let start = Instant::now();
-                        let yuv = yuv_handles.pop_front().unwrap().await;
+                    if self.yuv_handles.len() > 0 {
+                        let yuv = self.yuv_handles.pop_front().unwrap().await;
 
-                        let y_plane = pic.as_mut_slice(0).unwrap();
+                        let y_plane = self.pic.as_mut_slice(0).unwrap();
                         y_plane.copy_from_slice(yuv.y());
-                        let u_plane = pic.as_mut_slice(1).unwrap();
+                        let u_plane = self.pic.as_mut_slice(1).unwrap();
                         u_plane.copy_from_slice(yuv.u_444());
-                        let v_plane = pic.as_mut_slice(2).unwrap();
+                        let v_plane = self.pic.as_mut_slice(2).unwrap();
                         v_plane.copy_from_slice(yuv.v_444());
 
-                        pic = pic.set_timestamp(self.frame_count);
-                        self.frame_count += 1;
+                        // TODO: Is this important?
+                        //self.pic.set_timestamp(self.frame_count);
 
-                        if let Some((nal, _, _)) = self.encoder.encode(&pic).unwrap() {
-                            if let Some(sym_key) = &self.sym_key {
-                                let bitstream = nal.as_bytes();
-                                let nonce = ChaCha20Poly1305::generate_nonce(&mut self.rng);
-                                let mut ciphertext = sym_key.encrypt(&nonce, bitstream).unwrap();
-                                ciphertext.extend_from_slice(&nonce);
-
-                                let packets =
-                                    (ciphertext.len() as f64 / PAYLOAD as f64).ceil() as usize;
-
-                                write_var_frame_header(
-                                    ciphertext.len().try_into().unwrap(),
-                                    self.packet_id,
-                                    &mut self.buf,
-                                );
-
-                                self.packet_id += 1;
-
-                                for i in 0..packets {
-                                    write_packets_remaining(
-                                        (packets - i - 1).try_into().unwrap(),
-                                        &mut self.buf,
-                                    );
-
-                                    let start = i * PAYLOAD;
-                                    let addition = if start + PAYLOAD <= ciphertext.len() {
-                                        PAYLOAD
-                                    } else {
-                                        ciphertext.len() - start
-                                    };
-                                    self.buf[HEADER..addition + HEADER]
-                                        .copy_from_slice(&ciphertext[start..(addition + start)]);
-
-                                    self.conn.broadcast(&self.buf[0..addition + HEADER]);
-                                }
-                                frames += 1;
-                            }
+                        if let Some((nal, _, _)) = self.encoder.encode(&self.pic).unwrap() {
+                            self.deployer.prepare(
+                                &nal.as_bytes(),
+                                Box::new(|subpacket| {
+                                    self.conn.broadcast(&subpacket);
+                                }),
+                            );
+                            frames += 1;
                         }
 
                         if fps_time.elapsed().as_secs() >= 1 && frames > 0 {
                             self.conn.filter_clients();
-                            // debug!(
-                            //     "FPS: {}",
-                            //     frames as f32 / fps_time.elapsed().as_secs() as f32
-                            // );
+                            debug!(
+                                "FPS: {}",
+                                frames as f32 / fps_time.elapsed().as_secs() as f32
+                            );
                             frames = 0;
                             fps_time = Instant::now();
                         }
@@ -293,7 +247,7 @@ impl VideoServerThread {
                 }
                 Err(ref e) if e.kind() == WouldBlock => {}
                 Err(_) => {
-                    println!("Error Capturing Frame")
+                    debug!("Error Capturing Frame")
                 }
             }
         }

@@ -1,4 +1,4 @@
-use std::thread;
+use std::{net::SocketAddr, thread};
 
 use enigo::{
     Direction::{Press, Release},
@@ -6,12 +6,16 @@ use enigo::{
 };
 use kanal::Sender;
 use log::debug;
-use mrial_proto::{input::*, packet::*, ClientStatePayload, JSONPayloadSE};
+use mrial_proto::{
+    input::*,
+    packet::{self, *},
+    ClientStatePayload, JSONPayloadSE,
+};
 
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
 
-use super::{conn::Connection, VideoServerActions};
+use super::{conn::Connection, VideoServerAction};
 
 pub struct EventsEmitter {
     enigo: Enigo,
@@ -200,99 +204,131 @@ impl EventsEmitter {
     }
 }
 
-pub struct EventsThread {}
+pub struct EventsThread {
+    emitter: EventsEmitter,
+    conn: Connection,
+    headers: Vec<u8>,
+    video_server_ch_sender: Sender<VideoServerAction>,
+}
 
 impl EventsThread {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(
+        conn: Connection,
+        headers: Vec<u8>,
+        video_server_ch_sender: Sender<VideoServerAction>,
+    ) -> Self {
+        Self {
+            emitter: EventsEmitter::new(),
+            conn,
+            headers,
+            video_server_ch_sender,
+        }
+    }
+
+    fn handle_event(&mut self, buf: &mut [u8], src: SocketAddr, size: usize) {
+        let packet_type = parse_packet_type(&buf);
+
+        match packet_type {
+            EPacketType::ShakeAE => {
+                let meta = match self
+                    .conn
+                    .connect_client(src, &buf[HEADER..size], &self.headers)
+                {
+                    Some(meta) => meta,
+                    None => return,
+                };
+
+                self.conn.mute_client(src, meta.muted.try_into().unwrap());
+
+                self.conn.set_dimensions(
+                    meta.width.try_into().unwrap(),
+                    meta.height.try_into().unwrap(),
+                );
+
+                self.video_server_ch_sender
+                    .send(VideoServerAction::SymKey)
+                    .unwrap();
+
+                self.video_server_ch_sender
+                    .send(VideoServerAction::ConfigUpdate)
+                    .unwrap();
+            }
+            EPacketType::ShakeUE => {
+                self.conn.initialize_client(src);
+            }
+            EPacketType::ClientState => {
+                let sym_key = self.conn.get_sym_key();
+                if sym_key.is_none() {
+                    return;
+                }
+
+                let meta = match ClientStatePayload::from_payload(
+                    &mut buf[HEADER..size],
+                    &mut sym_key.unwrap(),
+                ) {
+                    Ok(meta) => meta,
+                    Err(_) => return,
+                };
+
+                debug!("Client State: {:?}", meta);
+
+                self.conn.mute_client(src, meta.muted.try_into().unwrap());
+                self.conn.set_dimensions(
+                    meta.width.try_into().unwrap(),
+                    meta.height.try_into().unwrap(),
+                );
+
+                // TODO: Don't refresh encoder if the dimensions are the same
+
+                self.video_server_ch_sender
+                    .send(VideoServerAction::ConfigUpdate)
+                    .unwrap();
+            }
+            EPacketType::Alive => {
+                self.conn.send_alive(src);
+            }
+            EPacketType::PING => {
+                self.conn.received_ping(src);
+            }
+            EPacketType::Disconnect => {
+                self.conn.remove_client(src);
+                if self.conn.has_clients() {
+                    return;
+                }
+                self.video_server_ch_sender
+                    .send(VideoServerAction::Inactive)
+                    .unwrap();
+            }
+            EPacketType::InputState => {
+                self.emitter.input(
+                    &mut buf[HEADER..],
+                    self.conn.get_meta().width,
+                    self.conn.get_meta().height,
+                );
+            }
+            _ => {}
+        }
+    }
+
+    fn start_loop(&mut self) {
+        loop {
+            let mut buf = [0u8; MTU];
+            let (size, src) = self.conn.recv_from(&mut buf).unwrap();
+
+            self.handle_event(&mut buf, src, size);
+        }
     }
 
     pub fn run(
-        &self,
-        conn: &mut Connection,
+        conn: &Connection,
         headers: Vec<u8>,
-        video_server_ch_sender: Sender<VideoServerActions>,
+        video_server_ch_sender: Sender<VideoServerAction>,
     ) {
-        let mut conn = conn.clone();
+        let conn = conn.clone();
         let _ = thread::spawn(move || {
-            let mut emitter = EventsEmitter::new();
+            let mut events = EventsThread::new(conn, headers, video_server_ch_sender);
 
-            loop {
-                let mut buf = [0u8; MTU];
-                let (size, src) = conn.recv_from(&mut buf).unwrap();
-                let packet_type = parse_packet_type(&buf);
-
-                match packet_type {
-                    EPacketType::ShakeAE => {
-                        if let Some(meta) = conn.connect_client(src, &buf[HEADER..size], &headers) {
-                            conn.mute_client(src, meta.muted.try_into().unwrap());
-
-                            conn.set_dimensions(
-                                meta.width.try_into().unwrap(),
-                                meta.height.try_into().unwrap(),
-                            );
-
-                            video_server_ch_sender
-                                .send(VideoServerActions::SymKey)
-                                .unwrap();
-
-                            video_server_ch_sender
-                                .send(VideoServerActions::ConfigUpdate)
-                                .unwrap();
-                        }
-                    }
-                    EPacketType::ShakeUE => {
-                        conn.initialize_client(src);
-                    }
-                    EPacketType::ClientState => {
-                        let sym_key = conn.get_sym_key();
-                        if sym_key.is_none() {
-                            continue;
-                        }
-
-                        if let Ok(meta) = ClientStatePayload::from_payload(
-                            &mut buf[HEADER..size],
-                            &mut sym_key.unwrap(),
-                        ) {
-                            debug!("Client State: {:?}", meta);
-
-                            conn.mute_client(src, meta.muted.try_into().unwrap());
-                            conn.set_dimensions(
-                                meta.width.try_into().unwrap(),
-                                meta.height.try_into().unwrap(),
-                            );
-
-                            // TODO: Don't refresh encoder if the dimensions are the same
-
-                            video_server_ch_sender
-                                .send(VideoServerActions::ConfigUpdate)
-                                .unwrap();
-                        };
-                    }
-                    EPacketType::Alive => {
-                        conn.send_alive(src);
-                    }
-                    EPacketType::PING => {
-                        conn.received_ping(src);
-                    }
-                    EPacketType::Disconnect => {
-                        conn.remove_client(src);
-                        if !conn.has_clients() {
-                            video_server_ch_sender
-                                .send(VideoServerActions::Inactive)
-                                .unwrap();
-                        }
-                    }
-                    EPacketType::InputState => {
-                        emitter.input(
-                            &mut buf[HEADER..],
-                            conn.get_meta().width,
-                            conn.get_meta().height,
-                        );
-                    }
-                    _ => {}
-                }
-            }
+            events.start_loop();
         });
     }
 }

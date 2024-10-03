@@ -1,5 +1,5 @@
 use chacha20poly1305::{aead::Aead, ChaCha20Poly1305};
-use log::{trace, debug};
+use log::{debug, trace};
 use std::collections::HashMap;
 
 use crate::SE_NONCE;
@@ -78,7 +78,7 @@ pub fn write_static_header(
 }
 
 #[inline]
-pub fn write_var_frame_header(real_packet_size: u32, packet_id: u8, buf: &mut [u8]) {
+pub fn write_dynamic_header(real_packet_size: u32, packet_id: u8, buf: &mut [u8]) {
     buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
     buf[7] = packet_id;
 }
@@ -331,7 +331,8 @@ impl PacketConstructor {
                 parse_packets_remaining(&packet)
             ));
         }
-        debug!("Subpackets: {} (Packet ID:{})", 
+        debug!(
+            "Subpackets: {} (Packet ID:{})",
             subpacket_count(parse_real_packet_size(self.packets.last().unwrap())),
             parse_packet_id(self.packets.last().unwrap())
         );

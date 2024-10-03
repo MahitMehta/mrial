@@ -1,56 +1,78 @@
-// pub struct PacketDeployer {
-//     buf: [u8; MTU],
-//     socket: UdpSocket,
-//     packet_type: EPacketType
-// }
+use chacha20poly1305::{aead::Aead, AeadCore, ChaCha20Poly1305};
+use rand::rngs::ThreadRng;
 
-// impl PacketDeployer {
-//     pub fn new(socket: UdpSocket, packet_type: EPacketType) -> Self {
-//         let mut buf = [0u8; MTU];
-//         write_packet_type(packet_type, &mut buf);
+use crate::{
+    subpacket_count, write_dynamic_header, write_packet_type, write_packets_remaining, EPacketType,
+    HEADER, MTU, PAYLOAD,
+};
 
-//         Self {
-//             buf,
-//             socket,
-//             packet_type
-//         }
-//     }
+pub struct PacketDeployer {
+    buf: [u8; MTU],
+    packet_id: u8,
+    rng: ThreadRng,
+    sym_key: Option<ChaCha20Poly1305>,
+}
 
-//     #[inline]
-//     pub fn encrypted_frame(
-//         &mut self,
-//         frame: &mut [u8],
-//         rng: ThreadRng,
-//         mut sym_key: ChaCha20Poly1305
-//     ) -> (Vec<u8>, Vec<u8>){
-//         let nonce = ChaCha20Poly1305::generate_nonce(rng);
-//         let auth_tag = sym_key.encrypt_in_place_detached(
-//             &nonce, &[0u8; 0], frame).unwrap();
+impl PacketDeployer {
+    pub fn new(packet_type: EPacketType) -> Self {
+        let mut buf = [0u8; MTU];
+        write_packet_type(packet_type, &mut buf);
 
-//         (auth_tag.to_vec(), nonce.to_vec())
-//     }
+        Self {
+            buf,
+            packet_id: 1,
+            rng: rand::thread_rng(),
+            sym_key: None,
+        }
+    }
 
-//     #[inline]
-//     pub fn frame_chunks(
-//         &mut self,
-//         frame: &mut [u8],
-//         packets_remaining: u16,
-//         packet_id: u8,
-//         rng: ThreadRng,
-//         sym_key: ChaCha20Poly1305
-//     ) {
-//         write_variable_header(packets_remaining, packet_id, &mut self.buf);
-//         let (auth_tag, nounce) = self.encrypted_frame(
-//             frame, rng, sym_key);
+    pub fn set_sym_key(&mut self, sym_key: ChaCha20Poly1305) {
+        self.sym_key = Some(sym_key);
+    }
 
-//         let packets = (frame.len() as f64 / PAYLOAD as f64).ceil() as usize;
-//     }
+    pub fn has_sym_key(&self) -> bool {
+        self.sym_key.is_some()
+    }
 
-//     pub fn try_clone(&self) -> Result<Self, Box<(dyn serde::ser::StdError + 'static)>> {
-//         Ok(Self {
-//             buf: self.buf,
-//             socket: self.socket.try_clone()?,
-//             packet_type: self.packet_type
-//         })
-//     }
-// }
+    #[inline]
+    pub fn prepare<'a>(&mut self, frame: &[u8], broadcast: Box<dyn Fn(&[u8]) + 'a>) {
+        let ciphertext = match self.encrypted_frame(frame) {
+            Some(ciphertext) => ciphertext,
+            None => return,
+        };
+
+        let real_packet_size = ciphertext.len() as u32;
+        let packets = subpacket_count(real_packet_size);
+
+        write_dynamic_header(real_packet_size, self.packet_id, &mut self.buf);
+
+        for i in 0..packets {
+            write_packets_remaining(packets - i - 1, &mut self.buf);
+
+            let start = (i as usize) * PAYLOAD;
+            let addition = if start + PAYLOAD <= ciphertext.len() {
+                PAYLOAD
+            } else {
+                ciphertext.len() - start
+            };
+            self.buf[HEADER..addition + HEADER]
+                .copy_from_slice(&ciphertext[start..(addition + start)]);
+
+            broadcast(&self.buf[0..addition + HEADER]);
+        }
+
+        self.packet_id += 1;
+    }
+
+    fn encrypted_frame(&mut self, frame: &[u8]) -> Option<Vec<u8>> {
+        if let Some(sym_key) = &self.sym_key {
+            let nonce = ChaCha20Poly1305::generate_nonce(&mut self.rng);
+            let mut ciphertext = sym_key.encrypt(&nonce, frame).unwrap();
+            ciphertext.extend_from_slice(&nonce);
+
+            return Some(ciphertext);
+        }
+
+        None
+    }
+}
