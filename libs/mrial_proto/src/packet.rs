@@ -27,8 +27,10 @@ pub enum EPacketType {
     // Header (Unecrypted) + JSON Containing Server State (Symmetrically Encrypted)
     ShookSE = 10,
     Alive = 11,
+    XOR = 12,
     // TODO: Add Server Pings in addition to Client Pings
     InternalEOL = 13,
+    Unknown = 255
 }
 
 impl From<u8> for EPacketType {
@@ -46,8 +48,9 @@ impl From<u8> for EPacketType {
             9 => EPacketType::ShakeAE,
             10 => EPacketType::ShookSE,
             11 => EPacketType::Alive,
+            12 => EPacketType::XOR,
             13 => EPacketType::InternalEOL,
-            _ => panic!("Invalid Packet Type"),
+            _ => EPacketType::Unknown,
         }
     }
 }
@@ -139,6 +142,11 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
 
 #[inline]
 pub fn decrypt_frame(sym_key: &ChaCha20Poly1305, encrypted_frame: &[u8]) -> Option<Vec<u8>> {
+    if encrypted_frame.len() < SE_NONCE {
+        debug!("\x1b[93mCorrupted Frame\x1b[0m");
+        return None;
+    }
+
     let encrypted_payload = &encrypted_frame[0..encrypted_frame.len() - SE_NONCE];
     let nonce = &encrypted_frame[encrypted_frame.len() - 12..encrypted_frame.len()];
     let nonce = nonce.try_into().map_err(|_| "Corrupted SE Nonce").unwrap();
@@ -162,6 +170,7 @@ pub struct PacketConstructor {
     packets: Vec<Vec<u8>>,
     previous_subpacket_number: i16,
     order_mismatch: bool,
+    xor_packets: HashMap<u8, Vec<Vec<u8>>>,
     cached_packets: HashMap<u8, Vec<Vec<u8>>>,
     previous_packet_id: i16,
 
@@ -175,6 +184,8 @@ pub struct PacketConstructor {
     received_subpackets: f64,
     #[cfg(feature = "stat")]
     potential_subpackets: f64,
+    #[cfg(feature = "stat")]
+    recovered_frames: u16,
 }
 
 impl PacketConstructor {
@@ -185,6 +196,7 @@ impl PacketConstructor {
             order_mismatch: false,
             cached_packets: HashMap::new(),
             previous_packet_id: -1,
+            xor_packets: HashMap::new(),
 
             #[cfg(feature = "stat")]
             recieved_packets: 0,
@@ -196,6 +208,8 @@ impl PacketConstructor {
             received_subpackets: 0.0,
             #[cfg(feature = "stat")]
             potential_subpackets: 0.0,
+            #[cfg(feature = "stat")]
+            recovered_frames: 0,
         }
     }
 
@@ -204,9 +218,74 @@ impl PacketConstructor {
     #[inline]
     fn reconstruct_when_deficient(&mut self) -> bool {
         let last_packet_id = parse_packet_id(self.packets.last().unwrap());
-        if let Some(_cached_packets) = self.cached_packets.get(&last_packet_id) {
+        if false {// let Some(_cached_packets) = self.cached_packets.get(&last_packet_id) {
             debug!("TODO: Append Found Cached Packets");
         } else {
+            if let Some(xor_packets) = self.xor_packets.get(&last_packet_id) {
+                if xor_packets.len() > 0 { 
+                    debug!("Attempting Recovery from XOR");
+
+                    // packets could have multiple frames
+                    let subpackets = subpacket_count(parse_real_packet_size(self.packets.last().unwrap()));
+                    let parity_packet_count = (subpackets as f32 / 3.0).ceil() as u16;
+
+                    for i in 0..self.packets.len() - 1 {
+                        let curr_packet = &self.packets[i];
+                        let next_packet = &self.packets[i + 1];
+
+                        let curr_remaining_packets = parse_packets_remaining(curr_packet);
+                        let next_remaining_packets = parse_packets_remaining(next_packet);
+
+                        if curr_remaining_packets - next_remaining_packets  != 1 {
+                            trace!("{} {}", curr_remaining_packets, next_remaining_packets);
+                            let missing_subpacket_id = curr_remaining_packets - 1;
+                            let xor_packet = xor_packets.iter().find(|packet| {
+                                let missing_packet_index = subpackets - missing_subpacket_id;
+                                let xor_remaining_packets = subpackets - (missing_packet_index % parity_packet_count);
+                                parse_packets_remaining(&packet) == xor_remaining_packets
+                            });
+                            if let Some(xor_packet) = xor_packet {
+                                trace!("Found XOR Packet: {}", parse_packets_remaining(xor_packet));
+
+                                let complement_packets: Vec<&Vec<u8>> = self.packets.iter().filter(|packet| {
+                                    let subpacket_index = subpackets - parse_packets_remaining(packet);
+                                    let xor_remaining_packets = subpackets - (subpacket_index % parity_packet_count);
+                                    xor_remaining_packets == parse_packets_remaining(xor_packet)
+                                }).collect();
+
+                                if complement_packets.len() == 2 {
+                                    trace!("Found Complement Packets");
+
+                                    let mut recovered_packet = xor_packet.clone();
+                                    if recovered_packet.len() != complement_packets[0].len() || 
+                                        recovered_packet.len() != complement_packets[1].len() {
+                                        trace!("Packet Size Mismatch");
+                                        continue;
+                                    }
+                                    for i in 0..recovered_packet.len() {
+        
+                                        recovered_packet[i] ^= complement_packets[0][i];
+                                        recovered_packet[i] ^= complement_packets[1][i];
+                                    }
+
+                                    write_packets_remaining(missing_subpacket_id, &mut recovered_packet);
+                                    self.packets.insert(i + 1, recovered_packet);
+                                }
+                            }
+                        }
+                    }
+
+                    if self.packets.len() as u16 == subpackets {
+                        trace!("Recovered Frame");
+
+                        #[cfg(feature = "stat")]
+                        self.increment_recovered_frames();
+
+                        return true;
+                    }
+                }
+            }
+
             debug!("Cached Packet Units for Potential Future Reconstruction");
             // TODO: implement a way of clearing all packets that have an id in incoming cached packets
 
@@ -320,6 +399,7 @@ impl PacketConstructor {
     fn print_packet_order(&mut self) {
         debug!("Packet Type: {:?}", EPacketType::from(self.packets[0][0]));
         let mut packet_order = String::new();
+        let mut xor_packet_order = String::new();
         for packet in &self.packets {
             if self.latest_packet_id != parse_packet_id(packet) as i16 {
                 self.potential_subpackets += subpacket_count(parse_real_packet_size(packet)) as f64;
@@ -331,12 +411,23 @@ impl PacketConstructor {
                 parse_packets_remaining(&packet)
             ));
         }
+        if let Some(xor_packet) = self.xor_packets.get(&parse_packet_id(self.packets.last().unwrap())) {
+            for packet in xor_packet {
+                xor_packet_order.push_str(&format!(
+                    "{}-{}, ",
+                    parse_packet_id(&packet),
+                    parse_packets_remaining(&packet)
+                ));
+            }
+        }
+
         debug!(
             "Subpackets: {} (Packet ID:{})",
             subpacket_count(parse_real_packet_size(self.packets.last().unwrap())),
             parse_packet_id(self.packets.last().unwrap())
         );
         debug!("Packet Order: {}", packet_order);
+        debug!("XOR Packet Order: {}", xor_packet_order);
     }
 
     #[inline]
@@ -404,14 +495,20 @@ impl PacketConstructor {
                 self.received_subpackets,
                 self.potential_subpackets
             );
-            info!("Frame Yield: {}%", self.recieved_packets);
+            info!("Frame Yield: {}% ({} Recovered Frames)", self.recieved_packets, self.recovered_frames);
 
             self.recieved_packets = 0;
             self.potential_packets = 0;
+            self.recovered_frames = 0; 
 
             self.received_subpackets = 0.0;
             self.potential_subpackets = 0.0;
         }
+    }
+
+    #[cfg(feature = "stat")]
+    pub fn increment_recovered_frames(&mut self) {
+        self.recovered_frames += 1;
     }
 
     #[cfg(feature = "stat")]
@@ -421,6 +518,17 @@ impl PacketConstructor {
 
     #[inline]
     pub fn assemble_packet(&mut self, buf: &[u8], number_of_bytes: usize) -> Option<Vec<u8>> {
+        if parse_packet_type(buf) == EPacketType::XOR {
+            if !self.xor_packets.contains_key(&parse_packet_id(buf)) {
+                self.xor_packets
+                    .insert(parse_packet_id(buf), vec![buf[..number_of_bytes].to_vec()]);
+            } else if let Some(xor_packets) = self.xor_packets.get_mut(&parse_packet_id(buf)) {
+                xor_packets.push(buf[..number_of_bytes].to_vec());
+            }
+
+            return None;
+        }
+
         let packets_remaining = parse_packets_remaining(buf);
         let real_packet_size = parse_real_packet_size(buf);
         let packet_id = parse_packet_id(buf);
@@ -459,6 +567,17 @@ impl PacketConstructor {
         #[cfg(feature = "stat")]
         self.calculate_yield(packet_id);
 
+        let packets_diff = packet_id.wrapping_sub(self.previous_packet_id as u8);
+        for i in 1..=packets_diff {
+            let calculated_packet_id = if self.previous_packet_id == -1 {
+                packet_id
+            } else {
+                (self.previous_packet_id as u8) + i
+            };
+            if let Some(xor_packets) = self.xor_packets.get_mut(&calculated_packet_id) {
+                xor_packets.clear();
+            }
+        }
         self.previous_packet_id = packet_id as i16;
         self.packets.clear();
         Some(assembled_packet)

@@ -446,7 +446,9 @@ fn main() {
 
                     match packet_type {
                         EPacketType::Audio => audio.play_audio_stream(&buf, number_of_bytes),
-                        EPacketType::NAL => video.packet(&buf, &client, number_of_bytes),
+                        EPacketType::NAL | EPacketType::XOR => {
+                            video.packet(&buf, &client, number_of_bytes)
+                        }
                         _ => {}
                     }
                 }

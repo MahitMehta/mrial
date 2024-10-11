@@ -8,7 +8,7 @@ use kanal::Sender;
 use log::debug;
 use mrial_proto::{
     input::*,
-    packet::{self, *},
+    packet::*,
     ClientStatePayload, JSONPayloadSE,
 };
 
@@ -20,6 +20,8 @@ use super::{conn::Connection, VideoServerAction};
 pub struct EventsEmitter {
     enigo: Enigo,
     mouse: mouse_rs::Mouse,
+
+    left_mouse_held: bool,
 
     #[cfg(target_os = "linux")]
     uinput: mouse_keyboard_input::VirtualDevice,
@@ -39,6 +41,7 @@ impl EventsEmitter {
             enigo,
             mouse,
             uinput,
+            left_mouse_held: false,
         }
     }
 
@@ -47,7 +50,7 @@ impl EventsEmitter {
         let mouse = mouse_rs::Mouse::new(); // requires package install on linux (libxdo-dev)
         let enigo = Enigo::new(&Settings::default()).unwrap();
 
-        Self { mouse, enigo }
+        Self { mouse, enigo, mouse_held: false }
     }
 
     // sudo apt install libudev-dev libevdev-dev libhidapi-dev
@@ -78,6 +81,7 @@ impl EventsEmitter {
                     .enigo
                     .button(enigo::Button::Right, enigo::Direction::Click);
             } else {
+                self.left_mouse_held = !self.left_mouse_held;
                 let _ = &self
                     .enigo
                     .button(enigo::Button::Left, enigo::Direction::Click);
@@ -87,8 +91,9 @@ impl EventsEmitter {
         if mouse_move_requested(buf) {
             let (x, y, pressed) = parse_mouse_move(buf, width as f32, height as f32);
             let _ = &self.mouse.move_to(x, y);
-
-            if pressed {
+            
+            if pressed && !self.left_mouse_held {
+                self.left_mouse_held = true;
                 let _ = &self
                     .enigo
                     .button(enigo::Button::Left, enigo::Direction::Press);

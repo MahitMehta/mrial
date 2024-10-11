@@ -50,7 +50,13 @@ impl Client {
     }
 
     pub fn is_alive(&self) -> bool {
-        self.last_ping.elapsed().unwrap().as_secs() < SERVER_PING_TOLERANCE
+        let alive = self.last_ping.elapsed().unwrap().as_secs() < SERVER_PING_TOLERANCE;
+
+        if !alive {
+            debug!("Client: {} is Dead", self.src);
+        }
+
+        alive
     }
 }
 

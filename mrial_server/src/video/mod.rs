@@ -70,7 +70,7 @@ impl VideoServerThread {
             pic,
             capturer,
             encoder,
-            deployer: PacketDeployer::new(EPacketType::NAL),
+            deployer: PacketDeployer::new(EPacketType::NAL, true),
             conn,
         }
     }
