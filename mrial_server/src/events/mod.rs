@@ -6,11 +6,7 @@ use enigo::{
 };
 use kanal::Sender;
 use log::debug;
-use mrial_proto::{
-    input::*,
-    packet::*,
-    ClientStatePayload, JSONPayloadSE,
-};
+use mrial_proto::{input::*, packet::*, ClientStatePayload, JSONPayloadSE};
 
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
@@ -50,7 +46,11 @@ impl EventsEmitter {
         let mouse = mouse_rs::Mouse::new(); // requires package install on linux (libxdo-dev)
         let enigo = Enigo::new(&Settings::default()).unwrap();
 
-        Self { mouse, enigo, mouse_held: false }
+        Self {
+            mouse,
+            enigo,
+            left_mouse_held: false,
+        }
     }
 
     // sudo apt install libudev-dev libevdev-dev libhidapi-dev
@@ -91,7 +91,7 @@ impl EventsEmitter {
         if mouse_move_requested(buf) {
             let (x, y, pressed) = parse_mouse_move(buf, width as f32, height as f32);
             let _ = &self.mouse.move_to(x, y);
-            
+
             if pressed && !self.left_mouse_held {
                 self.left_mouse_held = true;
                 let _ = &self

@@ -1,12 +1,18 @@
 use std::{
     error::Error,
     fs::{self, File, OpenOptions},
-    io::{BufReader, Write},
+    io::{BufReader, ErrorKind, Write},
     sync::{Arc, Mutex},
 };
 
-use log::debug;
+use log::{debug, error};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
+
+pub struct StorageSingleton<T> {
+    state: Arc<Mutex<Option<T>>>,
+    db_path: String,
+    file_name: String,
+}
 
 pub struct StorageMulti<T> {
     state: Arc<Mutex<Option<Vec<T>>>>,
@@ -15,8 +21,21 @@ pub struct StorageMulti<T> {
 }
 
 #[derive(Serialize, Deserialize)]
+pub struct StorageSingletonWrapper<T> {
+    data: T,
+}
+
+#[derive(Serialize, Deserialize)]
 pub struct StorageMultiWrapper<T> {
     data: Vec<T>,
+}
+
+pub trait StorageSingletonType<T: Serialize + DeserializeOwned + Clone, K> {
+    fn new() -> Self;
+    fn load(&mut self) -> Result<(), Box<dyn Error>>;
+    fn save(&self) -> Result<(), Box<dyn Error>>;
+    fn clone(&self) -> Self;
+    fn get(&self) -> Arc<Mutex<Option<T>>>;
 }
 
 pub trait StorageMultiType<T: Serialize + DeserializeOwned + Clone, K> {
@@ -30,6 +49,89 @@ pub trait StorageMultiType<T: Serialize + DeserializeOwned + Clone, K> {
 }
 
 const DB_PATH: &'static str = "Mrial/db";
+
+impl<T: Serialize + DeserializeOwned + Clone + Default> StorageSingleton<T> {
+    pub fn new(file_name: String) -> Self {
+        if !file_name.ends_with(".json") {
+            panic!("File Name Must End with .json");
+        }
+
+        StorageSingleton {
+            state: Arc::new(Mutex::new(None)),
+            db_path: DB_PATH.to_string(),
+            file_name,
+        }
+    }
+
+    pub fn get(&self) -> Arc<Mutex<Option<T>>> {
+        self.state.clone()
+    }
+
+    pub fn clone(&self) -> StorageSingleton<T> {
+        StorageSingleton {
+            state: self.state.clone(),
+            db_path: self.db_path.clone(),
+            file_name: self.file_name.clone(),
+        }
+    }
+
+    pub fn load(&mut self) -> Result<(), Box<dyn Error>> {
+        let os_data_dir = dirs::data_dir().unwrap();
+        let path = os_data_dir.join(&self.db_path).join(&self.file_name);
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(ref e) if e.kind() == ErrorKind::NotFound => {
+                *self.state.lock().unwrap() = Some(T::default());
+                return Ok(());
+            }
+            Err(e) => {
+                *self.state.lock().unwrap() = Some(T::default());
+                return Err(Box::new(e));
+            }
+        };
+
+        let reader = BufReader::new(file);
+
+        if let Ok(wrapped_state) =
+            serde_json::from_reader::<BufReader<File>, StorageSingletonWrapper<T>>(reader)
+        {
+            *self.state.lock().unwrap() = Some(wrapped_state.data);
+            return Ok(());
+        }
+
+        *self.state.lock().unwrap() = Some(T::default());
+        error!(
+            "Failed to Parse File; Resetting to Default @ {:?}",
+            self.file_name
+        );
+
+        Ok(())
+    }
+
+    pub fn save(&self) -> Result<(), Box<dyn Error>> {
+        let os_data_dir = dirs::data_dir().unwrap();
+        let data_dir = os_data_dir.join(&self.db_path);
+        let file_path = data_dir.join(&self.file_name);
+
+        fs::create_dir_all(&data_dir)?;
+
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&file_path)?;
+
+        let value: StorageSingletonWrapper<T> = StorageSingletonWrapper {
+            data: self.state.lock().unwrap().clone().unwrap(),
+        };
+
+        let json = serde_json::to_string(&value)?;
+        file.write_all(json.as_bytes())?;
+        debug!("Saved Data to Disk @ {:?}", file_path);
+
+        Ok(())
+    }
+}
 
 impl<T: Serialize + DeserializeOwned + Clone> StorageMulti<T> {
     pub fn new(file_name: String) -> Self {
@@ -100,9 +202,13 @@ impl<T: Serialize + DeserializeOwned + Clone> StorageMulti<T> {
         let path = os_data_dir.join(&self.db_path).join(&self.file_name);
         let file = match File::open(path) {
             Ok(file) => file,
-            Err(_) => {
+            Err(ref e) if e.kind() == ErrorKind::NotFound => {
                 *self.state.lock().unwrap() = Some(Vec::new());
                 return Ok(());
+            }
+            Err(e) => {
+                *self.state.lock().unwrap() = Some(Vec::new());
+                return Err(Box::new(e));
             }
         };
 
@@ -116,7 +222,12 @@ impl<T: Serialize + DeserializeOwned + Clone> StorageMulti<T> {
         }
 
         *self.state.lock().unwrap() = Some(Vec::new());
-        Err("Failed to Load Data".into())
+        error!(
+            "Failed to Parse File; Resetting to Default @ {:?}",
+            self.file_name
+        );
+
+        Ok(())
     }
 
     pub fn save(&self) -> Result<(), Box<dyn Error>> {

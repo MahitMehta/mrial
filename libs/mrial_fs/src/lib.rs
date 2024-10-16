@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::error::Error;
-use storage::{StorageMulti, StorageMultiType};
+use std::{
+    error::Error,
+    sync::{Arc, Mutex},
+};
+use storage::{StorageMulti, StorageMultiType, StorageSingleton, StorageSingletonType};
 
 pub mod storage;
 
@@ -61,6 +64,41 @@ impl StorageMultiType<Server, String> for Servers {
             username: server.username,
             pass: hex,
         })
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct AppStateType {
+    pub passed_setup: bool,
+}
+
+pub struct AppState {
+    state: StorageSingleton<AppStateType>,
+}
+
+impl StorageSingletonType<AppStateType, String> for AppState {
+    fn new() -> Self {
+        AppState {
+            state: StorageSingleton::new("state.json".to_string()),
+        }
+    }
+
+    fn get(&self) -> Arc<Mutex<Option<AppStateType>>> {
+        self.state.get()
+    }
+
+    fn clone(&self) -> AppState {
+        AppState {
+            state: self.state.clone(),
+        }
+    }
+
+    fn load(&mut self) -> Result<(), Box<dyn Error>> {
+        self.state.load()
+    }
+
+    fn save(&self) -> Result<(), Box<dyn Error>> {
+        self.state.save()
     }
 }
 

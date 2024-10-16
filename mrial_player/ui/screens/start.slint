@@ -2,6 +2,10 @@ import { Screen, MrialTextInput , MrialButton, Theme, ButtonType } from "../comm
 import { VerticalBox , Button , HorizontalBox} from "std-widgets.slint";
 import { Footer } from "../components/footer.slint";
 
+export global StartAdapter {
+    pure callback passed_setup();
+}
+
 export component StartScreen inherits Screen {
     VerticalLayout {
         height: root.height;
@@ -16,6 +20,7 @@ export component StartScreen inherits Screen {
                 label: "Continue Decentralized";
 
                 clicked => {
+                    StartAdapter.passed_setup();
                     root.set_current_subpage(1);
                 }
             }

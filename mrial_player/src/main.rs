@@ -1,15 +1,22 @@
 mod audio;
 mod client;
 mod input;
+mod utils;
 mod video;
 
 use audio::AudioClient;
 use cli_clipboard::{ClipboardContext, ClipboardProvider};
 use client::{Client, ClientMetaData, ConnectionState};
 use input::Input;
-use mrial_fs::Server;
-use mrial_fs::{storage::StorageMultiType, Servers, User, Users};
+use mrial_fs::{
+    storage::{StorageMultiType, StorageSingletonType},
+    AppState, Server, Servers, User, Users,
+};
 use mrial_proto::*;
+use utils::{
+    state::{handle_app_state, populate_servers, populate_users},
+    ConnectionAction,
+};
 use video::VideoThread;
 
 use std::sync::{Arc, Mutex};
@@ -22,50 +29,6 @@ use log::{debug, info};
 use slint::{ComponentHandle, SharedString, VecModel};
 
 slint::include_modules!();
-
-#[derive(PartialEq)]
-pub enum ConnectionAction {
-    Disconnect,
-    Connect,
-    Reconnect,
-    Handshake,
-    UpdateState,
-    CloseApplication,
-    Volume,
-}
-
-fn populate_users(users: Vec<User>, app_weak: &slint::Weak<MainWindow>) {
-    let slint_users = Rc::new(VecModel::default());
-    for user in users {
-        slint_users.push(IUser {
-            username: SharedString::from(user.username),
-            enabled: true,
-        });
-    }
-    app_weak
-        .unwrap()
-        .global::<HostingAdapter>()
-        .set_users(slint_users.into());
-}
-
-fn populate_servers(servers: Vec<Server>, app_weak: &slint::Weak<MainWindow>) {
-    let slint_servers = Rc::new(VecModel::default());
-    for server in servers {
-        slint_servers.push(IServer {
-            name: SharedString::from(server.name),
-            address: SharedString::from(server.address),
-            port: server.port.into(),
-            os: SharedString::from(server.os),
-            ram: 24,
-            storage: 40,
-            vcpu: 4,
-        });
-    }
-    app_weak
-        .unwrap()
-        .global::<HomeAdapter>()
-        .set_servers(slint_servers.into());
-}
 
 fn main() {
     pretty_env_logger::init_timed();
@@ -129,7 +92,22 @@ fn main() {
     let volume = Arc::new(Mutex::new(1.0f32));
     let volume_clone = volume.clone();
 
-    // =========== Start USER Management ============
+    // ================ App State ===================
+
+    let mut app_state = AppState::new();
+    match app_state.load() {
+        Ok(_) => {
+            debug!("App State Loaded");
+            handle_app_state(app_state, &app_weak);
+        }
+        Err(e) => {
+            debug!("Failed to Load App State: {}", e);
+        }
+    }
+
+    // =============== End App State ================
+    // ----------------------------------------------
+    // =========== Start User Management ============
 
     let mut users_storage = Users::new();
     match users_storage.load() {
@@ -186,9 +164,9 @@ fn main() {
     })
     .unwrap();
 
-    // =========== END USER Management ============
-    // --------------------------------------------
-    // =========== Start Server Functions Management ============
+    // ============ END USER Management =============
+    // ----------------------------------------------
+    // ====== Start Server Functions Management =====
 
     let mut servers_storage = Servers::new();
     let mut servers_storage_clone = servers_storage.clone();
@@ -252,13 +230,13 @@ fn main() {
                 pass: pass.to_string(),
             }) {
                 Ok(_) => {
-                    debug!("Server Added: {}", username);
+                    debug!("Server Added: {}", name);
                     let servers = servers_storage_clone.servers.get().unwrap();
                     populate_servers(servers, &app_weak_clone);
                     servers_storage_clone.save().unwrap();
                 }
                 Err(e) => {
-                    debug!("Failed to Add User: {}", e);
+                    debug!("Failed to Add Server: {}", e);
                 }
             },
         );
@@ -288,7 +266,9 @@ fn main() {
     })
     .unwrap();
 
-    // =========== End Server Functions Management ============
+    // ====== End Server Functions Management =======
+    // ----------------------------------------------
+    // ============= Stream Management ==============
 
     let app_weak = app.as_weak();
 

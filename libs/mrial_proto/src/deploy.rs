@@ -2,14 +2,8 @@ use chacha20poly1305::{aead::Aead, AeadCore, ChaCha20Poly1305};
 use rand::rngs::ThreadRng;
 
 use crate::{
-    subpacket_count, 
-    write_dynamic_header,
-    write_packet_type, 
-    write_packets_remaining, 
-    EPacketType, 
-    HEADER, 
-    MTU, 
-    PAYLOAD
+    subpacket_count, write_dynamic_header, write_packet_type, write_packets_remaining, EPacketType,
+    HEADER, MTU, PAYLOAD,
 };
 
 pub struct PacketDeployer {
@@ -64,10 +58,10 @@ impl PacketDeployer {
             let parity_packet_count = (subpackets as f32 / 3.0).ceil() as usize; // 4
 
             for i in 0..parity_packet_count {
-            // for i in (parity_packet_count / 2)..parity_packet_count {
+                // for i in (parity_packet_count / 2)..parity_packet_count {
                 let packet_one = i + parity_packet_count * 0;
-                let packet_two = i +  parity_packet_count * 1;
-                let packet_three = i + parity_packet_count * 2; 
+                let packet_two = i + parity_packet_count * 1;
+                let packet_three = i + parity_packet_count * 2;
 
                 write_packets_remaining(subpackets - i as u16 - 1, &mut self.xor_buf);
 
@@ -92,8 +86,7 @@ impl PacketDeployer {
             } else {
                 bytes.len() - start
             };
-            self.buf[HEADER..addition + HEADER]
-                .copy_from_slice(&bytes[start..addition + start]);
+            self.buf[HEADER..addition + HEADER].copy_from_slice(&bytes[start..addition + start]);
 
             broadcast(&self.buf[0..addition + HEADER]);
         }
