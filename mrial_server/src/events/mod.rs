@@ -50,7 +50,7 @@ impl EventsEmitter {
         let mouse = mouse_rs::Mouse::new(); // requires package install on linux (libxdo-dev)
         let enigo = Enigo::new(&Settings::default()).unwrap();
 
-        Self { mouse, enigo, mouse_held: false }
+        Self { mouse, enigo, left_mouse_held: false }
     }
 
     // sudo apt install libudev-dev libevdev-dev libhidapi-dev
