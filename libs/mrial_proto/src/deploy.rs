@@ -41,6 +41,28 @@ impl PacketDeployer {
         self.sym_key.is_some()
     }
 
+    fn xor_33<'a>(&mut self, bytes: &[u8], subpackets: u16, broadcast: &Box<dyn Fn(&[u8]) + 'a>) {
+        let parity_packet_count = (subpackets as f32 / 3.0).ceil() as usize; 
+
+        for i in 0..parity_packet_count {
+            let packet_one = i + parity_packet_count * 0;
+            let packet_two = i + parity_packet_count * 1;
+            let packet_three = i + parity_packet_count * 2;
+
+            write_packets_remaining(subpackets - i as u16 - 1, &mut self.xor_buf);
+
+            for n in 0..PAYLOAD {
+                let byte_one = bytes.get(packet_one * PAYLOAD + n).unwrap_or(&0);
+                let byte_two = bytes.get(packet_two * PAYLOAD + n).unwrap_or(&0);
+                let byte_three = bytes.get(packet_three * PAYLOAD + n).unwrap_or(&0);
+
+                self.xor_buf[HEADER + n] = byte_one ^ byte_two ^ byte_three;
+            }
+
+            broadcast(&self.xor_buf);
+        }
+    }
+
     #[inline]
     pub fn prepare<'a>(&mut self, frame: &[u8], broadcast: Box<dyn Fn(&[u8]) + 'a>) {
         let bytes = match self.encrypted_frame(frame) {
@@ -54,27 +76,10 @@ impl PacketDeployer {
         write_dynamic_header(real_packet_size, self.packet_id, &mut self.buf);
         write_dynamic_header(real_packet_size, self.packet_id, &mut self.xor_buf);
 
-        if subpackets > 2 {
-            let parity_packet_count = (subpackets as f32 / 3.0).ceil() as usize; // 4
-
-            for i in 0..parity_packet_count {
-                // for i in (parity_packet_count / 2)..parity_packet_count {
-                let packet_one = i + parity_packet_count * 0;
-                let packet_two = i + parity_packet_count * 1;
-                let packet_three = i + parity_packet_count * 2;
-
-                write_packets_remaining(subpackets - i as u16 - 1, &mut self.xor_buf);
-
-                for n in 0..PAYLOAD {
-                    let byte_one = bytes.get(packet_one * PAYLOAD + n).unwrap_or(&0);
-                    let byte_two = bytes.get(packet_two * PAYLOAD + n).unwrap_or(&0);
-                    let byte_three = bytes.get(packet_three * PAYLOAD + n).unwrap_or(&0);
-
-                    self.xor_buf[HEADER + n] = byte_one ^ byte_two ^ byte_three;
-                }
-
-                broadcast(&self.xor_buf);
-            }
+        // TODO: Currently only sending parity packets for frames with at least 3 subpackets, consider changing this
+        if self.xor && subpackets > 2 {
+            // TODO: Maybe send some xor packets after the original frame
+            self.xor_33(&bytes, subpackets, &broadcast);
         }
 
         for i in 0..subpackets {

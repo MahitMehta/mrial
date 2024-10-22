@@ -228,12 +228,13 @@ impl PacketConstructor {
             let curr_remaining_packets = parse_packets_remaining(curr_packet);
             let next_remaining_packets = parse_packets_remaining(next_packet);
 
+            // TODO: Handle situation when the first few packets are missing
             if curr_remaining_packets - next_remaining_packets != 1 {
                 debug!("Diff > 1");
-                trace!("{} {}", curr_remaining_packets, next_remaining_packets);
+                debug!("{} {}", curr_remaining_packets, next_remaining_packets);
                 let missing_subpacket_id = curr_remaining_packets - 1;
                 let xor_packet = xor_packets.iter().find(|packet| {
-                    let missing_packet_index = subpackets - missing_subpacket_id - 1; // TODO: Is this correct? (the -1)
+                    let missing_packet_index = subpackets - missing_subpacket_id; 
                     let xor_remaining_packets =
                         subpackets - (missing_packet_index % parity_packet_count);
                     parse_packets_remaining(packet) == xor_remaining_packets
