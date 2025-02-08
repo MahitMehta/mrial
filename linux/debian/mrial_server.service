@@ -1,6 +1,6 @@
 [Unit]
 Description=Mrial Server
-After=syslog.target network.target network-online.target sshd.service http-daem>
+After=syslog.target network.target network-online.target sshd.service
 Wants=network-online.target
 
 [Service]
