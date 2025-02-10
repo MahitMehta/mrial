@@ -3454,7 +3454,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_fs"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "dirs",
  "log",
@@ -3466,7 +3466,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_player"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "base64",
  "chacha20poly1305",
@@ -3492,7 +3492,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_proto"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "chacha20poly1305",
  "log",
@@ -3505,7 +3505,7 @@ dependencies = [
 
 [[package]]
 name = "mrial_server"
-version = "0.1.16"
+version = "0.1.17"
 dependencies = [
  "base64",
  "cfg-if 0.1.10",
@@ -4744,12 +4744,12 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 [[package]]
 name = "scrap"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "04f3e5e5b3bd8d65b04de768fe0bdbd1e2da0831be9f117e1cc1d71785c9126c"
 dependencies = [
  "block",
  "cfg-if 0.1.10",
  "libc",
+ "log",
+ "pretty_env_logger",
  "winapi 0.2.8",
 ]
 

@@ -15,7 +15,14 @@ async fn main() {
     pretty_env_logger::init_timed();
     let conn: Connection = Connection::new();
 
-    let mut video_server = VideoServerThread::new(conn.clone());
+    let mut video_server = match VideoServerThread::new(conn.clone()) {
+        Ok(server) => server,
+        Err(e) => {
+            log::error!("Failed to start Video Server: {}", e);
+            return;
+        }
+    };
+
     let audio_server = AudioServerThread::new();
 
     audio_server.run(conn);

@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Uncomment if using LightDM
-# export XAUTHORITY=/var/lib/lightdm/.Xauthority
-export DISPLAY=:0
+export RUST_LOG=debug
+
 /usr/bin/mrial_server
