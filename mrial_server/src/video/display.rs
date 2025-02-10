@@ -1,14 +1,23 @@
 #[cfg(target_os = "linux")]
 use xrandr::{ScreenResources, XHandle};
+use xrandr::XrandrError;
 
 pub struct DisplayMeta {}
 
 impl DisplayMeta {
     #[cfg(target_os = "linux")]
-    pub fn get_display_resolutions() -> Result<(Vec<u16>, Vec<u16>), xrandr::XrandrError> {
+    pub fn get_current_resolution() -> Result<(usize, usize), XrandrError> {
         let mut handle = XHandle::open().unwrap();
         let mon1 = &handle.monitors()?[0];
 
+        Ok((mon1.width_px as usize, mon1.height_px as usize))
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn get_display_resolutions() -> Result<(Vec<u16>, Vec<u16>), xrandr::XrandrError> {
+        let mut handle = XHandle::open().unwrap();
+        // let mon1 = &handle.monitors()?[0];
+    
         let mut widths: Vec<u16> = Vec::new();
         let mut heights: Vec<u16> = Vec::new();
 

@@ -122,7 +122,7 @@ impl VideoServerThread {
             capturer: Some(capturer),
             encoder,
             setting,
-            deployer: PacketDeployer::new(EPacketType::NAL, true),
+            deployer: PacketDeployer::new(EPacketType::NAL, false),
             conn
         })
     }
@@ -221,6 +221,18 @@ impl VideoServerThread {
                 match VideoServerThread::config_xenv() {
                     Ok(Setting::PostLogin) => {
                         self.setting = Setting::PostLogin;
+
+                        // TODO: This does not work, maybe this needs to be done after more time,
+                        // TODO: because the resolution does not change, or maybe it just doesn't know the 
+                        // TODO: correct resolution
+                        if let Ok((width, height)) = DisplayMeta::get_current_resolution() {
+                            debug!("Post-Login Resolution: {}x{}", width, height);
+
+                            if let Err(e) = DisplayMeta::update_display_resolution(width, height) {
+                                debug!("Error syncing display resolution after login: {}", e.to_string());
+                            }
+                        }
+                        
                         video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
                     }
                     _ => {}
