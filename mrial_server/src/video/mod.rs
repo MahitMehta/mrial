@@ -9,11 +9,7 @@ use log::debug;
 use mrial_proto::*;
 use scrap::{Capturer, Display};
 use std::{
-    collections::VecDeque,
-    fs::File,
-    io::{ErrorKind::WouldBlock, Write},
-    sync::RwLockReadGuard,
-    time::{Duration, Instant},
+    collections::VecDeque, env, fs::File, io::{ErrorKind::WouldBlock, Write}, process::Command, sync::RwLockReadGuard, thread, time::{Duration, Instant}
 };
 use x264::{Encoder, Param, Picture};
 use yuv::YUVBuffer;
@@ -29,7 +25,16 @@ use self::yuv::EColorSpace;
 pub enum VideoServerAction {
     Inactive,
     ConfigUpdate,
+    NewUserSession,
+    RestartStream,
     SymKey,
+}
+
+#[derive(PartialEq)]
+pub enum Setting {
+    Unknown,
+    PreLogin,
+    PostLogin
 }
 
 pub struct VideoServerThread {
@@ -39,40 +44,139 @@ pub struct VideoServerThread {
     row_len: usize,
     par: Param,
     pic: Picture,
-    capturer: Capturer,
+    capturer: Option<Capturer>,
     encoder: Encoder,
     deployer: PacketDeployer,
     conn: Connection,
+    setting: Setting,
+}
+
+fn get_x11_authenicated_client() -> Option<String> {
+    let gui_users_output = Command::new("sh")
+        .arg("-c")
+        .arg("who | grep tty7")
+        .output()
+        .unwrap();
+
+    if gui_users_output.stdout.is_empty() || !gui_users_output.status.success() {
+        return None;
+    }
+
+    let output_str = String::from_utf8(gui_users_output.stdout).unwrap();
+    if let Some(user) = output_str.split_whitespace().next() {
+        return Some(user.to_string());
+    }
+    
+    None
+}
+
+struct SessionSettingThread {
+}
+
+impl SessionSettingThread {
+    pub fn run(video_server_ch_sender: kanal::Sender<VideoServerAction>) {
+        let _ = thread::spawn(move || {
+            loop {
+                if get_x11_authenicated_client().is_some() {
+                    debug!("User has logged in");
+                    video_server_ch_sender.send(VideoServerAction::NewUserSession).unwrap();
+                    break;
+                }
+                debug!("Waiting for user to login");
+
+                thread::sleep(Duration::from_secs(1));
+            }
+        });
+    }
 }
 
 impl VideoServerThread {
-    pub fn new(conn: Connection) -> Self {
-        let display: Display = Display::primary().unwrap();
-        let capturer = Capturer::new(display).unwrap();
+    pub fn new(conn: Connection) -> Result<Self, Box<dyn std::error::Error>> {
+        let mut setting = Setting::Unknown;
 
+        if cfg!(target_os = "linux") {
+            setting = VideoServerThread::config_xenv()?;
+        }
+         
+        let display: Display = Display::primary()?;
+        let capturer = Capturer::new(display)?;
+    
         conn.set_dimensions(capturer.width(), capturer.height());
 
-        let pool = ThreadPool::builder().pool_size(1).create().unwrap();
+        let pool = ThreadPool::builder().pool_size(1).create()?;
         let yuv_handles = VecDeque::new();
 
-        let row_len = 4 * conn.get_meta().width * conn.get_meta().width;
+        let row_len = 4 * capturer.width() * capturer.height();
 
         let mut par: Param = VideoServerThread::get_parameters(conn.get_meta());
-        let encoder = x264::Encoder::open(&mut par).unwrap();
-        let pic = Picture::from_param(&par).unwrap();
+        let encoder = x264::Encoder::open(&mut par)?;
+        let pic = Picture::from_param(&par)?;
 
-        Self {
+        Ok(Self {
             pool,
             yuv_handles,
             row_len,
             file: None,
             par,
             pic,
-            capturer,
+            capturer: Some(capturer),
             encoder,
-            deployer: PacketDeployer::new(EPacketType::NAL, true),
-            conn,
+            setting,
+            deployer: PacketDeployer::new(EPacketType::NAL, false),
+            conn
+        })
+    }
+
+    /*
+     *  Configures the X environment for the server by setting 
+     *  correct display and Xauthority variables. 
+     * 
+     *  Additionally, it sets the XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS
+     *  for pipewire connection from root.
+     * 
+     */
+
+    // TODO: Make DISPLAY variable dynamic AND 
+    // TODO: not assume the display manager is lightdm
+    
+    #[cfg(target_os = "linux")]
+    fn config_xenv() -> Result<Setting, Box<dyn std::error::Error>> {
+        env::set_var("DISPLAY", ":0");
+
+        if let Some(username) = get_x11_authenicated_client() {
+            /* 
+             * Environment variables needed to connect to 
+             * user graphical user session from root 
+             */
+            let xauthority_path = format!("/home/{}/.Xauthority", username);
+            debug!("Xauthority User Path: {}", xauthority_path);
+            env::set_var("XAUTHORITY", xauthority_path);
+
+            /* 
+             * Environment variables needed for pipewire connection from root. 
+             */ 
+            let user_id_cmd = format!("id -u {}", username);
+            let user_id_output = Command::new("sh")
+                .arg("-c")
+                .arg(user_id_cmd)
+                .output()
+                .unwrap();
+
+            let user_id = String::from_utf8(user_id_output.stdout).unwrap();
+            let xdg_runtime_dir = format!("/run/user/{}", user_id.trim());
+            let dbus_session_bus_address = format!("unix:path={}/bus", xdg_runtime_dir);
+
+            debug!("XDG_RUNTIME_DIR: {}", &xdg_runtime_dir);
+            debug!("DBUS_SESSION_BUS_ADDRESS: {}", &dbus_session_bus_address);
+
+            env::set_var("XDG_RUNTIME_DIR", xdg_runtime_dir);
+            env::set_var("DBUS_SESSION_BUS_ADDRESS", dbus_session_bus_address);
+
+            return Ok(Setting::PostLogin);
         }
+
+        env::set_var("XAUTHORITY", "/var/lib/lightdm/.Xauthority");
+        return Ok(Setting::PreLogin);
     }
 
     #[inline]
@@ -101,8 +205,39 @@ impl VideoServerThread {
         par
     }
 
-    fn handle_server_action(&mut self, server_action: Option<VideoServerAction>) {
+    fn drop_capturer(&mut self) {
+        let capturer = self.capturer.take().unwrap();
+        debug!("Dropping Capturer");
+        drop(capturer);
+    }
+
+    fn handle_server_action(
+        &mut self, 
+        server_action: Option<VideoServerAction>,
+        video_server_ch_sender: &kanal::Sender<VideoServerAction>
+    ) {
         match server_action {
+            Some(VideoServerAction::NewUserSession) => {
+                match VideoServerThread::config_xenv() {
+                    Ok(Setting::PostLogin) => {
+                        self.setting = Setting::PostLogin;
+
+                        // TODO: This does not work, maybe this needs to be done after more time,
+                        // TODO: because the resolution does not change, or maybe it just doesn't know the 
+                        // TODO: correct resolution
+                        if let Ok((width, height)) = DisplayMeta::get_current_resolution() {
+                            debug!("Post-Login Resolution: {}x{}", width, height);
+
+                            if let Err(e) = DisplayMeta::update_display_resolution(width, height) {
+                                debug!("Error syncing display resolution after login: {}", e.to_string());
+                            }
+                        }
+                        
+                        video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
+                    }
+                    _ => {}
+                }
+            }
             Some(VideoServerAction::Inactive) => {
                 self.encoder = x264::Encoder::open(&mut self.par).unwrap();
             }
@@ -111,31 +246,18 @@ impl VideoServerThread {
                     self.deployer.set_sym_key(sym_key.clone());
                 }
             }
-            Some(VideoServerAction::ConfigUpdate) => {
-                let requested_width = self.conn.get_meta().width;
-                let requested_height = self.conn.get_meta().height;
-
-                if requested_width == self.capturer.width() as usize
-                    && requested_height == self.capturer.height() as usize
-                {
-                    return;
-                }
-
-                let _updated_resolution =
-                    match DisplayMeta::update_display_resolution(requested_width, requested_height)
-                    {
-                        Ok(updated) => updated,
-                        Err(e) => {
-                            debug!("Error updating display resolution: {}", e);
-                            false
-                        }
-                    };
+            Some(VideoServerAction::RestartStream) => {
+                self.drop_capturer();
 
                 let display = Display::primary().unwrap();
-                self.capturer = Capturer::new(display).unwrap();
+                self.capturer = Some(Capturer::new(display).unwrap());
+
+                let capturer = self.capturer.as_ref().unwrap();
+
+                self.row_len = 4 * capturer.width() * capturer.height();
 
                 self.conn
-                    .set_dimensions(self.capturer.width(), self.capturer.height());
+                    .set_dimensions(capturer.width(), capturer.height());
 
                 self.par = VideoServerThread::get_parameters(self.conn.get_meta());
                 self.encoder = x264::Encoder::open(&mut self.par).unwrap();
@@ -155,6 +277,29 @@ impl VideoServerThread {
 
                 self.yuv_handles.clear();
             }
+            Some(VideoServerAction::ConfigUpdate) => {
+                let requested_width = self.conn.get_meta().width;
+                let requested_height = self.conn.get_meta().height;
+
+                let capturer = match &self.capturer {
+                    Some(capturer) => capturer,
+                    None => {
+                        return;
+                    }
+                };
+
+                if requested_width == capturer.width() as usize
+                    && requested_height == capturer.height() as usize
+                {
+                    return;
+                }
+
+                if let Err(e) = DisplayMeta::update_display_resolution(requested_width, requested_height) {
+                    debug!("Error updating display resolution: {}", e);
+                }
+
+                video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
+            }
             None => {
                 return;
             }
@@ -171,13 +316,24 @@ impl VideoServerThread {
         // Send update to client to update headers
         let headers = self.encoder.get_headers().unwrap();
         EventsThread::run(&self.conn, headers.as_bytes().to_vec(), ch_sender.clone());
+        
+        if self.setting == Setting::PreLogin {
+            SessionSettingThread::run(ch_sender.clone());
+        }   
 
         loop {
             while ch_receiver.len() > 0 {
                 if let Ok(server_action) = ch_receiver.try_recv_realtime() {
-                    self.handle_server_action(server_action);
+                    self.handle_server_action(server_action, &ch_sender);
                 }
             }
+
+            let capturer = match &mut self.capturer {
+                Some(capturer) => capturer,
+                None => {
+                    continue;
+                }
+            };
 
             if !self.conn.has_clients() {
                 self.conn.filter_clients();
@@ -186,12 +342,21 @@ impl VideoServerThread {
             }
 
             let sleep = Instant::now();
-            let width = self.capturer.width();
-            let height = self.capturer.height();
+            let width = capturer.width();
+            let height = capturer.height();
 
-            match self.capturer.frame() {
+            match capturer.frame() {
                 Ok(frame) => {
                     let bgra_frame = frame.chunks(self.row_len).next().unwrap().to_vec();
+
+                    if (width * height * 4) != bgra_frame.len() {
+                        debug!("Frame size: {} Expected: {}", bgra_frame.len(), width * height * 4);
+                    }
+
+                    if bgra_frame.len() < (width * height * 4) {
+                        debug!("Frame size less than expected");
+                        continue;
+                    }
 
                     let cvt_rgb_yuv = async move {
                         // TODO: figure out why this is neccessary
