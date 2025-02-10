@@ -8,3 +8,6 @@
 [submodule "libs/libyuv-sys"]
 	path = libs/libyuv-sys
 	url = https://github.com/MahitMehta/libyuv-sys.git
+[submodule "libs/scrap"]
+	path = libs/scrap
+	url = https://github.com/MahitMehta/scrap.git

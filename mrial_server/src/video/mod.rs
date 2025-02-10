@@ -9,7 +9,7 @@ use log::debug;
 use mrial_proto::*;
 use scrap::{Capturer, Display};
 use std::{
-    collections::VecDeque, env, fs::File, io::{ErrorKind::WouldBlock, Write}, process::Command, ptr::null, sync::RwLockReadGuard, thread, time::{Duration, Instant}
+    collections::VecDeque, env, fs::File, io::{ErrorKind::WouldBlock, Write}, process::Command, sync::RwLockReadGuard, thread, time::{Duration, Instant}
 };
 use x264::{Encoder, Param, Picture};
 use yuv::YUVBuffer;
@@ -84,7 +84,7 @@ impl SessionSettingThread {
                 }
                 debug!("Waiting for user to login");
 
-                thread::sleep(Duration::from_secs(2));
+                thread::sleep(Duration::from_secs(1));
             }
         });
     }
@@ -106,7 +106,7 @@ impl VideoServerThread {
         let pool = ThreadPool::builder().pool_size(1).create()?;
         let yuv_handles = VecDeque::new();
 
-        let row_len = 4 * conn.get_meta().width * conn.get_meta().width;
+        let row_len = 4 * capturer.width() * capturer.height();
 
         let mut par: Param = VideoServerThread::get_parameters(conn.get_meta());
         let encoder = x264::Encoder::open(&mut par)?;
@@ -130,16 +130,48 @@ impl VideoServerThread {
     /*
      *  Configures the X environment for the server by setting 
      *  correct display and Xauthority variables. 
+     * 
+     *  Additionally, it sets the XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS
+     *  for pipewire connection from root.
+     * 
      */
+
+    // TODO: Make DISPLAY variable dynamic AND 
+    // TODO: not assume the display manager is lightdm
     
     #[cfg(target_os = "linux")]
     fn config_xenv() -> Result<Setting, Box<dyn std::error::Error>> {
         env::set_var("DISPLAY", ":0");
 
         if let Some(username) = get_x11_authenicated_client() {
+            /* 
+             * Environment variables needed to connect to 
+             * user graphical user session from root 
+             */
             let xauthority_path = format!("/home/{}/.Xauthority", username);
             debug!("Xauthority User Path: {}", xauthority_path);
             env::set_var("XAUTHORITY", xauthority_path);
+
+            /* 
+             * Environment variables needed for pipewire connection from root. 
+             */ 
+            let user_id_cmd = format!("id -u {}", username);
+            let user_id_output = Command::new("sh")
+                .arg("-c")
+                .arg(user_id_cmd)
+                .output()
+                .unwrap();
+
+            let user_id = String::from_utf8(user_id_output.stdout).unwrap();
+            let xdg_runtime_dir = format!("/run/user/{}", user_id.trim());
+            let dbus_session_bus_address = format!("unix:path={}/bus", xdg_runtime_dir);
+
+            debug!("XDG_RUNTIME_DIR: {}", &xdg_runtime_dir);
+            debug!("DBUS_SESSION_BUS_ADDRESS: {}", &dbus_session_bus_address);
+
+            env::set_var("XDG_RUNTIME_DIR", xdg_runtime_dir);
+            env::set_var("DBUS_SESSION_BUS_ADDRESS", dbus_session_bus_address);
+
             return Ok(Setting::PostLogin);
         }
 
@@ -209,6 +241,8 @@ impl VideoServerThread {
                 self.capturer = Some(Capturer::new(display).unwrap());
 
                 let capturer = self.capturer.as_ref().unwrap();
+
+                self.row_len = 4 * capturer.width() * capturer.height();
 
                 self.conn
                     .set_dimensions(capturer.width(), capturer.height());

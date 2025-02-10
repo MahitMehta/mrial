@@ -9,7 +9,8 @@ version.workspace = true
 
 [dependencies]
 futures = { version = "0.3.29", features = ["thread-pool", "executor"]} 
-scrap = "0.5"
+# scrap = "0.5"
+scrap = { path = "../libs/scrap" }
 tokio = { version = "1.34.0", features = ["full"]}
 mouse-rs = "0.4.2"
 enigo = "0.2.0-rc2"
