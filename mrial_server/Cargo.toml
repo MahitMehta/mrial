@@ -43,4 +43,4 @@ assets = [
     ["../linux/debian/*", "var/lib/mrial_server/scripts/", "755"]
 ]
 maintainer-scripts = "../linux/debian"
-systemd-units = { enable = false }
+systemd-units = { enable = true }

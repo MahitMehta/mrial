@@ -6,8 +6,10 @@ Wants=network-online.target
 [Service]
 Type=simple
 Restart=always
-RestartSec=10
+RestartSec=1s
+StartLimitIntervalSec=15s
+StartLimitBurst=3
 ExecStart=/var/lib/mrial_server/scripts/startup.sh
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

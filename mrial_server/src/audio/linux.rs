@@ -1,6 +1,7 @@
 use crate::conn::Connection;
 
 use super::{AudioEncoder, AudioServerThread, IAudioController};
+use log::{debug};
 use mrial_proto::*;
 
 use pipewire as pw;
@@ -39,7 +40,14 @@ impl IAudioController for AudioServerThread {
             // 1. systemctl --user restart pipewire.service
             // 2. "systemctl --user restart pipewire-pulse.service"
             // 3. pactl load-module module-null-sink media.class=Audio/Sink sink_name=mrial_sink channel_map=stereo
-            let core = context.connect(None).unwrap();
+            let core = match context.connect(None) {
+                Ok(core) => core,
+                Err(e) => {
+                    debug!("Failed to connect to PipeWire Context: {}", e);
+                    // TODO: Should attempt to reconnect
+                    return;
+                }
+            };
 
             let data = UserData {
                 format: Default::default(),
