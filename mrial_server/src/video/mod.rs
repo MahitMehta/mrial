@@ -1,5 +1,6 @@
 pub mod display;
 pub mod yuv;
+pub mod session;
 
 use deploy::PacketDeployer;
 use display::DisplayMeta;
@@ -8,8 +9,9 @@ use kanal::{unbounded, Receiver, Sender};
 use log::debug;
 use mrial_proto::*;
 use scrap::{Capturer, Display};
+use session::{SessionSettingThread, Setting};
 use std::{
-    collections::VecDeque, env, fs::File, io::{ErrorKind::WouldBlock, Write}, process::Command, sync::RwLockReadGuard, thread, time::{Duration, Instant}
+    collections::VecDeque, fs::File, io::{ErrorKind::WouldBlock, Write}, sync::RwLockReadGuard, thread, time::{Duration, Instant}
 };
 use x264::{Encoder, Param, Picture};
 use yuv::YUVBuffer;
@@ -31,13 +33,6 @@ pub enum VideoServerAction {
     RestartSession,
 }
 
-#[derive(PartialEq)]
-pub enum Setting {
-    Unknown,
-    PreLogin,
-    PostLogin
-}
-
 pub struct VideoServerThread {
     pool: ThreadPool,
     yuv_handles: VecDeque<RemoteHandle<YUVBuffer>>,
@@ -57,51 +52,12 @@ pub struct VideoServerThread {
     events_thread: Option<thread::JoinHandle<()>>,
 }
 
-fn get_x11_authenicated_client() -> Option<String> {
-    let gui_users_output = Command::new("sh")
-        .arg("-c")
-        .arg("who | grep tty7")
-        .output()
-        .unwrap();
-
-    if gui_users_output.stdout.is_empty() || !gui_users_output.status.success() {
-        return None;
-    }
-
-    let output_str = String::from_utf8(gui_users_output.stdout).unwrap();
-    if let Some(user) = output_str.split_whitespace().next() {
-        return Some(user.to_string());
-    }
-    
-    None
-}
-
-struct SessionSettingThread {
-}
-
-impl SessionSettingThread {
-    pub fn run(video_server_ch_sender: kanal::Sender<VideoServerAction>) -> thread::JoinHandle<()> {
-        return thread::spawn(move || {
-            loop {
-                if get_x11_authenicated_client().is_some() {
-                    debug!("User has logged in");
-                    video_server_ch_sender.send(VideoServerAction::NewUserSession).unwrap();
-                    break;
-                }
-                debug!("Waiting for user to login");
-
-                thread::sleep(Duration::from_secs(1));
-            }
-        });
-    }
-}
-
 impl VideoServerThread {
     pub fn new(conn: Connection) -> Result<Self, Box<dyn std::error::Error>> {
         let mut setting = Setting::Unknown;
 
         if cfg!(target_os = "linux") {
-            setting = VideoServerThread::config_xenv()?;
+            setting = session::config_xenv()?;
         }
          
         let display: Display = Display::primary()?;
@@ -138,59 +94,6 @@ impl VideoServerThread {
             deployer: PacketDeployer::new(EPacketType::NAL, false),
             conn
         })
-    }
-
-    /*
-     *  Configures the X environment for the server by setting 
-     *  correct display and Xauthority variables. 
-     * 
-     *  Additionally, it sets the XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS
-     *  for pipewire connection from root.
-     * 
-     */
-
-    // TODO: Make DISPLAY variable dynamic AND 
-    // TODO: not assume the display manager is lightdm
-    
-    #[cfg(target_os = "linux")]
-    fn config_xenv() -> Result<Setting, Box<dyn std::error::Error>> {
-        env::set_var("DISPLAY", ":0");
-
-        if let Some(username) = get_x11_authenicated_client() {
-            /* 
-             * Environment variables needed to connect to 
-             * user graphical user session from root 
-             */
-            let xauthority_path = format!("/home/{}/.Xauthority", username);
-            debug!("Xauthority User Path: {}", xauthority_path);
-            env::set_var("XAUTHORITY", xauthority_path);
-
-            /* 
-             * Environment variables needed for pipewire connection from root. 
-             */ 
-            let user_id_cmd = format!("id -u {}", username);
-            let user_id_output = Command::new("sh")
-                .arg("-c")
-                .arg(user_id_cmd)
-                .output()
-                .unwrap();
-
-            let user_id = String::from_utf8(user_id_output.stdout).unwrap();
-            let xdg_runtime_dir = format!("/run/user/{}", user_id.trim());
-            let dbus_session_bus_address = format!("unix:path={}/bus", xdg_runtime_dir);
-
-            debug!("XDG_RUNTIME_DIR: {}", &xdg_runtime_dir);
-            debug!("DBUS_SESSION_BUS_ADDRESS: {}", &dbus_session_bus_address);
-
-            env::set_var("XDG_RUNTIME_DIR", xdg_runtime_dir);
-            env::set_var("DBUS_SESSION_BUS_ADDRESS", dbus_session_bus_address);
-
-            return Ok(Setting::PostLogin);
-        }
-
-        debug!("No user logged in to graphical session");
-        env::set_var("XAUTHORITY", "/var/lib/lightdm/.Xauthority");
-        return Ok(Setting::PreLogin);
     }
 
     #[inline]
@@ -263,13 +166,12 @@ impl VideoServerThread {
     ) {
         match server_action {
             Some(VideoServerAction::RestartSession) => {
-                match VideoServerThread::config_xenv() {
+                match session::config_xenv() {
                     Ok(Setting::PostLogin) => {
                         self.setting = Setting::PostLogin;
                     }
                     Ok(Setting::PreLogin) => {
                         self.setting = Setting::PreLogin;
-                        self.start_session_thread(video_server_ch_sender.clone());
                     }
                     _ => {}
                 }
@@ -278,22 +180,9 @@ impl VideoServerThread {
                 self.events_sender.send(EventsThreadAction::ReconnectInputModules).unwrap();
             }
             Some(VideoServerAction::NewUserSession) => {
-                match VideoServerThread::config_xenv() {
+                match session::config_xenv() {
                     Ok(Setting::PostLogin) => {
                         self.setting = Setting::PostLogin;
-
-                        // TODO: This does not work, maybe this needs to be done after more time,
-                        // TODO: because the resolution does not change.
-                        
-                        let requested_width = self.conn.get_meta().width;
-                        let requested_height = self.conn.get_meta().height;
-
-                        if let Err(e) = DisplayMeta::update_display_resolution(
-                            requested_width, requested_height
-                        ) {
-                            debug!("Error syncing display resolution after login: {}", e.to_string());
-                        }
-                        
                         video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
                     }
                     _ => {}
@@ -343,7 +232,10 @@ impl VideoServerThread {
 
         if has_setting_thread { return false; }
 
-        self.setting_thread = Some(SessionSettingThread::run(ch_sender));
+        self.setting_thread = Some(SessionSettingThread::run(
+            ch_sender, 
+            self.setting
+        ));
         true
     }
 
@@ -379,10 +271,7 @@ impl VideoServerThread {
         let headers = self.encoder.get_headers().unwrap();
 
         self.start_events_thread(headers.as_bytes().to_vec(), ch_sender.clone());
-        
-        if self.setting == Setting::PreLogin {
-            self.start_session_thread(ch_sender.clone());
-        }   
+        self.start_session_thread(ch_sender.clone());   
 
         loop {
             while ch_receiver.len() > 0 {
