@@ -1,10 +1,9 @@
-use std::{net::SocketAddr, thread};
+use std::{net::SocketAddr, thread::{self, JoinHandle}};
 
 use enigo::{
-    Direction::{Press, Release},
-    Enigo, Keyboard, Mouse, Settings,
+    Direction::{Press, Release}, Enigo, InputError, Keyboard, Mouse, Settings
 };
-use kanal::Sender;
+use kanal::{Receiver, Sender};
 use log::debug;
 use mrial_proto::{
     input::*,
@@ -19,9 +18,10 @@ use super::{conn::Connection, VideoServerAction};
 
 pub struct EventsEmitter {
     enigo: Enigo,
-    mouse: mouse_rs::Mouse,
-
     left_mouse_held: bool,
+    session_restart_in_progress: bool,
+
+    video_server_ch_sender: Sender<VideoServerAction>,
 
     #[cfg(target_os = "linux")]
     uinput: mouse_keyboard_input::VirtualDevice,
@@ -29,28 +29,45 @@ pub struct EventsEmitter {
 
 impl EventsEmitter {
     #[cfg(target_os = "linux")]
-    pub fn new() -> Self {
+    fn new(video_server_ch_sender: Sender<VideoServerAction>) -> Self {
         use std::time::Duration;
 
-        let mouse = mouse_rs::Mouse::new(); // requires package install on linux (libxdo-dev)
         let uinput =
             mouse_keyboard_input::VirtualDevice::new(Duration::new(0.040 as u64, 0), 2000).unwrap();
         let enigo = Enigo::new(&Settings::default()).unwrap();
 
         Self {
             enigo,
-            mouse,
             uinput,
+            video_server_ch_sender,
+            session_restart_in_progress: false,
             left_mouse_held: false,
         }
     }
 
+
+    fn reconnect_input_modules(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if cfg!(target_os = "linux") {
+            use std::time::Duration;
+            self.uinput = mouse_keyboard_input::VirtualDevice::new(
+                Duration::new(0.040 as u64, 0), 2000)?;
+        }
+
+        self.enigo = Enigo::new(&Settings::default())?;
+        
+        self.session_restart_in_progress = false;
+        Ok(())
+    }
+
     #[cfg(not(target_os = "linux"))]
-    pub fn new() -> Self {
-        let mouse = mouse_rs::Mouse::new(); // requires package install on linux (libxdo-dev)
+    fn new() -> Self {
         let enigo = Enigo::new(&Settings::default()).unwrap();
 
-        Self { mouse, enigo, left_mouse_held: false }
+        Self { 
+            enigo, 
+            session_restart_in_progress: false,
+            left_mouse_held: false
+        }
     }
 
     // sudo apt install libudev-dev libevdev-dev libhidapi-dev
@@ -58,47 +75,124 @@ impl EventsEmitter {
     // sudo reboot
 
     #[cfg(target_os = "linux")]
-    pub fn scroll(&mut self, x: i32, y: i32) {
+    fn scroll(&mut self, x: i32, y: i32) {            
         if x != 0 {
-            let _ = &self.uinput.scroll_x(-x * 3);
+            let _ = &self.uinput.scroll_x(-x * 2);
         }
 
         if y != 0 {
-            let _ = &self.uinput.scroll_y(-y * 3);
+            let _ = &self.uinput.scroll_y(-y * 2);
         }
     }
 
     #[cfg(not(target_os = "linux"))]
-    pub fn scroll(&self, _x: i32, _y: i32) {}
+    fn scroll(&self, _x: i32, _y: i32) {}
 
-    pub fn input(&mut self, buf: &mut [u8], width: usize, height: usize) {
-        if click_requested(buf) {
-            let (x, y, right) = parse_click(buf, width, height);
+    fn handle_meta_keys(&mut self, buf: &[u8]) -> Result<(), InputError>{
+        if is_control_pressed(buf) {
+            self.enigo.key(enigo::Key::Control, Press)?;
+        } else if is_control_released(buf) {
+            self.enigo.key(enigo::Key::Control, Release)?;
+        }
 
-            let _ = &self.mouse.move_to(x, y);
-            if right {
-                let _ = &self
-                    .enigo
-                    .button(enigo::Button::Right, enigo::Direction::Click);
-            } else {
-                self.left_mouse_held = !self.left_mouse_held;
-                let _ = &self
-                    .enigo
-                    .button(enigo::Button::Left, enigo::Direction::Click);
+        if is_shift_pressed(buf) {
+            self.enigo.key(enigo::Key::Shift, Press)?;
+        } else if is_shift_released(buf) {
+            self.enigo.key(enigo::Key::Shift, Release)?;
+        }
+
+        if is_alt_pressed(buf) {
+            self.enigo.key(enigo::Key::Alt, Press)?;
+        } else if is_alt_released(buf) {
+            self.enigo.key(enigo::Key::Alt, Release)?;
+        }
+
+        if is_meta_pressed(buf) {
+            self.enigo.key(enigo::Key::Meta, Press)?;
+        } else if is_meta_released(buf) {
+            self.enigo.key(enigo::Key::Meta, Release)?;
+        }
+
+        Ok(())
+    }
+
+    fn handle_pressed_key(&mut self, buf: &[u8]) -> Result<(), InputError>{
+        match Key::from(buf[8]) {
+            Key::None => {}
+            Key::Backspace => {
+                self.enigo.key(enigo::Key::Backspace, Press)?;
+            }
+            Key::DownArrow => {
+                self.enigo.key(enigo::Key::DownArrow, Press)?;
+            }
+            Key::UpArrow => {
+                self.enigo.key(enigo::Key::UpArrow, Press)?;
+            }
+            Key::LeftArrow => {
+                self.enigo.key(enigo::Key::LeftArrow, Press)?;
+            }
+            Key::RightArrow => {
+                self.enigo.key(enigo::Key::RightArrow, Press)?;
+            }
+            Key::Space => {
+                self.enigo
+                    .key(enigo::Key::Space, enigo::Direction::Press)?;
+            }
+            Key::Tab => {
+                self.enigo
+                    .key(enigo::Key::Tab, enigo::Direction::Press)?;
+            }
+            Key::Return => {
+                self.enigo
+                    .key(enigo::Key::Return, enigo::Direction::Click)?;
+            }
+            Key::Unicode => {
+                self.enigo
+                    .key(enigo::Key::Unicode(buf[8] as char), Press)?
             }
         }
 
-        if mouse_move_requested(buf) {
-            let (x, y, pressed) = parse_mouse_move(buf, width as f32, height as f32);
-            let _ = &self.mouse.move_to(x, y);
-            
-            if pressed && !self.left_mouse_held {
-                self.left_mouse_held = true;
-                let _ = &self
-                    .enigo
-                    .button(enigo::Button::Left, enigo::Direction::Press);
+        Ok(())
+    }
+
+    fn handle_released_key(&mut self, buf: &[u8]) -> Result<(), InputError> {
+        match Key::from(buf[9]) {
+            Key::None => {}
+            Key::Backspace => {
+                self.enigo.key(enigo::Key::Backspace, Release)?;
+            }
+            Key::Space => {
+                self.enigo
+                    .key(enigo::Key::Space, enigo::Direction::Release)?;
+            }
+            Key::DownArrow => {
+                self.enigo.key(enigo::Key::DownArrow, Release)?;
+            }
+            Key::UpArrow => {
+                self.enigo.key(enigo::Key::UpArrow, Release)?;
+            }
+            Key::LeftArrow => {
+                self.enigo.key(enigo::Key::LeftArrow, Release)?;
+            }
+            Key::RightArrow => {
+                self.enigo.key(enigo::Key::RightArrow, Release)?;
+            }
+            Key::Tab => {
+                self.enigo
+                    .key(enigo::Key::Tab, enigo::Direction::Release)?;
+            }
+            Key::Return => {}
+            Key::Unicode => {
+                self.enigo
+                    .key(enigo::Key::Unicode((buf[9]) as char), Release)?;
             }
         }
+
+        Ok(())
+    }
+
+    fn input(&mut self, buf: &mut [u8], width: usize, height: usize) {
+        // TODO: Scroll only works on linux
 
         if scroll_requested(&buf) {
             let x_delta = i16::from_be_bytes(buf[14..16].try_into().unwrap());
@@ -109,104 +203,69 @@ impl EventsEmitter {
             }
         }
 
-        if is_control_pressed(buf) {
-            self.enigo.key(enigo::Key::Control, Press).unwrap();
-        } else if is_control_released(buf) {
-            self.enigo.key(enigo::Key::Control, Release).unwrap();
-        }
+        if click_requested(buf) {
+            let (x, y, right) = parse_click(buf, width, height);
 
-        if is_shift_pressed(buf) {
-            self.enigo.key(enigo::Key::Shift, Press).unwrap();
-        } else if is_shift_released(buf) {
-            self.enigo.key(enigo::Key::Shift, Release).unwrap();
-        }
+            match self.enigo.move_mouse(x, y, enigo::Coordinate::Abs) {
+                Ok(_) => {
+                    if right {
+                        let _ = &self
+                            .enigo
+                            .button(enigo::Button::Right, enigo::Direction::Click);
+                    } else {
+                        self.left_mouse_held = !self.left_mouse_held;
+                        let _ = &self
+                            .enigo
+                            .button(enigo::Button::Left, enigo::Direction::Click);
+                    }
+                }
+                Err(e) => {
+                    debug!("Error moving mouse for click: {}", e);
 
-        if is_alt_pressed(buf) {
-            self.enigo.key(enigo::Key::Alt, Press).unwrap();
-        } else if is_alt_released(buf) {
-            self.enigo.key(enigo::Key::Alt, Release).unwrap();
-        }
-
-        if is_meta_pressed(buf) {
-            self.enigo.key(enigo::Key::Meta, Press).unwrap();
-        } else if is_meta_released(buf) {
-            self.enigo.key(enigo::Key::Meta, Release).unwrap();
-        }
-
-        match Key::from(buf[8]) {
-            Key::None => {}
-            Key::Backspace => {
-                self.enigo.key(enigo::Key::Backspace, Press).unwrap();
-            }
-            Key::DownArrow => {
-                self.enigo.key(enigo::Key::DownArrow, Press).unwrap();
-            }
-            Key::UpArrow => {
-                self.enigo.key(enigo::Key::UpArrow, Press).unwrap();
-            }
-            Key::LeftArrow => {
-                self.enigo.key(enigo::Key::LeftArrow, Press).unwrap();
-            }
-            Key::RightArrow => {
-                self.enigo.key(enigo::Key::RightArrow, Press).unwrap();
-            }
-            Key::Space => {
-                self.enigo
-                    .key(enigo::Key::Space, enigo::Direction::Press)
-                    .unwrap();
-            }
-            Key::Tab => {
-                self.enigo
-                    .key(enigo::Key::Tab, enigo::Direction::Press)
-                    .unwrap();
-            }
-            Key::Return => {
-                self.enigo
-                    .key(enigo::Key::Return, enigo::Direction::Click)
-                    .unwrap();
-            }
-            Key::Unicode => {
-                self.enigo
-                    .key(enigo::Key::Unicode((buf[8]) as char), Press)
-                    .unwrap();
+                    if !self.session_restart_in_progress {
+                        debug!("Session Restart Requested");
+                        let _ = self.video_server_ch_sender.send(VideoServerAction::RestartSession);
+                        self.session_restart_in_progress = true;
+                    }
+                }
             }
         }
 
-        match Key::from(buf[9]) {
-            Key::None => {}
-            Key::Backspace => {
-                self.enigo.key(enigo::Key::Backspace, Release).unwrap();
+        if mouse_move_requested(buf) {
+            let (x, y, pressed) = parse_mouse_move(buf, width as f32, height as f32);
+            
+            if let Err(e) = self.enigo.move_mouse(x as i32, y as i32, enigo::Coordinate::Abs) {
+                debug!("Error moving mouse: {}", e);
+                if !self.session_restart_in_progress {
+                    debug!("Session Restart Requested");
+                    let _ = self.video_server_ch_sender.send(VideoServerAction::RestartSession);
+                    self.session_restart_in_progress = true;
+                }
             }
-            Key::Space => {
-                self.enigo
-                    .key(enigo::Key::Space, enigo::Direction::Release)
-                    .unwrap();
+            
+            if pressed && !self.left_mouse_held {
+                self.left_mouse_held = true;
+                let _ = &self
+                    .enigo
+                    .button(enigo::Button::Left, enigo::Direction::Press);
             }
-            Key::DownArrow => {
-                self.enigo.key(enigo::Key::DownArrow, Release).unwrap();
-            }
-            Key::UpArrow => {
-                self.enigo.key(enigo::Key::UpArrow, Release).unwrap();
-            }
-            Key::LeftArrow => {
-                self.enigo.key(enigo::Key::LeftArrow, Release).unwrap();
-            }
-            Key::RightArrow => {
-                self.enigo.key(enigo::Key::RightArrow, Release).unwrap();
-            }
-            Key::Tab => {
-                self.enigo
-                    .key(enigo::Key::Tab, enigo::Direction::Release)
-                    .unwrap();
-            }
-            Key::Return => {}
-            Key::Unicode => {
-                self.enigo
-                    .key(enigo::Key::Unicode((buf[9]) as char), Release)
-                    .unwrap();
-            }
+        }
+
+        if let Err(e) = self.handle_meta_keys(&buf) {
+            debug!("Error handling meta keys: {}", e);
+        }
+
+        if let Err(e) = self.handle_pressed_key(&buf) {
+            debug!("Error handling pressed key: {}", e);
+        }
+
+        if let Err(e) = self.handle_released_key(&buf) {
+            debug!("Error handling released key: {}", e);
         }
     }
+}
+pub enum EventsThreadAction {
+    ReconnectInputModules
 }
 
 pub struct EventsThread {
@@ -223,7 +282,7 @@ impl EventsThread {
         video_server_ch_sender: Sender<VideoServerAction>,
     ) -> Self {
         Self {
-            emitter: EventsEmitter::new(),
+            emitter: EventsEmitter::new(video_server_ch_sender.clone()),
             conn,
             headers,
             video_server_ch_sender,
@@ -283,8 +342,6 @@ impl EventsThread {
                     meta.height.try_into().unwrap(),
                 );
 
-                // TODO: Don't refresh encoder if the dimensions are the same
-
                 self.video_server_ch_sender
                     .send(VideoServerAction::ConfigUpdate)
                     .unwrap();
@@ -315,12 +372,30 @@ impl EventsThread {
         }
     }
 
-    fn start_loop(&mut self) {
+    fn start_loop(&mut self, event_ch_receiver: Receiver<EventsThreadAction>) {
         loop {
             let mut buf = [0u8; MTU];
-            let (size, src) = self.conn.recv_from(&mut buf).unwrap();
 
-            self.handle_event(&mut buf, src, size);
+            // TODO: Look into using try_recv_realtime, it could have some adverse effects
+            // TODO: Currently used for the belief that it is faster than `try_recv`
+
+            while let Ok(action) = event_ch_receiver.try_recv_realtime() {
+                match action {
+                    Some(EventsThreadAction::ReconnectInputModules) => {
+                        if let Ok(()) = self.emitter.reconnect_input_modules() {
+                            debug!("Reconnected input modules");
+                        } else {
+                            debug!("Failed to reconnect input modules");
+                        }
+                        self.emitter.session_restart_in_progress = false;
+                    }
+                    None => { break; }
+                }
+            }
+
+            if let Ok((size, src)) = self.conn.recv_from(&mut buf) {
+                self.handle_event(&mut buf, src, size);
+            }
         }
     }
 
@@ -328,12 +403,15 @@ impl EventsThread {
         conn: &Connection,
         headers: Vec<u8>,
         video_server_ch_sender: Sender<VideoServerAction>,
-    ) {
+        event_ch_receiver: Receiver<EventsThreadAction>,
+    ) -> JoinHandle<()> {
         let conn = conn.clone();
-        let _ = thread::spawn(move || {
+        let handle =  thread::spawn(move || {
             let mut events = EventsThread::new(conn, headers, video_server_ch_sender);
 
-            events.start_loop();
+            events.start_loop(event_ch_receiver);
         });
+
+        handle
     }
 }

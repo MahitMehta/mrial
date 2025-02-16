@@ -4,7 +4,7 @@ pub mod yuv;
 use deploy::PacketDeployer;
 use display::DisplayMeta;
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
-use kanal::unbounded;
+use kanal::{unbounded, Receiver, Sender};
 use log::debug;
 use mrial_proto::*;
 use scrap::{Capturer, Display};
@@ -16,7 +16,7 @@ use yuv::YUVBuffer;
 
 use crate::{
     conn::{Connection, ServerMetaData},
-    events::EventsThread,
+    events::{EventsThread, EventsThreadAction},
 };
 
 use self::yuv::EColorSpace;
@@ -28,6 +28,7 @@ pub enum VideoServerAction {
     NewUserSession,
     RestartStream,
     SymKey,
+    RestartSession,
 }
 
 #[derive(PartialEq)]
@@ -49,6 +50,11 @@ pub struct VideoServerThread {
     deployer: PacketDeployer,
     conn: Connection,
     setting: Setting,
+    setting_thread: Option<thread::JoinHandle<()>>,
+
+    events_sender: Sender<EventsThreadAction>,
+    events_receiver: Receiver<EventsThreadAction>,
+    events_thread: Option<thread::JoinHandle<()>>,
 }
 
 fn get_x11_authenicated_client() -> Option<String> {
@@ -74,8 +80,8 @@ struct SessionSettingThread {
 }
 
 impl SessionSettingThread {
-    pub fn run(video_server_ch_sender: kanal::Sender<VideoServerAction>) {
-        let _ = thread::spawn(move || {
+    pub fn run(video_server_ch_sender: kanal::Sender<VideoServerAction>) -> thread::JoinHandle<()> {
+        return thread::spawn(move || {
             loop {
                 if get_x11_authenicated_client().is_some() {
                     debug!("User has logged in");
@@ -112,7 +118,14 @@ impl VideoServerThread {
         let encoder = x264::Encoder::open(&mut par)?;
         let pic = Picture::from_param(&par)?;
 
+        let (events_sender, events_receiver) = unbounded::<EventsThreadAction>();
+
         Ok(Self {
+            events_receiver,
+            events_sender,
+            events_thread: None,
+            
+            setting_thread: None,
             pool,
             yuv_handles,
             row_len,
@@ -175,6 +188,7 @@ impl VideoServerThread {
             return Ok(Setting::PostLogin);
         }
 
+        debug!("No user logged in to graphical session");
         env::set_var("XAUTHORITY", "/var/lib/lightdm/.Xauthority");
         return Ok(Setting::PreLogin);
     }
@@ -206,9 +220,40 @@ impl VideoServerThread {
     }
 
     fn drop_capturer(&mut self) {
-        let capturer = self.capturer.take().unwrap();
-        debug!("Dropping Capturer");
-        drop(capturer);
+        if let Some(capturer) = self.capturer.take() {
+            debug!("Dropping Capturer");
+            drop(capturer);
+        }
+    }
+
+    fn restart_stream(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let display = Display::primary()?;
+
+        let capturer: Capturer = Capturer::new(display)?;
+ 
+        self.row_len = 4 * capturer.width() * capturer.height();
+        self.conn
+            .set_dimensions(capturer.width(), capturer.height());
+        self.par = VideoServerThread::get_parameters(self.conn.get_meta());
+        self.encoder = x264::Encoder::open(&mut self.par)?;
+
+        if self.deployer.has_sym_key() {
+            let headers = self.encoder.get_headers()?;
+            let header_bytes = headers.as_bytes();
+            self.deployer.prepare(
+                &header_bytes,
+                Box::new(|subpacket| {
+                    self.conn.broadcast(&subpacket);
+                }),
+            );
+        }
+
+        self.pic = Picture::from_param(&self.par)?;
+
+        self.yuv_handles.clear();
+        self.capturer = Some(capturer);
+
+        Ok(())
     }
 
     fn handle_server_action(
@@ -217,20 +262,36 @@ impl VideoServerThread {
         video_server_ch_sender: &kanal::Sender<VideoServerAction>
     ) {
         match server_action {
+            Some(VideoServerAction::RestartSession) => {
+                match VideoServerThread::config_xenv() {
+                    Ok(Setting::PostLogin) => {
+                        self.setting = Setting::PostLogin;
+                    }
+                    Ok(Setting::PreLogin) => {
+                        self.setting = Setting::PreLogin;
+                        self.start_session_thread(video_server_ch_sender.clone());
+                    }
+                    _ => {}
+                }
+
+                video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
+                self.events_sender.send(EventsThreadAction::ReconnectInputModules).unwrap();
+            }
             Some(VideoServerAction::NewUserSession) => {
                 match VideoServerThread::config_xenv() {
                     Ok(Setting::PostLogin) => {
                         self.setting = Setting::PostLogin;
 
                         // TODO: This does not work, maybe this needs to be done after more time,
-                        // TODO: because the resolution does not change, or maybe it just doesn't know the 
-                        // TODO: correct resolution
-                        if let Ok((width, height)) = DisplayMeta::get_current_resolution() {
-                            debug!("Post-Login Resolution: {}x{}", width, height);
+                        // TODO: because the resolution does not change.
+                        
+                        let requested_width = self.conn.get_meta().width;
+                        let requested_height = self.conn.get_meta().height;
 
-                            if let Err(e) = DisplayMeta::update_display_resolution(width, height) {
-                                debug!("Error syncing display resolution after login: {}", e.to_string());
-                            }
+                        if let Err(e) = DisplayMeta::update_display_resolution(
+                            requested_width, requested_height
+                        ) {
+                            debug!("Error syncing display resolution after login: {}", e.to_string());
                         }
                         
                         video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
@@ -248,51 +309,19 @@ impl VideoServerThread {
             }
             Some(VideoServerAction::RestartStream) => {
                 self.drop_capturer();
-
-                let display = Display::primary().unwrap();
-                self.capturer = Some(Capturer::new(display).unwrap());
-
-                let capturer = self.capturer.as_ref().unwrap();
-
-                self.row_len = 4 * capturer.width() * capturer.height();
-
-                self.conn
-                    .set_dimensions(capturer.width(), capturer.height());
-
-                self.par = VideoServerThread::get_parameters(self.conn.get_meta());
-                self.encoder = x264::Encoder::open(&mut self.par).unwrap();
-
-                if self.deployer.has_sym_key() {
-                    let headers = self.encoder.get_headers().unwrap();
-                    let header_bytes = headers.as_bytes();
-                    self.deployer.prepare(
-                        &header_bytes,
-                        Box::new(|subpacket| {
-                            self.conn.broadcast(&subpacket);
-                        }),
-                    );
+                match self.restart_stream() {
+                    Ok(_) => {
+                        debug!("Restarted Stream Successfully");
+                    }
+                    Err(e) => {
+                        debug!("Error Restarting Stream: {}", e);
+                        video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
+                    }
                 }
-
-                self.pic = Picture::from_param(&self.par).unwrap();
-
-                self.yuv_handles.clear();
             }
             Some(VideoServerAction::ConfigUpdate) => {
                 let requested_width = self.conn.get_meta().width;
                 let requested_height = self.conn.get_meta().height;
-
-                let capturer = match &self.capturer {
-                    Some(capturer) => capturer,
-                    None => {
-                        return;
-                    }
-                };
-
-                if requested_width == capturer.width() as usize
-                    && requested_height == capturer.height() as usize
-                {
-                    return;
-                }
 
                 if let Err(e) = DisplayMeta::update_display_resolution(requested_width, requested_height) {
                     debug!("Error updating display resolution: {}", e);
@@ -306,6 +335,39 @@ impl VideoServerThread {
         }
     }
 
+    fn start_session_thread(&mut self, ch_sender: Sender<VideoServerAction>) -> bool {
+        let has_setting_thread = match &self.setting_thread {
+            Some(handle) => !handle.is_finished(),
+            None => false,
+        };
+
+        if has_setting_thread { return false; }
+
+        self.setting_thread = Some(SessionSettingThread::run(ch_sender));
+        true
+    }
+
+    fn start_events_thread(
+        &mut self, 
+        headers: Vec<u8>, 
+        ch_sender: Sender<VideoServerAction>) -> bool {
+        let has_events_thread = match &self.events_thread {
+            Some(handle) => !handle.is_finished(),
+            None => false,
+        };
+
+        if has_events_thread { return false; }
+
+        self.events_thread = Some(EventsThread::run(
+            &self.conn, 
+            headers,
+            ch_sender, 
+            self.events_receiver.clone()
+        ));
+
+        true
+    }
+
     #[inline]
     pub async fn run(&mut self) {
         let (ch_sender, ch_receiver) = unbounded::<VideoServerAction>();
@@ -315,10 +377,11 @@ impl VideoServerThread {
 
         // Send update to client to update headers
         let headers = self.encoder.get_headers().unwrap();
-        EventsThread::run(&self.conn, headers.as_bytes().to_vec(), ch_sender.clone());
+
+        self.start_events_thread(headers.as_bytes().to_vec(), ch_sender.clone());
         
         if self.setting == Setting::PreLogin {
-            SessionSettingThread::run(ch_sender.clone());
+            self.start_session_thread(ch_sender.clone());
         }   
 
         loop {
@@ -411,7 +474,8 @@ impl VideoServerThread {
                     }
                 }
                 Err(ref e) if e.kind() == WouldBlock => {}
-                Err(_) => {
+                Err(e) => {
+                    println!("Error: {}", e);
                     debug!("Error Capturing Frame")
                 }
             }
