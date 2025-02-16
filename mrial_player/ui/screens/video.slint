@@ -23,6 +23,9 @@ export component VideoScreen inherits Screen {
     in-out property <bool> cp_button_attached: false;
     property<duration> loading_animation_duration: 1500ms;
 
+    private property <length> prev_x: 0;
+    private property <length> prev_y: 0;
+
     background: black;
 
     image_container := VerticalBox {
@@ -61,7 +64,14 @@ export component VideoScreen inherits Screen {
                         
                         VideoFunctions.click(video_ta.mouse-x, video_ta.mouse-y, event.button);
                     } else if (event.kind == PointerEventKind.move) {
+                        if (prev_x == video_ta.mouse-x && prev_y == video_ta.mouse-y) {
+                            return;
+                        }
+                        
                         VideoFunctions.mouse_move(video_ta.mouse-x, video_ta.mouse-y, false);
+
+                        prev_x = video_ta.mouse-x;
+                        prev_y = video_ta.mouse-y;
                     }
                 }
                 moved => {

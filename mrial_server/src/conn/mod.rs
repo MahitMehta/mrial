@@ -196,7 +196,6 @@ impl Connection {
                 }
             };
 
-            // TODO: Validate User Credentials
             debug!("Client Shake AE by User: {:?}", payload.username);
             match self.users.load() {
                 Ok(_) => {
@@ -281,7 +280,8 @@ impl Connection {
 
         let mut rng = rand::thread_rng();
         let bits = 2048;
-        let priv_key = RsaPrivateKey::new(&mut rng, bits).expect("Failed to Generate RSA Key Pair");
+        let priv_key = RsaPrivateKey::new(&mut rng, bits)
+            .expect("Failed to Generate RSA Key Pair");
         let pub_key = RsaPublicKey::from(&priv_key);
         let pub_key_str = pub_key.to_pkcs1_pem(rsa::pkcs1::LineEnding::LF).unwrap();
 

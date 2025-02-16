@@ -24,7 +24,7 @@ jobs:
     - name: Download Dependencies
       run: |
         sudo apt update
-        sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev cmake
+        sudo apt install -y ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxcb-shm0-dev cmake
         cargo install cargo-deb
     - name: Build Server
       run: |
@@ -69,7 +69,7 @@ jobs:
     - name: Download Dependencies
       run: |
         sudo apt update
-        sudo NEEDRESTART_MODE=a apt install -y yasm ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxdo-dev libxcb-shm0-dev
+        sudo NEEDRESTART_MODE=a apt install -y yasm ffmpeg libudev-dev libevdev-dev libhidapi-dev libpipewire-0.3-dev libpipewire-0.3-modules libpipewire-0.3-0 x264 libx264-dev libclang-dev clang llvm-dev libasound2-dev libxrandr-dev libxcb-randr0-dev libxcb-shm0-dev
         cargo install cargo-deb
     - name: Build Server
       run: |

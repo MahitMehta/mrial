@@ -1,6 +1,11 @@
 # Changelog
 All notable changes to this project are documented in this file.
 
+## 0.1.18 - 2024-02-16
+
+- Logout detection with 1 second frequency
+- No longer dependent on libxdo
+
 ## 0.1.17 - 2024-02-10
 
 - Systemd service works again! (well... at least partially)
