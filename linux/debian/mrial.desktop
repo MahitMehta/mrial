@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=Mrial
+Comment=Mrial Player
+GenericName=Remote Desktop Application
+Exec=/usr/bin/mrial_player
+Icon=mrial
+Type=Application
