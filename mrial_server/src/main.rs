@@ -2,6 +2,7 @@ mod audio;
 mod conn;
 mod events;
 mod video;
+mod cli;
 
 use audio::{AudioServerThread, IAudioController};
 use conn::Connection;

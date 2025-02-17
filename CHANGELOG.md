@@ -1,10 +1,15 @@
 # Changelog
 All notable changes to this project are documented in this file.
 
-## 0.1.18 - 2024-02-16
+## 0.1.19 - TBD
+
+- Cursor on client should match the host's cursor type
+
+## 0.1.18 - 2024-02-17
 
 - Logout detection with 1 second frequency
 - No longer dependent on libxdo
+- Mrial Player is included in .deb package (since the player application is needed for creating users)
 
 ## 0.1.17 - 2024-02-10
 
