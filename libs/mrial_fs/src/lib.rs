@@ -81,10 +81,26 @@ impl Users {
     }
 }
 
+const ROOT_DATA_DIR: &'static str = "/var/lib/mrial_server";
+
 impl StorageMultiType<User, String> for Users {
+    #[cfg(not(target_os = "linux"))]
     fn new() -> Self {
         Users {
-            users: StorageMulti::new("users.json".to_string()),
+            users: StorageMulti::new( "users.json".to_string()),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn new() -> Self {
+        use std::path::PathBuf;
+        let file_dir = PathBuf::from(ROOT_DATA_DIR);
+
+        Users {
+            users: StorageMulti::new_with_custom_dir(
+                "users.json".to_string(), 
+                file_dir
+            ),
         }
     }
 

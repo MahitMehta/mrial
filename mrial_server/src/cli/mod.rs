@@ -83,7 +83,7 @@ fn handle_user_cli(args: &[String]) {
     }
 
     if cmd == "ls" {
-        println!("Authenticated Users:");
+        println!("Authenticated Users:\n");
 
         if let Some(users) = &users.users.get() {
             for i in 0..users.len() {

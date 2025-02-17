@@ -157,10 +157,16 @@ fn main() {
                     pass: pass.to_string(),
                 }) {
                     Ok(_) => {
-                        debug!("User Added: {}", username);
-                        let users = users_storage_copy.users.get().unwrap();
-                        populate_users(users, &app_weak_add_clone);
-                        users_storage_copy.save().unwrap();
+                        if let Err(e) = users_storage_copy.save() {
+                            // reload users from disk because of error
+                            users_storage_copy.users.load().unwrap();
+                            debug!("Failed to Add User: {}", e);
+                        } else {
+                            let users = users_storage_copy.users.get().unwrap();
+                            populate_users(users, &app_weak_add_clone);
+
+                            debug!("User Added: {}", username);
+                        }
                     }
                     Err(e) => {
                         debug!("Failed to Add User: {}", e);
@@ -173,10 +179,16 @@ fn main() {
             .on_remove_user(
                 move |username| match users_storage.remove(username.to_string()) {
                     Ok(_) => {
-                        debug!("User Removed: {}", username);
-                        let users = users_storage.users.get().unwrap();
-                        populate_users(users, &app_weak_clone);
-                        users_storage.save().unwrap();
+                        if let Err(e) = users_storage.save() {
+                            // reload users from disk because of error
+                            users_storage.users.load().unwrap();
+                            debug!("Failed to Remove User: {}", e);
+                        } else {
+                            let users = users_storage.users.get().unwrap();
+                            populate_users(users, &app_weak_clone);
+
+                            debug!("User Removed: {}", username);
+                        }
                     }
                     Err(e) => {
                         debug!("Failed to Remove User: {}", e);
@@ -252,10 +264,15 @@ fn main() {
                 pass: pass.to_string(),
             }) {
                 Ok(_) => {
-                    debug!("Server Added: {}", username);
-                    let servers = servers_storage_clone.servers.get().unwrap();
-                    populate_servers(servers, &app_weak_clone);
-                    servers_storage_clone.save().unwrap();
+                    if let Err(e) = servers_storage_clone.save() {
+                        servers_storage_clone.servers.load().unwrap();
+                        debug!("Failed to Add Server: {}", e);
+                    } else {
+                        let servers = servers_storage_clone.servers.get().unwrap();
+                        populate_servers(servers, &app_weak_clone);
+
+                        debug!("Server Added: {}", username);
+                    }
                 }
                 Err(e) => {
                     debug!("Failed to Add User: {}", e);
@@ -270,10 +287,15 @@ fn main() {
             .on_delete(
                 move |name| match servers_storage_remove_clone.remove(name.to_string()) {
                     Ok(_) => {
-                        debug!("Server Removed: {}", name);
-                        let servers = servers_storage_remove_clone.servers.get().unwrap();
-                        populate_servers(servers, &app_weak_clone);
-                        servers_storage_remove_clone.save().unwrap();
+                        if let Err(e) = servers_storage_remove_clone.save() {
+                            servers_storage_remove_clone.servers.load().unwrap();
+                            debug!("Failed to Remove Server: {}", e);
+                        } else {
+                            let servers = servers_storage_remove_clone.servers.get().unwrap();
+                            populate_servers(servers, &app_weak_clone);
+
+                            debug!("Server Removed: {}", name);
+                        }
                     }
                     Err(e) => {
                         debug!("Failed to Remove Server: {}", e);
