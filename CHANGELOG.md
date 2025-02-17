@@ -10,6 +10,8 @@ All notable changes to this project are documented in this file.
 - Logout detection with 1 second frequency
 - No longer dependent on libxdo
 - Mrial Player is included in .deb package (since the player application is needed for creating users)
+- Simple CLI part of the mrial_server binary (use mrial_server --help to learn more)
+- The UI and the CLI both store authenticated users at /var/lib/mrial_server directory on linux
 
 ## 0.1.17 - 2024-02-10
 
