@@ -158,10 +158,9 @@ impl SessionSettingThread {
                 setting,
             };
 
-            if cfg!(target_os = "linux") {
-                if let Err(e) = session_setting_thread.x11_session_status_loop() {
-                    error!("X11 session status loop crashed: {:?}", e);
-                }
+            #[cfg(target_os = "linux")]
+            if let Err(e) = session_setting_thread.x11_session_status_loop() {
+                error!("X11 session status loop crashed: {:?}", e);
             }
         });
     }

@@ -1,5 +1,6 @@
 [package]
 name = "mrial_server"
+description = "Mrial Server"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -37,10 +38,15 @@ xrandr = "0.2.0"
 libyuv-sys = { path = "../libs/libyuv-sys" }
 
 [package.metadata.deb]
-depends = ["libxdo-dev"] 
+depends = [] 
 assets = [
+    # Mrial Server
     ["../target/release/mrial_server", "usr/bin/mrial_server", "755"],
-    ["../linux/debian/*", "var/lib/mrial_server/scripts/", "755"]
+    ["../linux/debian/startup.sh", "var/lib/mrial_server/scripts/startup.sh", "755"],
+    # Mrial Player
+    ["../target/release/mrial_player", "usr/bin/mrial_player", "755"],
+    ["../linux/debian/mrial.desktop", "usr/share/applications/mrial.desktop", "755"],
+    ["../mrial_player/assets/imgs/logo.svg", "/usr/share/icons/hicolor/scalable/apps/mrial.svg", "755"]
 ]
 maintainer-scripts = "../linux/debian"
 systemd-units = { enable = true }

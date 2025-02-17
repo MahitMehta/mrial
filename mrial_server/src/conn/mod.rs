@@ -15,6 +15,7 @@ use mrial_proto::{
     ServerShookSE, ServerShookUE, ServerStatePayload, SERVER_PING_TOLERANCE,
 };
 
+#[cfg(target_os = "linux")]
 use crate::video::display::DisplayMeta;
 
 const SERVER_DEFAULT_PORT: u16 = 8554;

@@ -2,13 +2,23 @@ mod audio;
 mod conn;
 mod events;
 mod video;
+mod cli;
+
+use std::env;
 
 use audio::{AudioServerThread, IAudioController};
 use conn::Connection;
 use video::{VideoServerAction, VideoServerThread};
+use cli::handle_cli;
 
 #[tokio::main]
 async fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 {
+        handle_cli(&args);
+        return;
+    }
+
     const VERSION: &str = env!("CARGO_PKG_VERSION");
     println!("Starting Mrial Server Version {}\n", VERSION);
 

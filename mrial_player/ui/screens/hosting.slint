@@ -122,12 +122,12 @@ export component HostingScreen inherits VerticalLayout {
             alignment: LayoutAlignment.center;
             spacing: 10px;
             
-            property <length> desired_height: HostingAdapter.users.length * (65px + 10px);
+            // property <length> desired_height: HostingAdapter.users.length * (65px + 10px);
             property <length> max_dropdown_height: window_height - 200px;
 
             ScrollView {
                 width: 100%;
-                height: desired_height > max_dropdown_height ? max_dropdown_height : desired_height;
+                height: max_dropdown_height;// desired_height > max_dropdown_height ? max_dropdown_height : desired_height;
                 VerticalLayout {
                     spacing: 10px;
                     padding-right: 20px;
