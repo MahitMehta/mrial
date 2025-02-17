@@ -56,10 +56,11 @@ impl VideoServerThread {
     pub fn new(conn: Connection) -> Result<Self, Box<dyn std::error::Error>> {
         let mut setting = Setting::Unknown;
 
-        if cfg!(target_os = "linux") {
-            setting = session::config_xenv()?;
+        #[cfg(target_os = "linux")]
+        {
+            setting = session::config_xenv()?;;
         }
-         
+      
         let display: Display = Display::primary()?;
         let capturer = Capturer::new(display)?;
     
@@ -166,6 +167,7 @@ impl VideoServerThread {
     ) {
         match server_action {
             Some(VideoServerAction::RestartSession) => {
+                #[cfg(target_os = "linux")]
                 match session::config_xenv() {
                     Ok(Setting::PostLogin) => {
                         self.setting = Setting::PostLogin;
@@ -180,6 +182,7 @@ impl VideoServerThread {
                 self.events_sender.send(EventsThreadAction::ReconnectInputModules).unwrap();
             }
             Some(VideoServerAction::NewUserSession) => {
+                #[cfg(target_os = "linux")]
                 match session::config_xenv() {
                     Ok(Setting::PostLogin) => {
                         self.setting = Setting::PostLogin;

@@ -102,8 +102,8 @@ impl StorageMultiType<User, String> for Users {
         self.users.save()
     }
 
-    fn find(&self, _username: String) -> Option<User> {
-        todo!()
+    fn find(&self, username: String) -> Option<User> {
+        self.users.find(&|u| u.username == username)
     }
 
     fn remove(&mut self, username: String) -> Result<(), Box<dyn Error>> {

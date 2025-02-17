@@ -70,7 +70,7 @@ impl<T: Serialize + DeserializeOwned + Clone> StorageMulti<T> {
         Err("Failed to Remove Item".into())
     }
 
-    pub fn find(&self, func: &mut dyn FnMut(&T) -> bool) -> Option<T> {
+    pub fn find(&self, func: &dyn Fn(&T) -> bool) -> Option<T> {
         if let Ok(state) = self.state.lock() {
             if let Some(state) = state.as_ref() {
                 for item in state.iter() {

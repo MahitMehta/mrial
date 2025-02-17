@@ -13,6 +13,8 @@ use mrial_proto::{
 
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
+#[cfg(target_os = "linux")]
+use std::time::Duration;
 
 use super::{conn::Connection, VideoServerAction};
 
@@ -30,8 +32,6 @@ pub struct EventsEmitter {
 impl EventsEmitter {
     #[cfg(target_os = "linux")]
     fn new(video_server_ch_sender: Sender<VideoServerAction>) -> Self {
-        use std::time::Duration;
-
         let uinput =
             mouse_keyboard_input::VirtualDevice::new(Duration::new(0.040 as u64, 0), 2000).unwrap();
         let enigo = Enigo::new(&Settings::default()).unwrap();
@@ -45,14 +45,22 @@ impl EventsEmitter {
         }
     }
 
+    #[cfg(not(target_os = "linux"))]
+    fn new(video_server_ch_sender: Sender<VideoServerAction>) -> Self {
+        let enigo = Enigo::new(&Settings::default()).unwrap();
 
-    fn reconnect_input_modules(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if cfg!(target_os = "linux") {
-            use std::time::Duration;
-            self.uinput = mouse_keyboard_input::VirtualDevice::new(
-                Duration::new(0.040 as u64, 0), 2000)?;
+        Self { 
+            enigo, 
+            video_server_ch_sender,
+            session_restart_in_progress: false,
+            left_mouse_held: false
         }
+    }
 
+    #[cfg(target_os = "linux")]
+    fn reconnect_input_modules(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.uinput = mouse_keyboard_input::VirtualDevice::new(
+            Duration::new(0.040 as u64, 0), 2000)?;
         self.enigo = Enigo::new(&Settings::default())?;
         
         self.session_restart_in_progress = false;
@@ -60,14 +68,11 @@ impl EventsEmitter {
     }
 
     #[cfg(not(target_os = "linux"))]
-    fn new() -> Self {
-        let enigo = Enigo::new(&Settings::default()).unwrap();
-
-        Self { 
-            enigo, 
-            session_restart_in_progress: false,
-            left_mouse_held: false
-        }
+    fn reconnect_input_modules(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.enigo = Enigo::new(&Settings::default())?;
+        
+        self.session_restart_in_progress = false;
+        Ok(())
     }
 
     // sudo apt install libudev-dev libevdev-dev libhidapi-dev

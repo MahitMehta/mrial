@@ -1,6 +1,5 @@
 #[cfg(target_os = "linux")]
-use xrandr::{ScreenResources, XHandle};
-use xrandr::XrandrError;
+use xrandr::{ScreenResources, XHandle, XrandrError};
 
 pub struct DisplayMeta {}
 
