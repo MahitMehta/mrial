@@ -7,6 +7,18 @@ Mrial Server
 1. `sudo apt install ubuntu-desktop`
 2. Install LightDM display manager via `sudo apt-get install lightdm`
 3. Ensure LightDM (or your display-manager) is running before proceeding (`sudo systemctl start display-manager`)
+4. Now, wget the latest `.deb` package of Mrial from Github and install it!
+5. Once the server is running, you will need to add at least one authenticated user
+6. Run `/usr/bin/mrial_server user add [username] [password]`
+7. Now, install the the Mrial Player and connect! (by default the server is hosted on port `8554`)
+8. To get audio to work, follow the steps on how to setup Pipewire!
+
+# Setup Audio via Pipewire on Ubuntu (Production)
+
+1. sudo add-apt-repository ppa:pipewire-debian/pipewire-upstream
+2. sudo apt update
+3. sudo apt install pipewire
+4. sudo systemctl restart mrial-server
 
 # Build (Development)
 
