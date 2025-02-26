@@ -55,7 +55,7 @@ impl From<u8> for EPacketType {
     }
 }
 
-pub const MTU: usize = 1032;
+pub const MTU: usize = 1200; // 1032;
 pub const HEADER: usize = 8;
 pub const PAYLOAD: usize = MTU - HEADER;
 
@@ -63,7 +63,7 @@ pub const PAYLOAD: usize = MTU - HEADER;
 // Packet Type = 1 byte
 // Packets Remaining = 2 byte
 // Real Packet Byte Size = 4 bytes // TODO: reduce to 3 bytes
-// Packet ID = 1 Byte
+// Frame ID = 1 Byte
 
 // Payload Schema
 // variables sized unencrypted bytes (MAX = MTU - HEADER)
@@ -72,18 +72,18 @@ pub const PAYLOAD: usize = MTU - HEADER;
 pub fn write_static_header(
     packet_type: EPacketType,
     real_packet_size: u32,
-    packet_id: u8,
+    frame_id: u8,
     buf: &mut [u8],
 ) {
     buf[0] = packet_type as u8;
     buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
-    buf[7] = packet_id;
+    buf[7] = frame_id;
 }
 
 #[inline]
-pub fn write_dynamic_header(real_packet_size: u32, packet_id: u8, buf: &mut [u8]) {
+pub fn write_dynamic_header(real_packet_size: u32, frame_id: u8, buf: &mut [u8]) {
     buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
-    buf[7] = packet_id;
+    buf[7] = frame_id;
 }
 
 #[inline]
@@ -101,10 +101,10 @@ pub fn write_header(
     packet_type: EPacketType,
     packets_remaining: u16,
     real_packet_size: u32,
-    packet_id: u8,
+    frame_id: u8,
     buf: &mut [u8],
 ) {
-    write_static_header(packet_type, real_packet_size, packet_id, buf);
+    write_static_header(packet_type, real_packet_size, frame_id, buf);
     write_packets_remaining(packets_remaining, buf);
 }
 
@@ -126,7 +126,7 @@ pub fn parse_packet_type(buf: &[u8]) -> EPacketType {
 }
 
 #[inline]
-pub fn parse_packet_id(buf: &[u8]) -> u8 {
+pub fn parse_frame_id(buf: &[u8]) -> u8 {
     buf[7]
 }
 
@@ -135,9 +135,9 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
     let packet_type = parse_packet_type(buf);
     let packets_remaining = parse_packets_remaining(buf);
     let real_packet_size = parse_real_packet_size(buf);
-    let packet_id = parse_packet_id(buf);
+    let frame_id = parse_frame_id(buf);
 
-    (packet_type, packets_remaining, real_packet_size, packet_id)
+    (packet_type, packets_remaining, real_packet_size, frame_id)
 }
 
 #[inline]
@@ -172,14 +172,14 @@ pub struct PacketConstructor {
     order_mismatch: bool,
     xor_packets: HashMap<u8, Vec<Vec<u8>>>,
     cached_packets: HashMap<u8, Vec<Vec<u8>>>,
-    previous_packet_id: i16,
+    previous_frame_id: i16,
 
     #[cfg(feature = "stat")]
     recieved_packets: u8,
     #[cfg(feature = "stat")]
     potential_packets: u8,
     #[cfg(feature = "stat")]
-    latest_packet_id: i16,
+    latest_frame_id: i16,
     #[cfg(feature = "stat")]
     received_subpackets: f64,
     #[cfg(feature = "stat")]
@@ -195,7 +195,7 @@ impl PacketConstructor {
             previous_subpacket_number: -1,
             order_mismatch: false,
             cached_packets: HashMap::new(),
-            previous_packet_id: -1,
+            previous_frame_id: -1,
             xor_packets: HashMap::new(),
 
             #[cfg(feature = "stat")]
@@ -203,7 +203,7 @@ impl PacketConstructor {
             #[cfg(feature = "stat")]
             potential_packets: 0,
             #[cfg(feature = "stat")]
-            latest_packet_id: -1,
+            latest_frame_id: -1,
             #[cfg(feature = "stat")]
             received_subpackets: 0.0,
             #[cfg(feature = "stat")]
@@ -217,11 +217,11 @@ impl PacketConstructor {
     // Cache previously dropped/out of order messages and reassemble them
     #[inline]
     fn reconstruct_when_deficient(&mut self) -> bool {
-        let last_packet_id = parse_packet_id(self.packets.last().unwrap());
-        if false {// let Some(_cached_packets) = self.cached_packets.get(&last_packet_id) {
+        let last_frame_id = parse_frame_id(self.packets.last().unwrap());
+        if false {// let Some(_cached_packets) = self.cached_packets.get(&last_frame_id) {
             debug!("TODO: Append Found Cached Packets");
         } else {
-            if let Some(xor_packets) = self.xor_packets.get(&last_packet_id) {
+            if let Some(xor_packets) = self.xor_packets.get(&last_frame_id) {
                 if xor_packets.len() > 0 { 
                     debug!("Attempting Recovery from XOR");
 
@@ -293,7 +293,7 @@ impl PacketConstructor {
                 PacketConstructor::cache_packet(
                     &mut self.cached_packets,
                     packet,
-                    parse_packet_id(packet),
+                    parse_frame_id(packet),
                 );
             }
         }
@@ -316,13 +316,13 @@ impl PacketConstructor {
     fn reconstruct_when_surplus(
         cached_packets: &mut HashMap<u8, Vec<Vec<u8>>>,
         packet_unit: &Vec<u8>,
-        current_packet_id: u8,
+        current_frame_id: u8,
     ) {
-        if !cached_packets.contains_key(&current_packet_id) {
+        if !cached_packets.contains_key(&current_frame_id) {
             // ### debug ###
             {
                 trace!(
-                    "No Cache for Previous Packet ID (Frame: {current_packet_id}) so dropped Packet Unit: {:?}", 
+                    "No Cache for Previous Packet ID (Frame: {current_frame_id}) so dropped Packet Unit: {:?}", 
                     parse_packets_remaining(packet_unit)
                 );
             }
@@ -331,7 +331,7 @@ impl PacketConstructor {
 
         let real_packet_size = parse_real_packet_size(packet_unit);
         let cache_packet_size =
-            PacketConstructor::get_cached_packet_size(&cached_packets[&current_packet_id]);
+            PacketConstructor::get_cached_packet_size(&cached_packets[&current_frame_id]);
         let potential_packet_size = cache_packet_size + (packet_unit.len() - HEADER);
 
         if potential_packet_size == real_packet_size as usize {
@@ -348,15 +348,15 @@ impl PacketConstructor {
     fn cache_packet(
         cached_packets: &mut HashMap<u8, Vec<Vec<u8>>>,
         packet_unit: &Vec<u8>,
-        current_packet_id: u8,
+        current_frame_id: u8,
     ) {
-        if cached_packets.contains_key(&current_packet_id) {
+        if cached_packets.contains_key(&current_frame_id) {
             cached_packets
-                .get_mut(&current_packet_id)
+                .get_mut(&current_frame_id)
                 .unwrap()
                 .push(packet_unit.clone());
         } else {
-            cached_packets.insert(current_packet_id, vec![packet_unit.clone()]);
+            cached_packets.insert(current_frame_id, vec![packet_unit.clone()]);
         }
     }
 
@@ -365,27 +365,27 @@ impl PacketConstructor {
     fn filter_packet(&mut self) {
         debug!("Filtering Packets");
 
-        let last_packet_id = parse_packet_id(self.packets.last().unwrap());
+        let last_frame_id = parse_frame_id(self.packets.last().unwrap());
         self.packets.retain(|packet_unit| {
-            let current_packet_id = parse_packet_id(&packet_unit);
-            if current_packet_id != last_packet_id {
-                if current_packet_id < last_packet_id {
+            let current_frame_id = parse_frame_id(&packet_unit);
+            if current_frame_id != last_frame_id {
+                if current_frame_id < last_frame_id {
                     PacketConstructor::reconstruct_when_surplus(
                         &mut self.cached_packets,
                         packet_unit,
-                        current_packet_id,
+                        current_frame_id,
                     );
                 } else {
                     debug!(
                         "Caching Packet Unit {:?} with Packet ID {}",
                         parse_packets_remaining(packet_unit),
-                        current_packet_id
+                        current_frame_id
                     );
 
                     PacketConstructor::cache_packet(
                         &mut self.cached_packets,
                         packet_unit,
-                        current_packet_id,
+                        current_frame_id,
                     );
                 }
                 return false;
@@ -401,21 +401,21 @@ impl PacketConstructor {
         let mut packet_order = String::new();
         let mut xor_packet_order = String::new();
         for packet in &self.packets {
-            if self.latest_packet_id != parse_packet_id(packet) as i16 {
+            if self.latest_frame_id != parse_frame_id(packet) as i16 {
                 self.potential_subpackets += subpacket_count(parse_real_packet_size(packet)) as f64;
-                self.latest_packet_id = parse_packet_id(packet) as i16;
+                self.latest_frame_id = parse_frame_id(packet) as i16;
             }
             packet_order.push_str(&format!(
                 "{}-{}, ",
-                parse_packet_id(&packet),
+                parse_frame_id(&packet),
                 parse_packets_remaining(&packet)
             ));
         }
-        if let Some(xor_packet) = self.xor_packets.get(&parse_packet_id(self.packets.last().unwrap())) {
+        if let Some(xor_packet) = self.xor_packets.get(&parse_frame_id(self.packets.last().unwrap())) {
             for packet in xor_packet {
                 xor_packet_order.push_str(&format!(
                     "{}-{}, ",
-                    parse_packet_id(&packet),
+                    parse_frame_id(&packet),
                     parse_packets_remaining(&packet)
                 ));
             }
@@ -424,7 +424,7 @@ impl PacketConstructor {
         debug!(
             "Subpackets: {} (Packet ID:{})",
             subpacket_count(parse_real_packet_size(self.packets.last().unwrap())),
-            parse_packet_id(self.packets.last().unwrap())
+            parse_frame_id(self.packets.last().unwrap())
         );
         debug!("Packet Order: {}", packet_order);
         debug!("XOR Packet Order: {}", xor_packet_order);
@@ -434,8 +434,8 @@ impl PacketConstructor {
     fn handle_order_mismatch(&mut self, real_packet_size: usize) -> bool {
         // TODO: Is this neccessary?
         self.packets.sort_by(|a, b| {
-            let a_id = parse_packet_id(&a);
-            let b_id = parse_packet_id(&b);
+            let a_id = parse_frame_id(&a);
+            let b_id = parse_frame_id(&b);
 
             if a_id != b_id {
                 let forward_diff = b_id.wrapping_sub(a_id);
@@ -472,18 +472,18 @@ impl PacketConstructor {
     }
 
     #[cfg(feature = "stat")]
-    pub fn calculate_yield(&mut self, current_packet_id: u8) {
+    pub fn calculate_yield(&mut self, current_frame_id: u8) {
         use log::info;
 
-        if self.latest_packet_id != parse_packet_id(&self.packets[0]) as i16 {
+        if self.latest_frame_id != parse_frame_id(&self.packets[0]) as i16 {
             self.potential_subpackets +=
                 subpacket_count(parse_real_packet_size(&self.packets[0])) as f64;
-            self.latest_packet_id = parse_packet_id(&self.packets[0]) as i16;
+            self.latest_frame_id = parse_frame_id(&self.packets[0]) as i16;
         }
 
         self.recieved_packets += 1;
-        if self.previous_packet_id != -1 {
-            self.potential_packets += current_packet_id.wrapping_sub(self.previous_packet_id as u8);
+        if self.previous_frame_id != -1 {
+            self.potential_packets += current_frame_id.wrapping_sub(self.previous_frame_id as u8);
         } else {
             self.potential_packets += 1;
         }
@@ -519,10 +519,10 @@ impl PacketConstructor {
     #[inline]
     pub fn assemble_packet(&mut self, buf: &[u8], number_of_bytes: usize) -> Option<Vec<u8>> {
         if parse_packet_type(buf) == EPacketType::XOR {
-            if !self.xor_packets.contains_key(&parse_packet_id(buf)) {
+            if !self.xor_packets.contains_key(&parse_frame_id(buf)) {
                 self.xor_packets
-                    .insert(parse_packet_id(buf), vec![buf[..number_of_bytes].to_vec()]);
-            } else if let Some(xor_packets) = self.xor_packets.get_mut(&parse_packet_id(buf)) {
+                    .insert(parse_frame_id(buf), vec![buf[..number_of_bytes].to_vec()]);
+            } else if let Some(xor_packets) = self.xor_packets.get_mut(&parse_frame_id(buf)) {
                 xor_packets.push(buf[..number_of_bytes].to_vec());
             }
 
@@ -531,7 +531,7 @@ impl PacketConstructor {
 
         let packets_remaining = parse_packets_remaining(buf);
         let real_packet_size = parse_real_packet_size(buf);
-        let packet_id = parse_packet_id(buf);
+        let frame_id = parse_frame_id(buf);
 
         if self.previous_subpacket_number != (packets_remaining + 1) as i16
             && self.previous_subpacket_number > 0
@@ -565,20 +565,20 @@ impl PacketConstructor {
         }
 
         #[cfg(feature = "stat")]
-        self.calculate_yield(packet_id);
+        self.calculate_yield(frame_id);
 
-        let packets_diff = packet_id.wrapping_sub(self.previous_packet_id as u8);
+        let packets_diff = frame_id.wrapping_sub(self.previous_frame_id as u8);
         for i in 1..=packets_diff {
-            let calculated_packet_id = if self.previous_packet_id == -1 {
-                packet_id
+            let calculated_frame_id = if self.previous_frame_id == -1 {
+                frame_id
             } else {
-                (self.previous_packet_id as u8) + i
+                (self.previous_frame_id as u8) + i
             };
-            if let Some(xor_packets) = self.xor_packets.get_mut(&calculated_packet_id) {
+            if let Some(xor_packets) = self.xor_packets.get_mut(&calculated_frame_id) {
                 xor_packets.clear();
             }
         }
-        self.previous_packet_id = packet_id as i16;
+        self.previous_frame_id = frame_id as i16;
         self.packets.clear();
         Some(assembled_packet)
     }
