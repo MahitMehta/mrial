@@ -1,22 +1,24 @@
-use std::{net::SocketAddr, thread::{self, JoinHandle}};
+use std::{
+    net::SocketAddr,
+    thread::{self, JoinHandle},
+};
 
 use enigo::{
-    Direction::{Press, Release}, Enigo, InputError, Keyboard, Mouse, Settings
+    Direction::{Press, Release},
+    Enigo, InputError, Keyboard, Mouse, Settings,
 };
 use kanal::{Receiver, Sender};
-use log::debug;
-use mrial_proto::{
-    input::*,
-    packet::*,
-    ClientStatePayload, JSONPayloadSE,
-};
+use log::{debug, warn};
+use mrial_proto::{input::*, packet::*, ClientStatePayload, JSONPayloadSE};
 
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
+use rsa::rand_core::le;
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
-use super::{conn::Connection, VideoServerAction};
+use crate::conn::{app, Connection, ConnectionManager};
+use crate::video::VideoServerAction;
 
 pub struct EventsEmitter {
     enigo: Enigo,
@@ -49,20 +51,20 @@ impl EventsEmitter {
     fn new(video_server_ch_sender: Sender<VideoServerAction>) -> Self {
         let enigo = Enigo::new(&Settings::default()).unwrap();
 
-        Self { 
-            enigo, 
+        Self {
+            enigo,
             video_server_ch_sender,
             session_restart_in_progress: false,
-            left_mouse_held: false
+            left_mouse_held: false,
         }
     }
 
     #[cfg(target_os = "linux")]
     fn reconnect_input_modules(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.uinput = mouse_keyboard_input::VirtualDevice::new(
-            Duration::new(0.040 as u64, 0), 2000)?;
+        self.uinput =
+            mouse_keyboard_input::VirtualDevice::new(Duration::new(0.040 as u64, 0), 2000)?;
         self.enigo = Enigo::new(&Settings::default())?;
-        
+
         self.session_restart_in_progress = false;
         Ok(())
     }
@@ -70,7 +72,7 @@ impl EventsEmitter {
     #[cfg(not(target_os = "linux"))]
     fn reconnect_input_modules(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.enigo = Enigo::new(&Settings::default())?;
-        
+
         self.session_restart_in_progress = false;
         Ok(())
     }
@@ -80,7 +82,7 @@ impl EventsEmitter {
     // sudo reboot
 
     #[cfg(target_os = "linux")]
-    fn scroll(&mut self, x: i32, y: i32) {            
+    fn scroll(&mut self, x: i32, y: i32) {
         if x != 0 {
             let _ = &self.uinput.scroll_x(-x * 2);
         }
@@ -93,7 +95,7 @@ impl EventsEmitter {
     #[cfg(not(target_os = "linux"))]
     fn scroll(&self, _x: i32, _y: i32) {}
 
-    fn handle_meta_keys(&mut self, buf: &[u8]) -> Result<(), InputError>{
+    fn handle_meta_keys(&mut self, buf: &[u8]) -> Result<(), InputError> {
         if is_control_pressed(buf) {
             self.enigo.key(enigo::Key::Control, Press)?;
         } else if is_control_released(buf) {
@@ -121,7 +123,7 @@ impl EventsEmitter {
         Ok(())
     }
 
-    fn handle_pressed_key(&mut self, buf: &[u8]) -> Result<(), InputError>{
+    fn handle_pressed_key(&mut self, buf: &[u8]) -> Result<(), InputError> {
         match Key::from(buf[8]) {
             Key::None => {}
             Key::Backspace => {
@@ -140,21 +142,16 @@ impl EventsEmitter {
                 self.enigo.key(enigo::Key::RightArrow, Press)?;
             }
             Key::Space => {
-                self.enigo
-                    .key(enigo::Key::Space, enigo::Direction::Press)?;
+                self.enigo.key(enigo::Key::Space, enigo::Direction::Press)?;
             }
             Key::Tab => {
-                self.enigo
-                    .key(enigo::Key::Tab, enigo::Direction::Press)?;
+                self.enigo.key(enigo::Key::Tab, enigo::Direction::Press)?;
             }
             Key::Return => {
                 self.enigo
                     .key(enigo::Key::Return, enigo::Direction::Click)?;
             }
-            Key::Unicode => {
-                self.enigo
-                    .key(enigo::Key::Unicode(buf[8] as char), Press)?
-            }
+            Key::Unicode => self.enigo.key(enigo::Key::Unicode(buf[8] as char), Press)?,
         }
 
         Ok(())
@@ -183,8 +180,7 @@ impl EventsEmitter {
                 self.enigo.key(enigo::Key::RightArrow, Release)?;
             }
             Key::Tab => {
-                self.enigo
-                    .key(enigo::Key::Tab, enigo::Direction::Release)?;
+                self.enigo.key(enigo::Key::Tab, enigo::Direction::Release)?;
             }
             Key::Return => {}
             Key::Unicode => {
@@ -229,7 +225,9 @@ impl EventsEmitter {
 
                     if !self.session_restart_in_progress {
                         debug!("Session Restart Requested");
-                        let _ = self.video_server_ch_sender.send(VideoServerAction::RestartSession);
+                        let _ = self
+                            .video_server_ch_sender
+                            .send(VideoServerAction::RestartSession);
                         self.session_restart_in_progress = true;
                     }
                 }
@@ -238,16 +236,21 @@ impl EventsEmitter {
 
         if mouse_move_requested(buf) {
             let (x, y, pressed) = parse_mouse_move(buf, width as f32, height as f32);
-            
-            if let Err(e) = self.enigo.move_mouse(x as i32, y as i32, enigo::Coordinate::Abs) {
+
+            if let Err(e) = self
+                .enigo
+                .move_mouse(x as i32, y as i32, enigo::Coordinate::Abs)
+            {
                 debug!("Error moving mouse: {}", e);
                 if !self.session_restart_in_progress {
                     debug!("Session Restart Requested");
-                    let _ = self.video_server_ch_sender.send(VideoServerAction::RestartSession);
+                    let _ = self
+                        .video_server_ch_sender
+                        .send(VideoServerAction::RestartSession);
                     self.session_restart_in_progress = true;
                 }
             }
-            
+
             if pressed && !self.left_mouse_held {
                 self.left_mouse_held = true;
                 let _ = &self
@@ -270,19 +273,19 @@ impl EventsEmitter {
     }
 }
 pub enum EventsThreadAction {
-    ReconnectInputModules
+    ReconnectInputModules,
 }
 
 pub struct EventsThread {
     emitter: EventsEmitter,
-    conn: Connection,
+    conn: ConnectionManager,
     headers: Vec<u8>,
     video_server_ch_sender: Sender<VideoServerAction>,
 }
 
 impl EventsThread {
     pub fn new(
-        conn: Connection,
+        conn: ConnectionManager,
         headers: Vec<u8>,
         video_server_ch_sender: Sender<VideoServerAction>,
     ) -> Self {
@@ -299,34 +302,53 @@ impl EventsThread {
 
         match packet_type {
             EPacketType::ShakeAE => {
-                let meta = match self
-                    .conn
-                    .connect_client(src, &buf[HEADER..size], &self.headers)
-                {
+                let mut app = match self.conn.get_app() {
+                    Ok(app) => app,
+                    Err(_) => return,
+                };
+
+                let meta = match app.connect_client(src, &buf[HEADER..size], &self.headers) {
                     Some(meta) => meta,
                     None => return,
                 };
 
-                self.conn.mute_client(src, meta.muted.try_into().unwrap());
+                app.mute_client(src, meta.muted.try_into().unwrap());
 
                 self.conn.set_dimensions(
                     meta.width.try_into().unwrap(),
                     meta.height.try_into().unwrap(),
                 );
 
-                self.video_server_ch_sender
-                    .send(VideoServerAction::SymKey)
-                    .unwrap();
+                if let Err(e) = self.video_server_ch_sender.send(VideoServerAction::SymKey) {
+                    warn!(
+                        "Error sending {:?} action to video server: {}",
+                        VideoServerAction::SymKey,
+                        e
+                    );
+                }
 
-                self.video_server_ch_sender
+                if let Err(e) = self
+                    .video_server_ch_sender
                     .send(VideoServerAction::ConfigUpdate)
-                    .unwrap();
+                {
+                    warn!(
+                        "Error sending {:?} action to video server: {}",
+                        VideoServerAction::ConfigUpdate,
+                        e
+                    );
+                }
             }
             EPacketType::ShakeUE => {
-                self.conn.initialize_client(src);
+                if let Ok(app) = self.conn.get_app() {
+                    app.initialize_client(src);
+                }
             }
             EPacketType::ClientState => {
-                let sym_key = self.conn.get_sym_key();
+                let sym_key = match self.conn.get_app() {
+                    Ok(app) => app.get_sym_key(),
+                    Err(_) => return,
+                };
+
                 if sym_key.is_none() {
                     return;
                 }
@@ -341,7 +363,10 @@ impl EventsThread {
 
                 debug!("Client State: {:?}", meta);
 
-                self.conn.mute_client(src, meta.muted.try_into().unwrap());
+                if let Ok(app) = self.conn.get_app() {
+                    app.mute_client(src, meta.muted.try_into().unwrap());
+                }
+
                 self.conn.set_dimensions(
                     meta.width.try_into().unwrap(),
                     meta.height.try_into().unwrap(),
@@ -352,26 +377,38 @@ impl EventsThread {
                     .unwrap();
             }
             EPacketType::Alive => {
-                self.conn.send_alive(src);
+                if let Ok(app) = self.conn.get_app() {
+                    app.send_alive(src);
+                }
             }
             EPacketType::PING => {
-                self.conn.received_ping(src);
+                if let Ok(app) = self.conn.get_app() {
+                    app.received_ping(src);
+                }
             }
             EPacketType::Disconnect => {
-                self.conn.remove_client(src);
+                if let Ok(app) = self.conn.get_app() {
+                    app.remove_client(src);
+                }
+
                 if self.conn.has_clients() {
                     return;
                 }
-                self.video_server_ch_sender
+                if let Err(e) = self
+                    .video_server_ch_sender
                     .send(VideoServerAction::Inactive)
-                    .unwrap();
+                {
+                    warn!("Error sending inactive action to video server: {}", e);
+                }
             }
             EPacketType::InputState => {
-                self.emitter.input(
-                    &mut buf[HEADER..],
-                    self.conn.get_meta().width,
-                    self.conn.get_meta().height,
-                );
+                let meta = match self.conn.get_meta() {
+                    Some(meta) => meta,
+                    None => return,
+                };
+
+                self.emitter
+                    .input(&mut buf[HEADER..], meta.width, meta.height);
             }
             _ => {}
         }
@@ -394,24 +431,25 @@ impl EventsThread {
                         }
                         self.emitter.session_restart_in_progress = false;
                     }
-                    None => { break; }
+                    None => {
+                        break;
+                    }
                 }
             }
 
-            if let Ok((size, src)) = self.conn.recv_from(&mut buf) {
+            if let Ok((size, src)) = self.conn.app_recv_from(&mut buf) {
                 self.handle_event(&mut buf, src, size);
             }
         }
     }
 
     pub fn run(
-        conn: &Connection,
+        conn: ConnectionManager,
         headers: Vec<u8>,
         video_server_ch_sender: Sender<VideoServerAction>,
         event_ch_receiver: Receiver<EventsThreadAction>,
     ) -> JoinHandle<()> {
-        let conn = conn.clone();
-        let handle =  thread::spawn(move || {
+        let handle = thread::spawn(move || {
             let mut events = EventsThread::new(conn, headers, video_server_ch_sender);
 
             events.start_loop(event_ch_receiver);

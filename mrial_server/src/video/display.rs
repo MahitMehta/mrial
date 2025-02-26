@@ -16,7 +16,7 @@ impl DisplayMeta {
     pub fn get_display_resolutions() -> Result<(Vec<u16>, Vec<u16>), xrandr::XrandrError> {
         let mut handle = XHandle::open().unwrap();
         // let mon1 = &handle.monitors()?[0];
-    
+
         let mut widths: Vec<u16> = Vec::new();
         let mut heights: Vec<u16> = Vec::new();
 

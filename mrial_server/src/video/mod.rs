@@ -1,29 +1,33 @@
 pub mod display;
-pub mod yuv;
 pub mod session;
+pub mod yuv;
 
 use deploy::PacketDeployer;
 use display::DisplayMeta;
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use kanal::{unbounded, Receiver, Sender};
-use log::debug;
+use log::{debug, error};
 use mrial_proto::*;
 use scrap::{Capturer, Display};
 use session::{SessionSettingThread, Setting};
 use std::{
-    collections::VecDeque, fs::File, io::{ErrorKind::WouldBlock, Write}, sync::RwLockReadGuard, thread, time::{Duration, Instant}
+    collections::VecDeque,
+    fs::File,
+    io::{ErrorKind::WouldBlock, Write},
+    thread,
+    time::{Duration, Instant},
 };
 use x264::{Encoder, Param, Picture};
 use yuv::YUVBuffer;
 
 use crate::{
-    conn::{Connection, ServerMetaData},
+    conn::{Connection, ConnectionManager, ServerMeta},
     events::{EventsThread, EventsThreadAction},
 };
 
 use self::yuv::EColorSpace;
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum VideoServerAction {
     Inactive,
     ConfigUpdate,
@@ -43,7 +47,7 @@ pub struct VideoServerThread {
     capturer: Option<Capturer>,
     encoder: Encoder,
     deployer: PacketDeployer,
-    conn: Connection,
+    conn: ConnectionManager,
     setting: Setting,
     setting_thread: Option<thread::JoinHandle<()>>,
 
@@ -53,17 +57,17 @@ pub struct VideoServerThread {
 }
 
 impl VideoServerThread {
-    pub fn new(conn: Connection) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(conn: ConnectionManager) -> Result<Self, Box<dyn std::error::Error>> {
         let mut setting = Setting::Unknown;
 
         #[cfg(target_os = "linux")]
         {
-            setting = session::config_xenv()?;;
+            setting = session::config_xenv()?;
         }
-      
+
         let display: Display = Display::primary()?;
         let capturer = Capturer::new(display)?;
-    
+
         conn.set_dimensions(capturer.width(), capturer.height());
 
         let pool = ThreadPool::builder().pool_size(1).create()?;
@@ -81,7 +85,7 @@ impl VideoServerThread {
             events_receiver,
             events_sender,
             events_thread: None,
-            
+
             setting_thread: None,
             pool,
             yuv_handles,
@@ -93,7 +97,7 @@ impl VideoServerThread {
             encoder,
             setting,
             deployer: PacketDeployer::new(EPacketType::NAL, false),
-            conn
+            conn,
         })
     }
 
@@ -105,11 +109,15 @@ impl VideoServerThread {
         }
     }
 
-    fn get_parameters(meta: RwLockReadGuard<'_, ServerMetaData>) -> Param {
+    fn get_parameters(server_meta: Option<ServerMeta>) -> Param {
         let mut par = Param::default_preset("ultrafast", "zerolatency").unwrap();
 
         par = par.set_csp(EColorSpace::YUV444.into());
-        par = par.set_dimension(meta.height, meta.width);
+
+        if let Some(server_meta) = server_meta {
+            par = par.set_dimension(server_meta.height, server_meta.width);
+        }
+
         if cfg!(target_os = "windows") {
             par = par.set_fullrange(1);
         }
@@ -134,7 +142,7 @@ impl VideoServerThread {
         let display = Display::primary()?;
 
         let capturer: Capturer = Capturer::new(display)?;
- 
+
         self.row_len = 4 * capturer.width() * capturer.height();
         self.conn
             .set_dimensions(capturer.width(), capturer.height());
@@ -144,10 +152,10 @@ impl VideoServerThread {
         if self.deployer.has_sym_key() {
             let headers = self.encoder.get_headers()?;
             let header_bytes = headers.as_bytes();
-            self.deployer.prepare(
+            self.deployer.prepare_encrypted(
                 &header_bytes,
                 Box::new(|subpacket| {
-                    self.conn.broadcast(&subpacket);
+                    self.conn.app_broadcast(&subpacket);
                 }),
             );
         }
@@ -161,9 +169,9 @@ impl VideoServerThread {
     }
 
     fn handle_server_action(
-        &mut self, 
+        &mut self,
         server_action: Option<VideoServerAction>,
-        video_server_ch_sender: &kanal::Sender<VideoServerAction>
+        video_server_ch_sender: &kanal::Sender<VideoServerAction>,
     ) {
         match server_action {
             Some(VideoServerAction::RestartSession) => {
@@ -178,15 +186,22 @@ impl VideoServerThread {
                     _ => {}
                 }
 
-                video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
-                self.events_sender.send(EventsThreadAction::ReconnectInputModules).unwrap();
+                video_server_ch_sender
+                    .send(VideoServerAction::RestartStream)
+                    .unwrap();
+                self.events_sender
+                    .send(EventsThreadAction::ReconnectInputModules)
+                    .unwrap();
             }
-            Some(VideoServerAction::NewUserSession) => {
+            Some(VideoServerAction::NewUserSession) =>
+            {
                 #[cfg(target_os = "linux")]
                 match session::config_xenv() {
                     Ok(Setting::PostLogin) => {
                         self.setting = Setting::PostLogin;
-                        video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
+                        video_server_ch_sender
+                            .send(VideoServerAction::RestartStream)
+                            .unwrap();
                     }
                     _ => {}
                 }
@@ -195,8 +210,10 @@ impl VideoServerThread {
                 self.encoder = x264::Encoder::open(&mut self.par).unwrap();
             }
             Some(VideoServerAction::SymKey) => {
-                if let Some(sym_key) = self.conn.get_sym_key() {
-                    self.deployer.set_sym_key(sym_key.clone());
+                if let Ok(app) = self.conn.get_app() {
+                    if let Some(sym_key) = app.get_sym_key() {
+                        self.deployer.set_sym_key(sym_key.clone());
+                    }
                 }
             }
             Some(VideoServerAction::RestartStream) => {
@@ -207,19 +224,32 @@ impl VideoServerThread {
                     }
                     Err(e) => {
                         debug!("Error Restarting Stream: {}", e);
-                        video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
+                        video_server_ch_sender
+                            .send(VideoServerAction::RestartStream)
+                            .unwrap();
                     }
                 }
             }
             Some(VideoServerAction::ConfigUpdate) => {
-                let requested_width = self.conn.get_meta().width;
-                let requested_height = self.conn.get_meta().height;
+                let meta = match self.conn.get_meta() {
+                    Some(meta) => meta,
+                    None => {
+                        return;
+                    }
+                };
 
-                if let Err(e) = DisplayMeta::update_display_resolution(requested_width, requested_height) {
+                let requested_width = meta.width;
+                let requested_height = meta.height;
+
+                if let Err(e) =
+                    DisplayMeta::update_display_resolution(requested_width, requested_height)
+                {
                     debug!("Error updating display resolution: {}", e);
                 }
 
-                video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
+                video_server_ch_sender
+                    .send(VideoServerAction::RestartStream)
+                    .unwrap();
             }
             None => {
                 return;
@@ -233,34 +263,38 @@ impl VideoServerThread {
             None => false,
         };
 
-        if has_setting_thread { return false; }
+        if has_setting_thread {
+            return false;
+        }
 
-        self.setting_thread = Some(SessionSettingThread::run(
-            ch_sender, 
-            self.setting
-        ));
+        self.setting_thread = Some(SessionSettingThread::run(ch_sender, self.setting));
         true
     }
 
     fn start_events_thread(
-        &mut self, 
-        headers: Vec<u8>, 
-        ch_sender: Sender<VideoServerAction>) -> bool {
+        &mut self,
+        headers: Vec<u8>,
+        ch_sender: Sender<VideoServerAction>,
+    ) -> Result<bool, std::io::Error> {
         let has_events_thread = match &self.events_thread {
             Some(handle) => !handle.is_finished(),
             None => false,
         };
 
-        if has_events_thread { return false; }
+        if has_events_thread {
+            return Ok(false);
+        }
+
+        let conn = self.conn.try_clone()?;
 
         self.events_thread = Some(EventsThread::run(
-            &self.conn, 
+            conn,
             headers,
-            ch_sender, 
-            self.events_receiver.clone()
+            ch_sender,
+            self.events_receiver.clone(),
         ));
 
-        true
+        Ok(true)
     }
 
     #[inline]
@@ -273,8 +307,11 @@ impl VideoServerThread {
         // Send update to client to update headers
         let headers = self.encoder.get_headers().unwrap();
 
-        self.start_events_thread(headers.as_bytes().to_vec(), ch_sender.clone());
-        self.start_session_thread(ch_sender.clone());   
+        if let Err(_) = self.start_events_thread(headers.as_bytes().to_vec(), ch_sender.clone()) {
+            error!("Error starting events thread");
+        }
+
+        self.start_session_thread(ch_sender.clone());
 
         loop {
             while ch_receiver.len() > 0 {
@@ -305,7 +342,11 @@ impl VideoServerThread {
                     let bgra_frame = frame.chunks(self.row_len).next().unwrap().to_vec();
 
                     if (width * height * 4) != bgra_frame.len() {
-                        debug!("Frame size: {} Expected: {}", bgra_frame.len(), width * height * 4);
+                        debug!(
+                            "Frame size: {} Expected: {}",
+                            bgra_frame.len(),
+                            width * height * 4
+                        );
                     }
 
                     if bgra_frame.len() < (width * height * 4) {
@@ -339,13 +380,24 @@ impl VideoServerThread {
                         // TODO: Is this important?
                         //self.pic.set_timestamp(self.frame_count);
 
-                        if let Some((nal, _, _)) = self.encoder.encode(&self.pic).unwrap() {
-                            self.deployer.prepare(
-                                &nal.as_bytes(),
-                                Box::new(|subpacket| {
-                                    self.conn.broadcast(&subpacket);
-                                }),
-                            );
+                        if let Ok(Some((nal, _, _))) = self.encoder.encode(&self.pic) {
+                            if self.conn.has_app_clients() {
+                                self.deployer.prepare_encrypted(
+                                    &nal.as_bytes(),
+                                    Box::new(|subpacket| {
+                                        self.conn.app_broadcast(&subpacket);
+                                    }),
+                                );
+                            }
+
+                            if self.conn.has_web_clients() {
+                                self.deployer.prepare_unencrypted(
+                                    &nal.as_bytes(),
+                                    Box::new(|subpacket| {
+                                    }),
+                                );
+                            }
+
                             frames += 1;
                         }
 
@@ -367,8 +419,7 @@ impl VideoServerThread {
                 }
                 Err(ref e) if e.kind() == WouldBlock => {}
                 Err(e) => {
-                    println!("Error: {}", e);
-                    debug!("Error Capturing Frame")
+                    error!("Error Capturing Frame: {}", e);
                 }
             }
         }

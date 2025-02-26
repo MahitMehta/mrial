@@ -1,11 +1,11 @@
 mod encoder;
 
-use crate::conn::Connection;
+use crate::conn::ConnectionManager;
 
 pub use self::encoder::*;
 
 pub trait IAudioController {
-    fn run(&self, conn: Connection);
+    fn run(&self, conn: ConnectionManager);
 }
 
 pub struct AudioServerThread {}

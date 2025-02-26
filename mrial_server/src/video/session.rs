@@ -9,18 +9,18 @@ use super::VideoServerAction;
 pub enum Setting {
     Unknown,
     PreLogin,
-    PostLogin
+    PostLogin,
 }
 
 /*
- *  Configures the X environment for the server by setting 
- *  correct display and Xauthority variables. 
- * 
+ *  Configures the X environment for the server by setting
+ *  correct display and Xauthority variables.
+ *
  *  Additionally, it sets the XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS
  *  for pipewire connection from root.
  */
 
-// TODO: Make DISPLAY variable dynamic AND 
+// TODO: Make DISPLAY variable dynamic AND
 // TODO: don't assume the display manager is lightdm
 
 #[cfg(target_os = "linux")]
@@ -30,22 +30,19 @@ pub fn config_xenv() -> Result<Setting, Box<dyn std::error::Error>> {
     env::set_var("DISPLAY", ":0");
 
     if let Ok(Some(username)) = get_x11_authenicated_client() {
-        /* 
-            * Environment variables needed to connect to 
-            * user graphical user session from root 
-            */
+        /*
+         * Environment variables needed to connect to
+         * user graphical user session from root
+         */
         let xauthority_path = format!("/home/{}/.Xauthority", username);
         debug!("Xauthority User Path: {}", xauthority_path);
         env::set_var("XAUTHORITY", xauthority_path);
 
-        /* 
-            * Environment variables needed for pipewire connection from root. 
-            */ 
+        /*
+         * Environment variables needed for pipewire connection from root.
+         */
         let user_id_cmd = format!("id -u {}", username);
-        let user_id_output = Command::new("sh")
-            .arg("-c")
-            .arg(user_id_cmd)
-            .output()?;
+        let user_id_output = Command::new("sh").arg("-c").arg(user_id_cmd).output()?;
 
         let user_id = String::from_utf8(user_id_output.stdout)?;
         let xdg_runtime_dir = format!("/run/user/{}", user_id.trim());
@@ -80,7 +77,7 @@ fn get_x11_authenicated_client() -> Result<Option<String>, Box<dyn std::error::E
     if let Some(user) = output_str.split_whitespace().next() {
         return Ok(Some(user.to_string()));
     }
-    
+
     Ok(None)
 }
 
@@ -88,7 +85,7 @@ const SESSION_CHECK_INTERVAL: u64 = 1;
 
 pub struct SessionSettingThread {
     setting: Setting,
-    video_server_ch_sender: Sender<VideoServerAction>
+    video_server_ch_sender: Sender<VideoServerAction>,
 }
 
 impl SessionSettingThread {
@@ -99,15 +96,16 @@ impl SessionSettingThread {
                 debug!("User has logged in");
 
                 self.setting = Setting::PostLogin;
-                self.video_server_ch_sender.send(VideoServerAction::NewUserSession)?;
+                self.video_server_ch_sender
+                    .send(VideoServerAction::NewUserSession)?;
             }
             Err(e) => {
                 error!("Error checking for X11 authenticated client: {:?}", e);
             }
             _ => {}
-        } 
+        }
         trace!("Waiting for user to login");
-        
+
         Ok(())
     }
 
@@ -118,7 +116,8 @@ impl SessionSettingThread {
                 debug!("User has logged out");
 
                 self.setting = Setting::PreLogin;
-                self.video_server_ch_sender.send(VideoServerAction::RestartSession)?;
+                self.video_server_ch_sender
+                    .send(VideoServerAction::RestartSession)?;
             }
             Err(e) => {
                 error!("Error checking for X11 authenticated client: {:?}", e);
@@ -126,7 +125,7 @@ impl SessionSettingThread {
             _ => {}
         }
         trace!("Waiting for user to logout");
-        
+
         Ok(())
     }
 
@@ -140,9 +139,7 @@ impl SessionSettingThread {
                 Setting::PostLogin => {
                     self.check_x11_user_logged_out()?;
                 }
-                Setting::Unknown => {
-                  
-                }
+                Setting::Unknown => {}
             }
 
             thread::sleep(Duration::from_secs(SESSION_CHECK_INTERVAL));
@@ -150,8 +147,9 @@ impl SessionSettingThread {
     }
 
     pub fn run(
-        video_server_ch_sender: Sender<VideoServerAction>, 
-        setting: Setting) -> thread::JoinHandle<()> {
+        video_server_ch_sender: Sender<VideoServerAction>,
+        setting: Setting,
+    ) -> thread::JoinHandle<()> {
         return thread::spawn(move || {
             let mut session_setting_thread = SessionSettingThread {
                 video_server_ch_sender,

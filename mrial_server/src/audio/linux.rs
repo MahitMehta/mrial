@@ -1,7 +1,7 @@
-use crate::conn::Connection;
+use crate::conn::ConnectionManager;
 
 use super::{AudioEncoder, AudioServerThread, IAudioController};
-use log::{debug};
+use log::debug;
 use mrial_proto::*;
 
 use pipewire as pw;
@@ -29,7 +29,7 @@ impl AudioServerThread {
 }
 
 impl IAudioController for AudioServerThread {
-    fn run(&self, conn: Connection) {
+    fn run(&self, conn: ConnectionManager) {
         std::thread::spawn(move || {
             pw::init();
 
@@ -78,7 +78,7 @@ impl IAudioController for AudioServerThread {
             props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
 
             let stream = pw::stream::Stream::new(&core, "audio-capture", props).unwrap();
-            let mut audio_packet_id = 0u8;
+            let mut audio_frame_id = 0u8;
             let _encoder = AudioEncoder::new(2, 16, 48000);
 
             let _listener = stream
@@ -146,7 +146,7 @@ impl IAudioController for AudioServerThread {
                             write_static_header(
                                 EPacketType::Audio,
                                 sample.len().try_into().unwrap(),
-                                audio_packet_id,
+                                audio_frame_id,
                                 &mut buf,
                             );
 
@@ -164,9 +164,9 @@ impl IAudioController for AudioServerThread {
                                 };
 
                                 buf[HEADER..].copy_from_slice(&sample[start..start + addition]);
-                                conn.broadcast_audio(&buf);
+                                conn.app_broadcast_audio(&buf);
                             }
-                            audio_packet_id += 1;
+                            audio_frame_id += 1;
                         }
                     }
                 })
