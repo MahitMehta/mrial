@@ -43,6 +43,10 @@ impl ConnectionManager {
         }
     }
 
+    pub fn get_web(&self) -> Result<WebConnection, ()> {
+        Ok(self.web.clone())
+    }
+
     pub fn get_app(&self) -> Result<AppConnection, std::io::Error> {
         Ok(self.app.try_clone()?)
     }

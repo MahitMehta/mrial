@@ -24,6 +24,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     pretty_env_logger::init_timed();
     let conn = ConnectionManager::new();
+
+    // TODO: Temporary code for testing
+
+    if let Ok(mut web) = conn.get_web() {
+        web.initialize_client().await?;
+    }
+
     let conn_clone = conn.try_clone()?;
 
     let mut video_server = match VideoServerThread::new(conn_clone) {
