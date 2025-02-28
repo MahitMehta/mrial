@@ -90,8 +90,8 @@ impl PacketDeployer {
         let real_packet_size = frame.len() as u32;
         let subpackets = subpacket_count(real_packet_size);
 
-        write_dynamic_header(real_packet_size, self.unencrypted_frame_id, &mut self.encrypted_buf);
-        write_dynamic_header(real_packet_size, self.unencrypted_frame_id, &mut self.encrypted_xor_buf);
+        write_dynamic_header(real_packet_size, self.unencrypted_frame_id, &mut self.unencrypted_buf);
+        write_dynamic_header(real_packet_size, self.unencrypted_frame_id, &mut self.unencrypted_xor_buf);
 
         if self.xor && subpackets > 2 {
             PacketDeployer::broadcast_xor(
