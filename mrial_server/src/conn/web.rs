@@ -1,8 +1,15 @@
-use std::{io::Read, sync::Arc};
+use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
+use tokio::task;
 use webrtc::{
-    api::APIBuilder, data_channel::{data_channel_init::RTCDataChannelInit, data_channel_message::DataChannelMessage, RTCDataChannel}, ice_transport::ice_server::RTCIceServer, peer_connection::{configuration::RTCConfiguration, RTCPeerConnection}
+    api::APIBuilder,
+    data_channel::{data_channel_message::DataChannelMessage, RTCDataChannel},
+    ice_transport::ice_server::RTCIceServer,
+    peer_connection::{
+        configuration::RTCConfiguration, peer_connection_state::RTCPeerConnectionState,
+        sdp::session_description::RTCSessionDescription, RTCPeerConnection,
+    },
 };
 
 use super::Connection;
@@ -10,20 +17,20 @@ use super::Connection;
 #[derive(Clone)]
 struct WebClient {
     peer_connection: Arc<RTCPeerConnection>,
-    data_channel: Arc<RTCDataChannel>
+    data_channel: Arc<RTCDataChannel>,
 }
 
 pub struct WebConnection {
     // TODO: Change this to a hashmap with the key as some client ID
-    clients: Vec<WebClient>,
+    clients: Arc<RwLock<Vec<WebClient>>>,
 }
 
 const STUN_SERVER: &str = "stun:stun.l.google.com:19302";
 
 impl WebConnection {
     pub fn new() -> Self {
-        Self { 
-            clients: vec![] 
+        Self {
+            clients: Arc::new(RwLock::new(vec![])),
         }
     }
 
@@ -31,16 +38,22 @@ impl WebConnection {
         // Avoid copying and converting to Bytes
         let bytes = Bytes::copy_from_slice(data);
 
-        for client in self.clients.iter() {    
-            let _ = client.data_channel.send(&bytes);
-        }
+        task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(Box::pin(async move {
+                if let Ok(clients) = self.clients.read() {
+                    for client in clients.iter() {
+                        let _ = client.data_channel.send(&bytes).await;
+                    }
+                }
+            }))
+        });
     }
 
-    pub async fn initialize_client(
-        &mut self,
-    ) -> Result<(), Box::<dyn std::error::Error>> {
-        let api = APIBuilder::new()
-            .build();
+    pub async fn initialize_client<'a>(
+        &'a mut self,
+        desc_data: String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let api = APIBuilder::new().build();
 
         let config = RTCConfiguration {
             ice_servers: vec![RTCIceServer {
@@ -52,38 +65,91 @@ impl WebConnection {
 
         let peer_connection = Arc::new(api.new_peer_connection(config).await?);
 
-        let data_channel = peer_connection
-            .create_data_channel("mrial-stream", Some(RTCDataChannelInit {
-                ordered: Some(true),
-                max_retransmits: Some(0),
-                ..Default::default()
-            }))
-            .await?;
+        peer_connection.on_peer_connection_state_change(Box::new(
+            move |s: RTCPeerConnectionState| {
+                println!("Peer Connection State has changed: {s}");
 
-        let d_label = data_channel.label().to_owned();
-        data_channel.on_message(Box::new(move |msg: DataChannelMessage| {
-            let msg_str = String::from_utf8(msg.data.to_vec()).unwrap();
-            println!("Message from DataChannel '{d_label}': '{msg_str}'");
-            Box::pin(async {})
+                if s == RTCPeerConnectionState::Failed {
+                    // Wait until PeerConnection has had no network activity for 30 seconds or another failure. It may be reconnected using an ICE Restart.
+                    // Use webrtc.PeerConnectionStateDisconnected if you are interested in detecting faster timeout.
+                    // Note that the PeerConnection may come back from PeerConnectionStateDisconnected.
+                    println!("Peer Connection has gone to failed exiting");
+                    // let _ = done_tx.try_send(());
+                }
+
+                Box::pin(async {})
+            },
+        ));
+
+        let peer_connection_clone = peer_connection.clone();
+        let clients_clone = self.clients.clone();
+        // Register data channel creation handling
+        peer_connection.on_data_channel(Box::new(move |data_channel: Arc<RTCDataChannel>| {
+            let dc_label = data_channel.label().to_owned();
+            let dc_id = data_channel.id();
+            println!("New DataChannel {dc_label} {dc_id}");
+
+            let peer_connection_clone = peer_connection_clone.clone();
+            let clients_clone = clients_clone.clone();
+
+            // Register channel opening handling
+            Box::pin(async move {
+                let data_channel_clone = Arc::clone(&data_channel);
+
+                let dc_label2 = dc_label.clone();
+                let dc_id2 = dc_id;
+                data_channel.on_close(Box::new(move || {
+                    println!("Data channel closed");
+                    Box::pin(async {})
+                }));
+
+                data_channel.on_open(Box::new(move || {
+                    println!("Data channel '{dc_label2}'-'{dc_id2}' open.");
+
+                    if let Ok(mut clients) = clients_clone.write() {
+                        clients.push(WebClient {
+                            peer_connection: peer_connection_clone,
+                            data_channel: data_channel_clone,
+                        });
+                    }
+
+                    Box::pin(async move {})
+                }));
+
+                // Register text message handling
+                data_channel.on_message(Box::new(move |msg: DataChannelMessage| {
+                    let msg_str = String::from_utf8(msg.data.to_vec()).unwrap();
+                    println!("Message from DataChannel '{dc_label}': '{msg_str}'");
+                    Box::pin(async {})
+                }));
+            })
         }));
+        let offer = serde_json::from_str::<RTCSessionDescription>(&desc_data)?;
 
-        let offer = peer_connection.create_offer(None).await?;
+        // Set the remote SessionDescription
+        peer_connection.set_remote_description(offer).await?;
+
+        // Create an answer
+        let answer = peer_connection.create_answer(None).await?;
+
+        // Create channel that is blocked until ICE Gathering is complete
         let mut gather_complete = peer_connection.gathering_complete_promise().await;
 
-        peer_connection.set_local_description(offer).await?;
+        // Sets the LocalDescription, and starts our UDP listeners
+        peer_connection.set_local_description(answer).await?;
+
+        // Block until ICE Gathering is complete, disabling trickle ICE
+        // we do this because we only can exchange one signaling message
+        // in a production application you should exchange ICE Candidates via OnICECandidate
         let _ = gather_complete.recv().await;
 
+        // Output the answer in base64 so we can paste it in browser
         if let Some(local_desc) = peer_connection.local_description().await {
             let json_str = serde_json::to_string(&local_desc)?;
-            println!("Peer Description: {json_str}");
+            println!("{json_str}");
         } else {
-            println!("Failed to generate local_description");
+            println!("generate local_description failed!");
         }
-
-        self.clients.push(WebClient {
-            peer_connection,
-            data_channel
-        });
 
         Ok(())
     }
@@ -95,8 +161,13 @@ impl Connection for WebConnection {
     }
 
     fn has_clients(&self) -> bool {
-        // Check if any clients are connected
-        self.clients.len() > 0
+        // TODO: Make this more sophisticated by checking if the clients are still connected
+
+        if let Ok(clients) = self.clients.read() {
+            return !clients.is_empty();
+        }
+
+        false
     }
 }
 

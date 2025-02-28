@@ -72,6 +72,11 @@ impl ConnectionManager {
     }
 
     #[inline]
+    pub fn web_broadcast(&self, buf: &[u8]) {
+        self.web.broadcast(buf);
+    }
+
+    #[inline]
     pub fn has_app_clients(&self) -> bool {
         self.app.has_clients()
     }

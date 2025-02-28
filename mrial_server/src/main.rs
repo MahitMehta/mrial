@@ -5,6 +5,7 @@ mod events;
 mod video;
 
 use std::env;
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 
 use audio::{AudioServerThread, IAudioController};
 use cli::handle_cli;
@@ -26,9 +27,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = ConnectionManager::new();
 
     // TODO: Temporary code for testing
+    let desc_data: String = env::var("RTC_DESC").expect("RTC_DESC not set");
+
+    let desc_data = String::from_utf8(STANDARD.decode(desc_data)?)?;
 
     if let Ok(mut web) = conn.get_web() {
-        web.initialize_client().await?;
+     
+        web.initialize_client(desc_data).await?;
     }
 
     let conn_clone = conn.try_clone()?;

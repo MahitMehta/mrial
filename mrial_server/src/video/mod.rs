@@ -394,6 +394,7 @@ impl VideoServerThread {
                                 self.deployer.prepare_unencrypted(
                                     &nal.as_bytes(),
                                     Box::new(|subpacket| {
+                                        self.conn.web_broadcast(&subpacket);
                                     }),
                                 );
                             }

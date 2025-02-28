@@ -271,8 +271,7 @@ impl AppConnection {
         debug!("Initial Shake UE With Client: {}", src_str);
 
         let mut rng = rand::thread_rng();
-        let priv_key = RsaPrivateKey::new(
-            &mut rng, RSA_PRIVATE_KEY_BIT_SIZE)
+        let priv_key = RsaPrivateKey::new(&mut rng, RSA_PRIVATE_KEY_BIT_SIZE)
             .expect("Failed to Generate RSA Key Pair");
         let pub_key = RsaPublicKey::from(&priv_key);
         let pub_key_str = pub_key.to_pkcs1_pem(rsa::pkcs1::LineEnding::LF).unwrap();
