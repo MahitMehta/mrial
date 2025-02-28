@@ -3,8 +3,8 @@ Mrial is a remote desktop application with a server optimized for ARM-based ubun
 
 # Roadmap till version 1.0.0 release
 
-- [  ] General: Measure Bandwidth Consumption
-- [  ] General: Match Host Cursor
+- [ ] General: Measure Bandwidth Consumption
+- [ ] General: Match Host Cursor
 - [x] App: Encrypted Video via ChaCha20Poly1305
 - [ ] App: Encrypted Audio
 - [ ] App: Compressed Audio
