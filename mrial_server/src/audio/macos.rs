@@ -1,9 +1,14 @@
 use crate::conn::ConnectionManager;
 
-use super::{AudioServerThread, IAudioController};
+use super::{AudioServerThread, IAudioStream, AudioServerAction};
 
-impl IAudioController for AudioServerThread {
-    fn run(&self, _: ConnectionManager) {
-        println!("AudioServerThread Unimplemented on MacOS");
+use std::thread::JoinHandle;
+use kanal::Receiver;
+
+impl IAudioStream for AudioServerThread {
+    fn stream(&self) -> Result<(), Box<dyn std::error::Error>> {
+        log::warn!("Audio streaming is not supported on macOS.");
+
+        Ok(())
     }
 }
