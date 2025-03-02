@@ -5199,6 +5199,8 @@ dependencies = [
  "block",
  "cfg-if 0.1.10",
  "libc",
+ "log",
+ "pretty_env_logger",
  "winapi 0.2.8",
 ]
 

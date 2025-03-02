@@ -2,6 +2,8 @@ use log::debug;
 use mrial_proto::*;
 use rodio::{buffer::SamplesBuffer, Sink};
 
+use crate::client::Client;
+
 pub struct AudioClient {
     packet_constructor: PacketConstructor,
     sink: Sink,
@@ -56,25 +58,52 @@ impl AudioClient {
     }
 
     #[inline]
-    pub fn play_audio_stream(&mut self, buf: &[u8], number_of_bytes: usize) {
-        let audio_stream = match self
+    fn decrypt_audio(
+        &self, 
+        encrypted_audio:
+        &Vec<u8>, client: &Client
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        if let Ok(sym_key) = client.get_sym_key().read() {
+            if let Some(sym_key) = sym_key.as_ref() {
+                match decrypt_frame(sym_key, &encrypted_audio) {
+                    Some(audio_packet) => audio_packet,
+                    None => return Err("Failed to decrypt audio frame".into()),
+                };
+            }
+        }
+
+        Err("Failed to get symmetric key".into())
+    }
+
+    #[inline]
+    pub fn play_audio_stream(
+        &mut self, 
+        buf: &[u8], 
+        number_of_bytes: usize,
+        client: &Client,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let encrypted_audio = match self
             .packet_constructor
             .assemble_packet(buf, number_of_bytes)
         {
-            Some(audio_stream) => audio_stream,
-            None => return,
+            Some(encrypted_audio) => encrypted_audio,
+            None => return Ok(()),
         };
 
-        let f32_slice = unsafe {
+        let audio_packet = self.decrypt_audio(&encrypted_audio, client)?;
+
+        let f32_audio_slice = unsafe {
             std::slice::from_raw_parts(
-                audio_stream.as_ptr() as *const f32,
-                audio_stream.len() / std::mem::size_of::<f32>(),
+                audio_packet.as_ptr() as *const f32,
+                audio_packet.len() / std::mem::size_of::<f32>(),
             )
         };
 
-        let audio_buf = SamplesBuffer::new(2, 48000, f32_slice);
+        let samples = SamplesBuffer::new(2, 48000, f32_audio_slice);
 
         self.handle_latency_by_dropping();
-        self.sink.append(audio_buf);
+        self.sink.append(samples);
+
+        Ok(())
     }
 }

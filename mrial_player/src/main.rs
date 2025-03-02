@@ -467,7 +467,11 @@ fn main() {
                     let packet_type = parse_packet_type(&buf);
 
                     match packet_type {
-                        EPacketType::Audio => audio.play_audio_stream(&buf, number_of_bytes),
+                        EPacketType::Audio => {
+                            if let Err(e) = audio.play_audio_stream(&buf, number_of_bytes, &client) {
+                                debug!("Failed to play audio: {}", e);
+                            }
+                        },
                         EPacketType::NAL | EPacketType::XOR => {
                             video.packet(&buf, &client, number_of_bytes)
                         }
