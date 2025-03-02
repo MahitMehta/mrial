@@ -7,7 +7,7 @@ Mrial is a remote desktop application with a server optimized for ARM-based ubun
 - [ ] General: Match Host Cursor
 - [ ] App: Support Multiple App Clients
 - [x] App: Encrypted Video via ChaCha20Poly1305
-- [ ] App: Encrypted Audio
+- [x] App: Encrypted Audio via ChaCha20Poly1305
 - [ ] App: Compressed Audio
 - [ ] App: Configurable Server Port
 - [ ] WebRTC: Video
