@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 
 use bytes::Bytes;
-use tokio::task;
+use tokio::runtime::Handle;
 use webrtc::{
     api::APIBuilder,
     data_channel::{data_channel_message::DataChannelMessage, RTCDataChannel},
@@ -21,6 +21,7 @@ struct WebClient {
 }
 
 pub struct WebConnection {
+    tokio_handle: Handle,
     // TODO: Change this to a hashmap with the key as some client ID
     clients: Arc<RwLock<Vec<WebClient>>>,
 }
@@ -28,29 +29,47 @@ pub struct WebConnection {
 const STUN_SERVER: &str = "stun:stun.l.google.com:19302";
 
 impl WebConnection {
-    pub fn new() -> Self {
+    pub fn new(tokio_handle: Handle) -> Self {
         Self {
             clients: Arc::new(RwLock::new(vec![])),
+            tokio_handle,
         }
     }
 
+    #[inline]
     pub fn broadcast(&self, data: &[u8]) {
         // Avoid copying and converting to Bytes
-        let bytes = Bytes::copy_from_slice(data);
+        let bytes = Arc::new(Bytes::copy_from_slice(data));
 
-        task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(Box::pin(async move {
-                if let Ok(clients) = self.clients.read() {
-                    for client in clients.iter() {
-                        let _ = client.data_channel.send(&bytes).await;
-                    }
-                }
-            }))
-        });
+        if let Ok(clients) = self.clients.read() {
+            for client in clients.iter() {
+                let dc = client.data_channel.clone();
+                let bytes = Arc::clone(&bytes);
+                self.tokio_handle.spawn(async move {
+                    let _ = dc.send(&bytes).await;
+                });
+            }
+        }
     }
 
-    pub async fn initialize_client<'a>(
-        &'a mut self,
+    #[inline]
+    pub fn broadcast_audio(&self, data: &[u8]) {
+        // enable muting client functionalities 
+        let bytes = Bytes::copy_from_slice(data);
+        
+        if let Ok(clients) = self.clients.read() {
+            // TODO: Avoid cloning the clients?
+            let clients = clients.clone();
+            self.tokio_handle.spawn(async move {
+                for client in clients.iter() {
+                    let _ = client.data_channel.send(&bytes).await;
+                }
+            });
+        }
+    }
+
+    pub async fn initialize_client(
+        self,
         desc_data: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let api = APIBuilder::new().build();
@@ -175,6 +194,7 @@ impl Clone for WebConnection {
     fn clone(&self) -> Self {
         Self {
             clients: self.clients.clone(),
+            tokio_handle: self.tokio_handle.clone(),
         }
     }
 }

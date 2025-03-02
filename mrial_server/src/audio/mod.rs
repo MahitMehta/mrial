@@ -1,18 +1,42 @@
+
 mod encoder;
 
+pub use self::encoder::*;
 use crate::conn::ConnectionManager;
 
-pub use self::encoder::*;
+use std::thread::JoinHandle;
+use kanal::Receiver;
 
-pub trait IAudioController {
-    fn run(&self, conn: ConnectionManager);
+pub trait IAudioStream {
+    fn stream(&self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-pub struct AudioServerThread {}
+pub struct AudioServerThread {
+    conn: ConnectionManager,
+    receiver: Receiver<AudioServerAction>,
+}
+
+#[derive(Debug)]
+pub enum AudioServerAction {
+    SymKey,
+}
 
 impl AudioServerThread {
-    pub fn new() -> AudioServerThread {
-        AudioServerThread {}
+    pub fn new(conn: ConnectionManager, receiver: Receiver<AudioServerAction>) -> Self {
+        Self {
+            conn,
+            receiver,
+        }
+    }
+
+    pub fn run(conn: ConnectionManager, receiver: Receiver<AudioServerAction>) -> JoinHandle<()> {
+        std::thread::spawn(move || {
+            let server = AudioServerThread::new(conn, receiver);
+            
+            if let Err(e) = server.stream() {
+                log::error!("Failed to start streaming audio: {}", e);
+            }
+        })
     }
 }
 

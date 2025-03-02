@@ -6,7 +6,7 @@ use rsa::{pkcs1::EncodeRsaPublicKey, RsaPrivateKey, RsaPublicKey};
 use std::{
     collections::HashMap,
     net::{SocketAddr, UdpSocket},
-    sync::{Arc, RwLock},
+    sync::{Arc, Mutex, RwLock},
     time::SystemTime,
 };
 
@@ -175,7 +175,7 @@ impl AppConnection {
         &mut self,
         src: SocketAddr,
         encypyted_payload: &[u8],
-        _headers: &[u8],
+        _headers: Arc<Mutex<Option<Vec<u8>>>>,
     ) -> Option<ClientStatePayload> {
         let src_str = src.to_string();
 

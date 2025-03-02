@@ -1,6 +1,5 @@
 use std::{
-    net::SocketAddr,
-    thread::{self, JoinHandle},
+    net::SocketAddr, sync::{Arc, Mutex}, thread::{self, JoinHandle}
 };
 
 use enigo::{
@@ -13,11 +12,12 @@ use mrial_proto::{input::*, packet::*, ClientStatePayload, JSONPayloadSE};
 
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
+use pipewire::spa::param::audio;
 use rsa::rand_core::le;
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
-use crate::conn::{app, Connection, ConnectionManager};
+use crate::{audio::AudioServerAction, conn::{Connection, ConnectionManager}};
 use crate::video::VideoServerAction;
 
 pub struct EventsEmitter {
@@ -279,21 +279,24 @@ pub enum EventsThreadAction {
 pub struct EventsThread {
     emitter: EventsEmitter,
     conn: ConnectionManager,
-    headers: Vec<u8>,
+    headers: Arc<Mutex<Option<Vec<u8>>>>,
     video_server_ch_sender: Sender<VideoServerAction>,
+    audio_server_ch_sender: Sender<AudioServerAction>,
 }
 
 impl EventsThread {
     pub fn new(
         conn: ConnectionManager,
-        headers: Vec<u8>,
+        headers: Arc<Mutex<Option<Vec<u8>>>>,
         video_server_ch_sender: Sender<VideoServerAction>,
+        audio_server_ch_sender: Sender<AudioServerAction>,
     ) -> Self {
         Self {
             emitter: EventsEmitter::new(video_server_ch_sender.clone()),
             conn,
             headers,
             video_server_ch_sender,
+            audio_server_ch_sender,
         }
     }
 
@@ -307,7 +310,7 @@ impl EventsThread {
                     Err(_) => return,
                 };
 
-                let meta = match app.connect_client(src, &buf[HEADER..size], &self.headers) {
+                let meta = match app.connect_client(src, &buf[HEADER..size], self.headers.clone()) {
                     Some(meta) => meta,
                     None => return,
                 };
@@ -323,6 +326,14 @@ impl EventsThread {
                     warn!(
                         "Error sending {:?} action to video server: {}",
                         VideoServerAction::SymKey,
+                        e
+                    );
+                }
+
+                if let Err(e) = self.audio_server_ch_sender.send(AudioServerAction::SymKey) {
+                    warn!(
+                        "Error sending {:?} action to audio server: {}",
+                        AudioServerAction::SymKey,
                         e
                     );
                 }
@@ -445,12 +456,14 @@ impl EventsThread {
 
     pub fn run(
         conn: ConnectionManager,
-        headers: Vec<u8>,
-        video_server_ch_sender: Sender<VideoServerAction>,
+        headers: Arc<Mutex<Option<Vec<u8>>>>,
         event_ch_receiver: Receiver<EventsThreadAction>,
+        video_server_ch_sender: Sender<VideoServerAction>,
+        audio_server_ch_sender: Sender<AudioServerAction>,
     ) -> JoinHandle<()> {
         let handle = thread::spawn(move || {
-            let mut events = EventsThread::new(conn, headers, video_server_ch_sender);
+            let mut events = EventsThread::new(
+                conn, headers, video_server_ch_sender, audio_server_ch_sender);
 
             events.start_loop(event_ch_receiver);
         });
