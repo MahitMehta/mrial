@@ -53,10 +53,12 @@ impl VideoThread {
         height: u32,
     ) -> Result<slint::SharedPixelBuffer<slint::Rgb8Pixel>, Error> {
         // TODO: Handle error accordingly
+        // TODO: consider removing this check, or somehow optimizing it
         if width * height * 3 != rgb.len() as u32 {
             return Err(Error::new(ErrorKind::InvalidData, "Invalid RGB buffer"));
         }
 
+        // TODO: Cache this and overwrite the buffer instead of creating a new one each time
         let mut pixel_buffer = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(width, height);
         pixel_buffer.make_mut_bytes().copy_from_slice(rgb);
 
@@ -238,7 +240,7 @@ impl VideoThread {
                         meta_clone.write().unwrap().width = ffmpeg_decoder.width() as usize;
                         meta_clone.write().unwrap().height = ffmpeg_decoder.height() as usize;
 
-                        rgb_buffer = Some(RGBBuffer::with_444_for_rgb8(
+                        rgb_buffer = Some(RGBBuffer::new(
                             ffmpeg_decoder.width() as usize,
                             ffmpeg_decoder.height() as usize,
                         ));
@@ -273,7 +275,7 @@ impl VideoThread {
                             frame_count = 0;
                         }
 
-                        rgb.read_444_for_rgb8(
+                        rgb.read_420_for_rgb8(
                             yuv_frame.data(0),
                             yuv_frame.data(1),
                             yuv_frame.data(2),
