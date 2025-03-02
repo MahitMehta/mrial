@@ -3,7 +3,7 @@ mod client;
 mod input;
 mod video;
 
-use audio::AudioClient;
+use audio::AudioClientThread;
 use cli_clipboard::{ClipboardContext, ClipboardProvider};
 use client::{Client, ClientMetaData, ConnectionState};
 use input::Input;
@@ -319,7 +319,12 @@ fn main() {
 
         let (_stream, handle) = rodio::OutputStream::try_default().unwrap();
         let sink = rodio::Sink::try_new(&handle).unwrap();
-        let mut audio = AudioClient::new(sink);
+
+        let (audio_sender, audio_receiver) = unbounded::<Vec<u8>>();
+        let mut audio_client = AudioClientThread::new(sink, audio_sender);
+        if let Err(e) = audio_client.run(audio_receiver, client.clone()) {
+            debug!("Failed to run audio client: {}", e);
+        }
 
         let mut video = VideoThread::new();
         let video_conn_sender = conn_channel.0.clone();
@@ -338,7 +343,7 @@ fn main() {
                         }
                     }
                     Some(ConnectionAction::Volume) => {
-                        audio.set_volume(volume.lock().unwrap().clone());
+                        audio_client.set_volume(volume.lock().unwrap().clone());
                     }
                     Some(ConnectionAction::UpdateState) => {
                         let widths = client.get_meta().widths.clone();
@@ -467,12 +472,16 @@ fn main() {
                     let packet_type = parse_packet_type(&buf);
 
                     match packet_type {
-                        EPacketType::Audio => audio.play_audio_stream(&buf, number_of_bytes),
+                        EPacketType::Audio => {
+                            if let Err(e) = audio_client.packet(&buf, number_of_bytes) {
+                                debug!("Failed to play audio: {}", e);
+                            }
+                        },
                         // EPacketType::NAL | EPacketType::XOR => {
                         //     video.packet(&buf, &client, number_of_bytes)
                         // }
                         EPacketType::NAL => {
-                            video.packet(&buf, &client, number_of_bytes)
+                            video.packet(&buf, &client, number_of_bytes);
                         }
                         _ => {}
                     }
