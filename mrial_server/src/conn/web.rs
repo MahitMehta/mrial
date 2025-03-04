@@ -37,17 +37,12 @@ impl WebConnection {
     }
 
     #[inline]
-    pub fn broadcast(&self, data: &[u8]) {
-        // Avoid copying and converting to Bytes
-        let bytes = Arc::new(Bytes::copy_from_slice(data));
-
+    pub async fn broadcast(&self, data: Bytes) {
         if let Ok(clients) = self.clients.read() {
             for client in clients.iter() {
-                let dc = client.data_channel.clone();
-                let bytes = Arc::clone(&bytes);
-                self.tokio_handle.spawn(async move {
-                    let _ = dc.send(&bytes).await;
-                });
+                if let Err(e) = client.data_channel.send(&data).await {
+                    println!("Failed to send packet to client: {e}");
+                }
             }
         }
     }
@@ -60,11 +55,11 @@ impl WebConnection {
         if let Ok(clients) = self.clients.read() {
             // TODO: Avoid cloning the clients?
             let clients = clients.clone();
-            self.tokio_handle.spawn(async move {
-                for client in clients.iter() {
-                    let _ = client.data_channel.send(&bytes).await;
+            for client in clients.iter() {
+                if let Err(e) = futures::executor::block_on(client.data_channel.send(&bytes)) {
+                    println!("Failed to send packet to client: {e}");
                 }
-            });
+            }
         }
     }
 

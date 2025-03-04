@@ -2,7 +2,6 @@ pub mod display;
 pub mod session;
 pub mod yuv;
 
-use deploy::PacketDeployer;
 use display::DisplayMeta;
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use kanal::{unbounded, Receiver, Sender};
@@ -18,7 +17,7 @@ use yuv::YUVBuffer;
 
 use crate::{
     audio::{AudioServerAction, AudioServerThread},
-    conn::{Connection, ConnectionManager, ServerMeta}, 
+    conn::{deploy::PacketDeployer, Connection, ConnectionManager, ServerMeta}, 
     events::{EventsThread, EventsThreadAction}
 };
 
@@ -184,14 +183,14 @@ impl VideoServerThread {
                 );
             }
             
-            if self.conn.has_web_clients() {
-                self.deployer.prepare_unencrypted(
-                    &header_bytes,
-                    Box::new(|subpacket| {
-                        self.conn.web_broadcast(&subpacket);
-                    }),
-                );
-            }
+            // if self.conn.has_web_clients() {
+            //     self.deployer.prepare_unencrypted(
+            //         &header_bytes,
+            //         Box::new(|subpacket| {
+            //             self.conn.web_broadcast(&subpacket);
+            //         }),
+            //     );
+            // }
         }
 
         self.pic = Picture::from_param(&self.par)?;
@@ -443,12 +442,12 @@ impl VideoServerThread {
                             }
 
                             if self.conn.has_web_clients() {
-                                self.deployer.prepare_unencrypted(
-                                    &nal.as_bytes(),
-                                    Box::new(|subpacket| {
-                                        self.conn.web_broadcast(&subpacket);
-                                    }),
-                                );
+                                if let Ok(web) = self.conn.get_web() {
+                                    self.deployer.prepare_web(
+                                        &nal.as_bytes(),
+                                        web
+                                    ).await;
+                                }
                             }
 
                             frames += 1;

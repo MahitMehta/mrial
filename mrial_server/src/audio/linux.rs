@@ -1,7 +1,9 @@
+use crate::conn::deploy::PacketDeployer;
+
 use super::{AudioEncoder, AudioServerAction, AudioServerThread, IAudioStream};
-use log::debug;
-use mrial_proto::deploy::PacketDeployer;
 use mrial_proto::*;
+
+use log::debug;
 
 use pipewire as pw;
 use pw::{properties::properties, spa};
@@ -159,12 +161,12 @@ impl IAudioStream for AudioServerThread {
                         }
 
                         if conn.has_web_clients() {
-                            deployer.prepare_unencrypted(
-                                &sample,
-                                Box::new(|subpacket| {
-                                    conn.web_broadcast_audio(&subpacket);
-                                }),
-                            );
+                            // deployer.prepare_unencrypted(
+                            //     &sample,
+                            //     Box::new(|subpacket| {
+                            //         conn.web_broadcast_audio(&subpacket);
+                            //     }),
+                            // );
                         }
                     }
                 }

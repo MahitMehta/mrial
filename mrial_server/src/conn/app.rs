@@ -175,10 +175,9 @@ impl AppConnection {
         &mut self,
         src: SocketAddr,
         encypyted_payload: &[u8],
-        _headers: Arc<Mutex<Option<Vec<u8>>>>,
+        headers: Arc<Mutex<Option<Vec<u8>>>>,
     ) -> Option<ClientStatePayload> {
         let src_str = src.to_string();
-
         if let Some(priv_key) = self.get_client_priv_key(&src_str) {
             let payload = match ClientShakeAE::from_payload(encypyted_payload, priv_key) {
                 Ok(payload) => payload,
@@ -233,6 +232,11 @@ impl AppConnection {
                     heights = h;
                 }
 
+                // let header_bytes = match headers.lock() {
+                //     Ok(headers) => headers.clone(),
+                //     Err(_) => None,
+                // };
+
                 let mut rng = rand::thread_rng();
                 let payload_len = ServerShookSE::write_payload(
                     &mut buf[HEADER..],
@@ -244,9 +248,11 @@ impl AppConnection {
                             heights,
                             width: 0,
                             height: 0,
+                            header: Some(Vec::new())
                         },
                     },
                 );
+                println!("Server Shook SE Payload Len: {}", payload_len);
                 self.socket
                     .send_to(&buf[..HEADER + payload_len], &src)
                     .unwrap();
