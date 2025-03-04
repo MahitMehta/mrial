@@ -1,6 +1,7 @@
 pub mod conn;
 pub mod input;
 pub mod packet;
+pub mod deploy;
 
 pub use conn::*;
 pub use packet::*;

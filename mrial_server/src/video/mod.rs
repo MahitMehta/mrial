@@ -6,7 +6,7 @@ use display::DisplayMeta;
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use kanal::{unbounded, Receiver, Sender};
 use log::{debug, error};
-use mrial_proto::*;
+use mrial_proto::{deploy::PacketDeployer, *};
 use scrap::{Capturer, Display};
 use session::{SessionSettingThread, Setting};
 use std::{
@@ -17,7 +17,7 @@ use yuv::YUVBuffer;
 
 use crate::{
     audio::{AudioServerAction, AudioServerThread},
-    conn::{deploy::PacketDeployer, Connection, ConnectionManager, ServerMeta}, 
+    conn::{Connection, ConnectionManager, ServerMeta}, 
     events::{EventsThread, EventsThreadAction}
 };
 
@@ -183,14 +183,14 @@ impl VideoServerThread {
                 );
             }
             
-            // if self.conn.has_web_clients() {
-            //     self.deployer.prepare_unencrypted(
-            //         &header_bytes,
-            //         Box::new(|subpacket| {
-            //             self.conn.web_broadcast(&subpacket);
-            //         }),
-            //     );
-            // }
+            if self.conn.has_web_clients() {
+                self.deployer.prepare_unencrypted(
+                    &header_bytes,
+                    Box::new(|subpacket| {
+                        self.conn.web_broadcast(subpacket);
+                    }),
+                );
+            }
         }
 
         self.pic = Picture::from_param(&self.par)?;
@@ -446,12 +446,12 @@ impl VideoServerThread {
                             }
 
                             if self.conn.has_web_clients() {
-                                if let Ok(web) = self.conn.get_web() {
-                                    self.deployer.prepare_web_from_ref(
-                                        &nal.as_bytes(),
-                                        web
-                                    ).await;
-                                }
+                                self.deployer.prepare_unencrypted(
+                                    &nal.as_bytes(),
+                                    Box::new(|subpacket| {
+                                        self.conn.web_broadcast(subpacket);
+                                    }),
+                                );
                             }
 
                             frames += 1;

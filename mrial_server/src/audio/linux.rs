@@ -1,6 +1,5 @@
-use crate::conn::deploy::PacketDeployer;
-
 use super::{AudioEncoder, AudioServerAction, AudioServerThread, IAudioStream};
+use mrial_proto::deploy::PacketDeployer;
 use mrial_proto::*;
 
 use log::debug;
@@ -156,7 +155,7 @@ impl IAudioStream for AudioServerThread {
                             deployer.prepare_encrypted(
                                 &sample,
                                 Box::new(|subpacket| {
-                                    conn.app_broadcast_audio(&subpacket);
+                                    conn.app_broadcast_audio(subpacket);
                                 }),
                             );
                         }

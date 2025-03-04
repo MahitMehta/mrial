@@ -4,12 +4,12 @@ use std::{
 };
 
 use app::AppConnection;
+use bytes::Bytes;
 use tokio::runtime::Handle;
 use web::WebConnection;
 
 pub mod app;
 pub mod web;
-pub mod deploy;
 
 pub trait Client {
     fn is_alive(&self) -> bool;
@@ -76,6 +76,12 @@ impl ConnectionManager {
     #[inline]
     pub fn has_app_clients(&self) -> bool {
         self.app.has_clients()
+    }
+
+    #[inline]
+    pub fn web_broadcast(&self, buf: &[u8]) {
+        let bytes = Bytes::copy_from_slice(buf);
+        self.web.broadcast(bytes);
     }
 
     #[inline]

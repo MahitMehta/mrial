@@ -1,7 +1,8 @@
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use bytes::Bytes;
-use tokio::runtime::Handle;
+use kanal::Receiver;
+use tokio::{runtime::Handle, sync::RwLock, task::JoinHandle};
 use webrtc::{
     api::APIBuilder,
     data_channel::{data_channel_message::DataChannelMessage, RTCDataChannel},
@@ -27,6 +28,53 @@ pub struct WebConnection {
 
 const STUN_SERVER: &str = "stun:stun.l.google.com:19302";
 
+struct WebBroadcastThread {
+    clients: Arc<RwLock<Vec<WebClient>>>,
+    receiver: Receiver<Bytes>,
+}
+
+impl WebBroadcastThread {
+    #[inline]
+    async fn broadcast(&self, data: Bytes) {
+        // TODO: enable muting client functionalities 
+        // TODO: if the packet is an audio packet.
+
+        // if let Ok(clients) = self.clients.read().await {
+        //     for client in clients.iter() {
+        //         if let Err(e) = client.data_channel.send(&data).await {
+        //             println!("Failed to send packet to client: {e}");
+                    
+        //             let _ = client.data_channel.close().await;
+        //             let _ = client.peer_connection.close().await;
+        //         }
+        //     }
+        // }
+    }
+
+    async fn broadcast_loop(&self) {
+        loop {
+            if let Ok(data) = self.receiver.recv() {
+                self.broadcast(data);
+            }
+        }
+    }
+
+    pub fn run(
+        tokio_handle: Handle, 
+        clients: Arc<RwLock<Vec<WebClient>>>, 
+        receiver: Receiver<Bytes>
+    ) -> JoinHandle<()> {
+        tokio_handle.spawn(async move {
+            let thread = Self {
+                clients,
+                receiver,
+            };
+
+            thread.broadcast_loop().await;
+        })
+    }
+}
+
 impl WebConnection {
     pub fn new() -> Self {
         Self {
@@ -35,32 +83,9 @@ impl WebConnection {
     }
 
     #[inline]
-    pub async fn broadcast(&self, data: Bytes) {
-        if let Ok(clients) = self.clients.read() {
-            for client in clients.iter() {
-                if let Err(e) = client.data_channel.send(&data).await {
-                    println!("Failed to send packet to client: {e}");
-                    
-                    let _ = client.data_channel.close().await;
-                    let _ = client.peer_connection.close().await;
-                }
-            }
-        }
-    }
-
-    #[inline]
-    pub async fn broadcast_audio(&self, data: Bytes) {
-        // enable muting client functionalities 
-        if let Ok(clients) = self.clients.read() {
-            for client in clients.iter() {
-                if let Err(e) = client.data_channel.send(&data).await {
-                    println!("Failed to send packet to client: {e}");
-                    
-                    let _ = client.data_channel.close().await;
-                    let _ = client.peer_connection.close().await;
-                }
-            }
-        }
+    pub fn broadcast(&self, data: Bytes) {
+       
+        
     }
 
     pub async fn initialize_client(
@@ -120,12 +145,12 @@ impl WebConnection {
                 data_channel.on_open(Box::new(move || {
                     println!("Data channel '{dc_label2}'-'{dc_id2}' open.");
 
-                    if let Ok(mut clients) = clients_clone.write() {
-                        clients.push(WebClient {
-                            peer_connection: peer_connection_clone,
-                            data_channel: data_channel_clone,
-                        });
-                    }
+                    // if let Ok(mut clients) = clients_clone.write() {
+                    //     clients.push(WebClient {
+                    //         peer_connection: peer_connection_clone,
+                    //         data_channel: data_channel_clone,
+                    //     });
+                    // }
 
                     Box::pin(async move {})
                 }));
@@ -171,21 +196,22 @@ impl WebConnection {
 
 impl Connection for WebConnection {
     fn filter_clients(&self) {
-        if let Ok(mut clients) = self.clients.write() {
-            clients.retain(|client| {
-                client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
-            });
-        }
+        // if let Ok(mut clients) = self.clients.write() {
+        //     clients.retain(|client| {
+        //         client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
+        //     });
+        // }
     }
 
     fn has_clients(&self) -> bool {
-        if let Ok(clients) = self.clients.read() {
-            return clients.iter().any(|client| {
-                client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
-            });
-        }
-
         false
+        // if let Ok(clients) = self.clients.read() {
+        //     return clients.iter().any(|client| {
+        //         client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
+        //     });
+        // }
+
+        // false
     }
 }
 
