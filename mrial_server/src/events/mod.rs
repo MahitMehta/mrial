@@ -403,7 +403,7 @@ impl EventsThread {
                     app.remove_client(src);
                 }
 
-                if self.conn.has_clients() {
+                if self.conn.has_clients_blocking() {
                     return;
                 }
                 if let Err(e) = self

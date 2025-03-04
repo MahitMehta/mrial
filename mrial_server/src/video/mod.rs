@@ -155,7 +155,7 @@ impl VideoServerThread {
         }
     }
 
-    fn restart_stream(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn restart_stream(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let display = Display::primary()?;
         let capturer: Capturer = Capturer::new(display)?;
 
@@ -183,7 +183,7 @@ impl VideoServerThread {
                 );
             }
             
-            if self.conn.has_web_clients() {
+            if self.conn.has_web_clients().await {
                 self.deployer.prepare_unencrypted(
                     &header_bytes,
                     Box::new(|subpacket| {
@@ -201,7 +201,7 @@ impl VideoServerThread {
         Ok(())
     }
 
-    fn handle_server_action(
+    async fn handle_server_action(
         &mut self,
         server_action: VideoServerAction,
         video_server_ch_sender: &kanal::Sender<VideoServerAction>,
@@ -248,7 +248,7 @@ impl VideoServerThread {
             }
             VideoServerAction::RestartStream => {
                 self.drop_capturer();
-                match self.restart_stream() {
+                match self.restart_stream().await {
                     Ok(_) => {
                         debug!("Restarted Stream Successfully");
                     }
@@ -369,7 +369,7 @@ impl VideoServerThread {
         loop {
             while ch_receiver.len() > 0 {
                 if let Ok(Some(server_action)) = ch_receiver.try_recv_realtime() {
-                    if let Err(e) = self.handle_server_action(server_action, &ch_sender) {
+                    if let Err(e) = self.handle_server_action(server_action, &ch_sender).await {
                         error!("Error handling server action: {}", e);
                     };
                 }
@@ -382,8 +382,8 @@ impl VideoServerThread {
                 }
             };
 
-            if !self.conn.has_clients() {
-                self.conn.filter_clients();
+            if !self.conn.has_clients().await {
+                self.conn.filter_clients().await;
                 std::thread::sleep(Duration::from_millis(250));
                 continue;
             }
@@ -445,7 +445,7 @@ impl VideoServerThread {
                                 );
                             }
 
-                            if self.conn.has_web_clients() {
+                            if self.conn.has_web_clients().await {
                                 self.deployer.prepare_unencrypted(
                                     &nal.as_bytes(),
                                     Box::new(|subpacket| {

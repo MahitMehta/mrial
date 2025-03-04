@@ -1,7 +1,7 @@
-use std::sync::Arc;
+use std::sync::{self, Arc};
 
 use bytes::Bytes;
-use kanal::Receiver;
+use kanal::{unbounded, AsyncReceiver, Sender};
 use tokio::{runtime::Handle, sync::RwLock, task::JoinHandle};
 use webrtc::{
     api::APIBuilder,
@@ -24,13 +24,17 @@ struct WebClient {
 pub struct WebConnection {
     // TODO: Change this to a hashmap with the key as some client ID
     clients: Arc<RwLock<Vec<WebClient>>>,
+
+    broadcast_sender: Sender<Bytes>,
+    broadcast_receiver: AsyncReceiver<Bytes>,
+    broadcast_thread: Arc<sync::RwLock<Option<JoinHandle<()>>>>,
 }
 
 const STUN_SERVER: &str = "stun:stun.l.google.com:19302";
 
 struct WebBroadcastThread {
     clients: Arc<RwLock<Vec<WebClient>>>,
-    receiver: Receiver<Bytes>,
+    receiver: AsyncReceiver<Bytes>,
 }
 
 impl WebBroadcastThread {
@@ -39,22 +43,20 @@ impl WebBroadcastThread {
         // TODO: enable muting client functionalities 
         // TODO: if the packet is an audio packet.
 
-        // if let Ok(clients) = self.clients.read().await {
-        //     for client in clients.iter() {
-        //         if let Err(e) = client.data_channel.send(&data).await {
-        //             println!("Failed to send packet to client: {e}");
-                    
-        //             let _ = client.data_channel.close().await;
-        //             let _ = client.peer_connection.close().await;
-        //         }
-        //     }
-        // }
+        for client in self.clients.read().await.iter() {
+            if let Err(e) = client.data_channel.send(&data).await {
+                println!("Failed to send packet to client: {e}");
+                
+                let _ = client.data_channel.close().await;
+                let _ = client.peer_connection.close().await;
+            }
+        }
     }
 
     async fn broadcast_loop(&self) {
         loop {
-            if let Ok(data) = self.receiver.recv() {
-                self.broadcast(data);
+            if let Ok(data) = self.receiver.recv().await {
+                self.broadcast(data).await;
             }
         }
     }
@@ -62,7 +64,7 @@ impl WebBroadcastThread {
     pub fn run(
         tokio_handle: Handle, 
         clients: Arc<RwLock<Vec<WebClient>>>, 
-        receiver: Receiver<Bytes>
+        receiver: AsyncReceiver<Bytes>
     ) -> JoinHandle<()> {
         tokio_handle.spawn(async move {
             let thread = Self {
@@ -77,15 +79,33 @@ impl WebBroadcastThread {
 
 impl WebConnection {
     pub fn new() -> Self {
+        let (sender, receiver) = unbounded::<Bytes>();
+
         Self {
+            broadcast_thread: Arc::new(sync::RwLock::new(None)),
+            broadcast_sender: sender,
+            broadcast_receiver: receiver.as_async().clone(),
             clients: Arc::new(RwLock::new(vec![])),
         }
     }
 
     #[inline]
     pub fn broadcast(&self, data: Bytes) {
-       
-        
+        if let Ok(thread) = self.broadcast_thread.read() {
+            if thread.is_none() {
+                if let Ok(mut thread) = self.broadcast_thread.write() {
+                    *thread = Some(WebBroadcastThread::run(
+                        Handle::current(),
+                        self.clients.clone(),
+                        self.broadcast_receiver.clone(),
+                    ));   
+                }   
+            }
+        }
+
+        if let Err(e) = self.broadcast_sender.send(data) {
+            println!("Failed to broadcast data: {e}");
+        }
     }
 
     pub async fn initialize_client(
@@ -145,14 +165,15 @@ impl WebConnection {
                 data_channel.on_open(Box::new(move || {
                     println!("Data channel '{dc_label2}'-'{dc_id2}' open.");
 
-                    // if let Ok(mut clients) = clients_clone.write() {
-                    //     clients.push(WebClient {
-                    //         peer_connection: peer_connection_clone,
-                    //         data_channel: data_channel_clone,
-                    //     });
-                    // }
 
-                    Box::pin(async move {})
+                    Box::pin(async move {
+                        let mut clients =  clients_clone.write().await;
+                        
+                        clients.push(WebClient {
+                            peer_connection: peer_connection_clone,
+                            data_channel: data_channel_clone,
+                        });
+                    })
                 }));
 
                 // Register text message handling
@@ -192,33 +213,33 @@ impl WebConnection {
 
         Ok(())
     }
-}
 
-impl Connection for WebConnection {
-    fn filter_clients(&self) {
-        // if let Ok(mut clients) = self.clients.write() {
-        //     clients.retain(|client| {
-        //         client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
-        //     });
-        // }
+    pub async fn filter_clients(&self) {
+        self.clients.write().await.retain(|client| {
+            client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
+        });
     }
 
-    fn has_clients(&self) -> bool {
-        false
-        // if let Ok(clients) = self.clients.read() {
-        //     return clients.iter().any(|client| {
-        //         client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
-        //     });
-        // }
+    pub async fn has_clients(&self) -> bool {
+        self.clients.read().await.iter().any(|client| {
+            client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
+        })
+    }
 
-        // false
+    pub fn has_clients_blocking(&self) -> bool {
+        self.clients.blocking_read().iter().any(|client| {
+            client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
+        })
     }
 }
 
 impl Clone for WebConnection {
     fn clone(&self) -> Self {
         Self {
-            clients: self.clients.clone()
+            clients: self.clients.clone(),
+            broadcast_sender: self.broadcast_sender.clone(),
+            broadcast_receiver: self.broadcast_receiver.clone(),
+            broadcast_thread: self.broadcast_thread.clone()
         }
     }
 }

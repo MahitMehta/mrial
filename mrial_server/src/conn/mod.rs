@@ -69,8 +69,8 @@ impl ConnectionManager {
     }
 
     #[inline]
-    pub fn has_web_clients(&self) -> bool {
-        self.web.has_clients()
+    pub async fn has_web_clients(&self) -> bool {
+        self.web.has_clients().await
     }
 
     #[inline]
@@ -108,15 +108,17 @@ impl ConnectionManager {
             meta: self.meta.clone(),
         })
     }
-}
 
-impl Connection for ConnectionManager {
-    fn filter_clients(&self) {
-        self.web.filter_clients();
+    pub async fn filter_clients(&self) {
+        self.web.filter_clients().await;
         self.app.filter_clients();
     }
 
-    fn has_clients(&self) -> bool {
-        self.web.has_clients() || self.app.has_clients()
+    pub async fn has_clients(&self) -> bool {
+        self.app.has_clients() || self.web.has_clients().await
+    }
+
+    pub fn has_clients_blocking(&self) -> bool {
+        self.app.has_clients() || self.web.has_clients_blocking()
     }
 }
