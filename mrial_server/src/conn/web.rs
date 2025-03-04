@@ -214,18 +214,21 @@ impl WebConnection {
         Ok(())
     }
 
+    #[inline]
     pub async fn filter_clients(&self) {
         self.clients.write().await.retain(|client| {
             client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
         });
     }
 
+    #[inline]
     pub async fn has_clients(&self) -> bool {
         self.clients.read().await.iter().any(|client| {
             client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
         })
     }
 
+    #[inline]
     pub fn has_clients_blocking(&self) -> bool {
         self.clients.blocking_read().iter().any(|client| {
             client.peer_connection.connection_state() == RTCPeerConnectionState::Connected

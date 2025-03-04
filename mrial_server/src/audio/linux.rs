@@ -160,10 +160,13 @@ impl IAudioStream for AudioServerThread {
                             );
                         }
 
-                        if conn.has_web_clients() {
-                            if let Ok(web) = conn.get_web() {
-                                
-                            }
+                        if conn.has_web_clients_blocking() {
+                            deployer.prepare_unencrypted(
+                                &sample,
+                                Box::new(|subpacket| {
+                                    conn.web_broadcast(subpacket);
+                                }),
+                            );
                         }
                     }
                 }

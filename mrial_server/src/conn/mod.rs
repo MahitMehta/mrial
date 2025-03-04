@@ -109,16 +109,24 @@ impl ConnectionManager {
         })
     }
 
+    #[inline]
     pub async fn filter_clients(&self) {
         self.web.filter_clients().await;
         self.app.filter_clients();
     }
 
+    #[inline]
     pub async fn has_clients(&self) -> bool {
         self.app.has_clients() || self.web.has_clients().await
     }
 
+    #[inline]
     pub fn has_clients_blocking(&self) -> bool {
         self.app.has_clients() || self.web.has_clients_blocking()
+    }
+
+    #[inline]
+    pub fn has_web_clients_blocking(&self) -> bool {
+        self.web.has_clients_blocking()
     }
 }
