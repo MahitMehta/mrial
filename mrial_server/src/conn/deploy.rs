@@ -21,12 +21,6 @@ pub struct PacketDeployer {
     web_buf: [u8; MTU],
 }
 
-// pub type BroadcastFn = Box<
-//     dyn (Fn(&[u8]) -> Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
-//         + Send
-//         + Sync,
-// >;
-
 impl PacketDeployer {
     pub fn new(packet_type: EPacketType, xor: bool) -> Self {
         let mut encrypted_buf = [0u8; MTU];
@@ -133,6 +127,16 @@ impl PacketDeployer {
 
     #[inline]
     pub async fn prepare_web(
+        &mut self, 
+        frame: Vec<u8>, 
+        conn: WebConnection) {
+        self.helper_prepare_web(&frame, conn).await;
+
+        self.web_frame_id += 1;
+    }
+
+    #[inline]
+    pub async fn prepare_web_from_ref(
         &mut self, 
         frame: &[u8], 
         conn: WebConnection) {

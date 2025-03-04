@@ -313,7 +313,11 @@ impl VideoServerThread {
 
         let conn = self.conn.try_clone()?;
        
-        self.audio_thread = Some(AudioServerThread::run(conn, self.audio_receiver.clone()));
+        self.audio_thread = Some(AudioServerThread::run(
+            conn, 
+            self.audio_receiver.clone(),
+            tokio::runtime::Handle::current(),
+        ));
 
         Ok(true)
     }
@@ -443,7 +447,7 @@ impl VideoServerThread {
 
                             if self.conn.has_web_clients() {
                                 if let Ok(web) = self.conn.get_web() {
-                                    self.deployer.prepare_web(
+                                    self.deployer.prepare_web_from_ref(
                                         &nal.as_bytes(),
                                         web
                                     ).await;

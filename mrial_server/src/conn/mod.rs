@@ -4,7 +4,6 @@ use std::{
 };
 
 use app::AppConnection;
-use bytes::Bytes;
 use tokio::runtime::Handle;
 use web::WebConnection;
 
@@ -35,9 +34,9 @@ pub struct ConnectionManager {
 }
 
 impl ConnectionManager {
-    pub fn new(tokio_handle: Handle) -> Self {
+    pub fn new(_tokio_handle: Handle) -> Self {
         Self {
-            web: WebConnection::new(tokio_handle),
+            web: WebConnection::new(),
             app: AppConnection::new(),
             meta: Arc::new(RwLock::new(ServerMeta {
                 width: 0,
@@ -72,16 +71,6 @@ impl ConnectionManager {
     #[inline]
     pub fn has_web_clients(&self) -> bool {
         self.web.has_clients()
-    }
-
-    #[inline]
-    pub async fn web_broadcast(&self, buf: Bytes) {
-        self.web.broadcast(buf).await;
-    }
-
-    #[inline]
-    pub fn web_broadcast_audio(&self, buf: &[u8]) {
-        self.web.broadcast_audio(buf);
     }
 
     #[inline]

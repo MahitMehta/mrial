@@ -14,6 +14,7 @@ pub trait IAudioStream {
 pub struct AudioServerThread {
     conn: ConnectionManager,
     receiver: Receiver<AudioServerAction>,
+    tokio_handle: tokio::runtime::Handle,
 }
 
 #[derive(Debug)]
@@ -22,16 +23,25 @@ pub enum AudioServerAction {
 }
 
 impl AudioServerThread {
-    pub fn new(conn: ConnectionManager, receiver: Receiver<AudioServerAction>) -> Self {
+    pub fn new(
+        conn: ConnectionManager, 
+        receiver: Receiver<AudioServerAction>,
+        tokio_handle: tokio::runtime::Handle,
+    ) -> Self {
         Self {
             conn,
             receiver,
+            tokio_handle,
         }
     }
 
-    pub fn run(conn: ConnectionManager, receiver: Receiver<AudioServerAction>) -> JoinHandle<()> {
+    pub fn run(
+        conn: ConnectionManager, 
+        receiver: Receiver<AudioServerAction>,
+        tokio_handle: tokio::runtime::Handle,
+    )-> JoinHandle<()> {
         std::thread::spawn(move || {
-            let server = AudioServerThread::new(conn, receiver);
+            let server = AudioServerThread::new(conn, receiver, tokio_handle);
             
             if let Err(e) = server.stream() {
                 log::error!("Failed to start streaming audio: {}", e);

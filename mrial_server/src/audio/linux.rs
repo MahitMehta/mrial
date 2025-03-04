@@ -79,6 +79,7 @@ impl IAudioStream for AudioServerThread {
         let mut deployer = PacketDeployer::new(EPacketType::Audio, false);
         let conn = self.conn.try_clone()?;
         let receiver = self.receiver.clone();
+        let handle = self.tokio_handle.clone();
 
         let _listener = stream
             .add_local_listener_with_user_data(data)
@@ -161,12 +162,9 @@ impl IAudioStream for AudioServerThread {
                         }
 
                         if conn.has_web_clients() {
-                            // deployer.prepare_unencrypted(
-                            //     &sample,
-                            //     Box::new(|subpacket| {
-                            //         conn.web_broadcast_audio(&subpacket);
-                            //     }),
-                            // );
+                            if let Ok(web) = conn.get_web() {
+                                
+                            }
                         }
                     }
                 }

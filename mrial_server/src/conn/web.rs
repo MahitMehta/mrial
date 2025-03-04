@@ -21,7 +21,6 @@ struct WebClient {
 }
 
 pub struct WebConnection {
-    tokio_handle: Handle,
     // TODO: Change this to a hashmap with the key as some client ID
     clients: Arc<RwLock<Vec<WebClient>>>,
 }
@@ -29,10 +28,9 @@ pub struct WebConnection {
 const STUN_SERVER: &str = "stun:stun.l.google.com:19302";
 
 impl WebConnection {
-    pub fn new(tokio_handle: Handle) -> Self {
+    pub fn new() -> Self {
         Self {
             clients: Arc::new(RwLock::new(vec![])),
-            tokio_handle,
         }
     }
 
@@ -51,16 +49,15 @@ impl WebConnection {
     }
 
     #[inline]
-    pub fn broadcast_audio(&self, data: &[u8]) {
+    pub async fn broadcast_audio(&self, data: Bytes) {
         // enable muting client functionalities 
-        let bytes = Bytes::copy_from_slice(data);
-        
         if let Ok(clients) = self.clients.read() {
-            // TODO: Avoid cloning the clients?
-            let clients = clients.clone();
             for client in clients.iter() {
-                if let Err(e) = futures::executor::block_on(client.data_channel.send(&bytes)) {
+                if let Err(e) = client.data_channel.send(&data).await {
                     println!("Failed to send packet to client: {e}");
+                    
+                    let _ = client.data_channel.close().await;
+                    let _ = client.peer_connection.close().await;
                 }
             }
         }
@@ -195,8 +192,7 @@ impl Connection for WebConnection {
 impl Clone for WebConnection {
     fn clone(&self) -> Self {
         Self {
-            clients: self.clients.clone(),
-            tokio_handle: self.tokio_handle.clone(),
+            clients: self.clients.clone()
         }
     }
 }
