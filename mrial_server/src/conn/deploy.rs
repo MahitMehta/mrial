@@ -1,3 +1,5 @@
+use std::sync::{Arc, RwLock};
+
 use bytes::Bytes;
 use chacha20poly1305::{aead::Aead, AeadCore, ChaCha20Poly1305};
 use mrial_proto::{subpacket_count, write_dynamic_header, write_packet_type, write_packets_remaining, EPacketType, HEADER, MTU, PAYLOAD};
@@ -12,7 +14,7 @@ pub struct PacketDeployer {
     encrypted_xor_buf: [u8; MTU],
     encrypted_buf: [u8; MTU],
     rng: ThreadRng,
-    sym_key: Option<ChaCha20Poly1305>,
+    sym_key: Arc<RwLock<Option<ChaCha20Poly1305>>>,
 
     web_frame_id: u8,
     web_xor_buf: [u8; MTU],
@@ -46,7 +48,7 @@ impl PacketDeployer {
             encrypted_xor_buf,
             encrypted_buf,
             rng: rand::thread_rng(),
-            sym_key: None,
+            sym_key: Arc::new(RwLock::new(None)),
 
             web_frame_id: 1,
             web_xor_buf: unencrypted_xor_buf,
@@ -55,11 +57,17 @@ impl PacketDeployer {
     }
 
     pub fn set_sym_key(&mut self, sym_key: ChaCha20Poly1305) {
-        self.sym_key = Some(sym_key);
+        if let Ok(mut sym_key_lock) = self.sym_key.write() {
+            *sym_key_lock = Some(sym_key);
+        }
     }
 
     pub fn has_sym_key(&self) -> bool {
-        self.sym_key.is_some()
+        if let Ok(sym_key_lock) = self.sym_key.read() {
+            return sym_key_lock.is_some();
+        }
+
+        false
     }
 
     #[inline]
@@ -216,12 +224,14 @@ impl PacketDeployer {
     // }
 
     fn encrypted_frame(&mut self, frame: &[u8]) -> Option<Vec<u8>> {
-        if let Some(sym_key) = &self.sym_key {
-            let nonce = ChaCha20Poly1305::generate_nonce(&mut self.rng);
-            let mut ciphertext = sym_key.encrypt(&nonce, frame).unwrap();
-            ciphertext.extend_from_slice(&nonce);
-
-            return Some(ciphertext);
+        if let Ok(sym_key_lock) = self.sym_key.read() {
+            if let Some(sym_key) = sym_key_lock.as_ref() {
+                let nonce = ChaCha20Poly1305::generate_nonce(&mut self.rng);
+                let mut ciphertext = sym_key.encrypt(&nonce, frame).unwrap();
+                ciphertext.extend_from_slice(&nonce);
+    
+                return Some(ciphertext);
+            }
         }
 
         None
