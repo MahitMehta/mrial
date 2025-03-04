@@ -1,9 +1,4 @@
-use crate::conn::ConnectionManager;
-
-use super::{AudioServerThread, IAudioStream, AudioServerAction};
-
-use std::thread::JoinHandle;
-use kanal::Receiver;
+use super::{AudioServerThread, IAudioStream};
 
 impl IAudioStream for AudioServerThread {
     fn stream(&self) -> Result<(), Box<dyn std::error::Error>> {

@@ -12,6 +12,7 @@ use mrial_proto::{input::*, packet::*, ClientStatePayload, JSONPayloadSE};
 
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
+#[cfg(target_os = "linux")]
 use pipewire::spa::param::audio;
 use rsa::rand_core::le;
 #[cfg(target_os = "linux")]

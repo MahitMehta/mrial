@@ -42,6 +42,9 @@ impl WebConnection {
             for client in clients.iter() {
                 if let Err(e) = client.data_channel.send(&data).await {
                     println!("Failed to send packet to client: {e}");
+                    
+                    let _ = client.data_channel.close().await;
+                    let _ = client.peer_connection.close().await;
                 }
             }
         }
@@ -171,14 +174,18 @@ impl WebConnection {
 
 impl Connection for WebConnection {
     fn filter_clients(&self) {
-        // Filter clients
+        if let Ok(mut clients) = self.clients.write() {
+            clients.retain(|client| {
+                client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
+            });
+        }
     }
 
     fn has_clients(&self) -> bool {
-        // TODO: Make this more sophisticated by checking if the clients are still connected
-
         if let Ok(clients) = self.clients.read() {
-            return !clients.is_empty();
+            return clients.iter().any(|client| {
+                client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
+            });
         }
 
         false
