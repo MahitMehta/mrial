@@ -2,6 +2,7 @@ use std::sync::{self, Arc};
 
 use bytes::Bytes;
 use kanal::{unbounded, AsyncReceiver, Sender};
+
 use tokio::{runtime::Handle, sync::RwLock, task::JoinHandle};
 use webrtc::{
     api::APIBuilder,
@@ -12,8 +13,6 @@ use webrtc::{
         sdp::session_description::RTCSessionDescription, RTCPeerConnection,
     },
 };
-
-use super::Connection;
 
 #[derive(Clone)]
 struct WebClient {
@@ -54,10 +53,8 @@ impl WebBroadcastThread {
     }
 
     async fn broadcast_loop(&self) {
-        loop {
-            if let Ok(data) = self.receiver.recv().await {
-                self.broadcast(data).await;
-            }
+        while let Ok(data) = self.receiver.recv().await {
+            self.broadcast(data).await;
         }
     }
 
@@ -89,23 +86,31 @@ impl WebConnection {
         }
     }
 
+    pub fn start_broadcast_thread(&self) {
+        if let Ok(mut thread) = self.broadcast_thread.write() {
+            if thread.is_none() {
+                *thread = Some(WebBroadcastThread::run(
+                    Handle::current(),
+                    self.clients.clone(),
+                    self.broadcast_receiver.clone(),
+                ));
+            }
+        }
+    }
+
     #[inline]
-    pub fn broadcast(&self, data: Bytes) {
+    pub fn broadcast(&self, data: Bytes) -> Result<(), Box<dyn std::error::Error>> {
         if let Ok(thread) = self.broadcast_thread.read() {
             if thread.is_none() {
-                if let Ok(mut thread) = self.broadcast_thread.write() {
-                    *thread = Some(WebBroadcastThread::run(
-                        Handle::current(),
-                        self.clients.clone(),
-                        self.broadcast_receiver.clone(),
-                    ));   
-                }   
+                return Err("Broadcast thread is not running".into());
             }
         }
 
         if let Err(e) = self.broadcast_sender.send(data) {
-            println!("Failed to broadcast data: {e}");
+            return Err(format!("Failed to broadcast data {}", e).into());
         }
+
+        Ok(())
     }
 
     pub async fn initialize_client(

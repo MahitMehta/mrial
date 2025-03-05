@@ -18,7 +18,7 @@ use rsa::rand_core::le;
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
-use crate::{audio::AudioServerAction, conn::{Connection, ConnectionManager}};
+use crate::{audio::AudioServerAction, conn::ConnectionManager};
 use crate::video::VideoServerAction;
 
 pub struct EventsEmitter {

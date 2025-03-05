@@ -9,6 +9,7 @@ use log::{debug, error};
 use mrial_proto::{deploy::PacketDeployer, *};
 use scrap::{Capturer, Display};
 use session::{SessionSettingThread, Setting};
+use tokio::time::sleep;
 use std::{
     collections::VecDeque, fs::File, io::{ErrorKind::WouldBlock, Write}, sync::{Arc, Mutex}, thread, time::{Duration, Instant}
 };
@@ -17,7 +18,7 @@ use yuv::YUVBuffer;
 
 use crate::{
     audio::{AudioServerAction, AudioServerThread},
-    conn::{Connection, ConnectionManager, ServerMeta}, 
+    conn::{ConnectionManager, ServerMeta}, 
     events::{EventsThread, EventsThreadAction}
 };
 
@@ -366,6 +367,10 @@ impl VideoServerThread {
 
         self.start_session_thread(ch_sender.clone());
 
+        if let Ok(web) = self.conn.get_web() {
+            web.start_broadcast_thread();
+        }
+
         loop {
             while ch_receiver.len() > 0 {
                 if let Ok(Some(server_action)) = ch_receiver.try_recv_realtime() {
@@ -384,7 +389,7 @@ impl VideoServerThread {
 
             if !self.conn.has_clients().await {
                 self.conn.filter_clients().await;
-                std::thread::sleep(Duration::from_millis(250));
+                sleep(Duration::from_millis(250)).await;
                 continue;
             }
 
@@ -458,7 +463,7 @@ impl VideoServerThread {
                         }
 
                         if fps_time.elapsed().as_secs() >= 1 && frames > 0 {
-                            self.conn.filter_clients();
+                            self.conn.filter_clients().await;
                             debug!(
                                 "FPS: {}",
                                 frames as f32 / fps_time.elapsed().as_secs() as f32

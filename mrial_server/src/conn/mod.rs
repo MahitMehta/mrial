@@ -15,12 +15,6 @@ pub trait Client {
     fn is_alive(&self) -> bool;
 }
 
-pub trait Connection {
-    fn filter_clients(&self);
-
-    fn has_clients(&self) -> bool;
-}
-
 #[derive(Debug, Clone)]
 pub struct ServerMeta {
     pub width: usize,
@@ -79,9 +73,9 @@ impl ConnectionManager {
     }
 
     #[inline]
-    pub fn web_broadcast(&self, buf: &[u8]) {
+    pub fn web_broadcast(&self, buf: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         let bytes = Bytes::copy_from_slice(buf);
-        self.web.broadcast(bytes);
+        self.web.broadcast(bytes)
     }
 
     #[inline]

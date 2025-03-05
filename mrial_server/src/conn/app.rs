@@ -18,7 +18,7 @@ use mrial_proto::{
 #[cfg(target_os = "linux")]
 use crate::video::display::DisplayMeta;
 
-use super::{Client, Connection};
+use super::Client;
 
 const SERVER_DEFAULT_PORT: u16 = 8554;
 const RSA_PRIVATE_KEY_BIT_SIZE: usize = 2048;
@@ -66,27 +66,6 @@ impl Client for AppClient {
     }
 }
 
-impl Connection for AppConnection {
-    #[inline]
-    fn filter_clients(&self) {
-        if let Ok(mut clients) = self.clients.write() {
-            clients.retain(|_, client| client.is_alive());
-        }
-    }
-
-    #[inline]
-    fn has_clients(&self) -> bool {
-        if let Ok(clients) = self.clients.read() {
-            return clients
-                .values()
-                .find(|client| client.is_connected())
-                .is_some();
-        }
-
-        false
-    }
-}
-
 pub struct AppConnection {
     socket: UdpSocket,
     clients: Arc<RwLock<HashMap<String, AppClient>>>,
@@ -107,6 +86,25 @@ impl AppConnection {
             socket: socket.try_clone().unwrap(),
             users,
         }
+    }
+
+    #[inline]
+    pub fn filter_clients(&self) {
+        if let Ok(mut clients) = self.clients.write() {
+            clients.retain(|_, client| client.is_alive());
+        }
+    }
+
+    #[inline]
+    pub fn has_clients(&self) -> bool {
+        if let Ok(clients) = self.clients.read() {
+            return clients
+                .values()
+                .find(|client| client.is_connected())
+                .is_some();
+        }
+
+        false
     }
 
     pub fn send_alive(&self, src: SocketAddr) {
