@@ -1,4 +1,4 @@
-use std::sync::{self, Arc};
+use std::{fmt, sync::{self, Arc}};
 
 use bytes::Bytes;
 use kanal::{unbounded, AsyncReceiver, Sender};
@@ -26,17 +26,34 @@ pub struct WebConnection {
 
     broadcast_sender: Sender<Bytes>,
     broadcast_receiver: AsyncReceiver<Bytes>,
-    broadcast_thread: Arc<sync::RwLock<Option<JoinHandle<()>>>>,
+    broadcast_task: Arc<sync::RwLock<Option<JoinHandle<()>>>>,
 }
 
 const STUN_SERVER: &str = "stun:stun.l.google.com:19302";
 
-struct WebBroadcastThread {
+struct WebBroadcastTask {
     clients: Arc<RwLock<Vec<WebClient>>>,
     receiver: AsyncReceiver<Bytes>,
 }
 
-impl WebBroadcastThread {
+#[derive(Debug)]
+pub enum BroadcastTaskError {
+    TransferFailed(String),
+    TaskNotRunning,
+}
+
+impl fmt::Display for BroadcastTaskError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BroadcastTaskError::TaskNotRunning => write!(f, "Broadcast Task is not running"),
+            BroadcastTaskError::TransferFailed(msg) => write!(f, "Transfer Failed: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for BroadcastTaskError {}
+
+impl WebBroadcastTask {
     #[inline]
     async fn broadcast(&self, data: Bytes) {
         // TODO: enable muting client functionalities 
@@ -79,17 +96,20 @@ impl WebConnection {
         let (sender, receiver) = unbounded::<Bytes>();
 
         Self {
-            broadcast_thread: Arc::new(sync::RwLock::new(None)),
+            broadcast_task: Arc::new(sync::RwLock::new(None)),
             broadcast_sender: sender,
             broadcast_receiver: receiver.as_async().clone(),
             clients: Arc::new(RwLock::new(vec![])),
         }
     }
 
-    pub fn start_broadcast_thread(&self) {
-        if let Ok(mut thread) = self.broadcast_thread.write() {
+    /// This function starts the broadcast spawns tokio async task
+    /// that listens for web broadcast messages and sends them to all.
+    /// Note: This function should be called from the main thread from inside the video server.
+    pub fn start_broadcast_async_task(&self) {
+        if let Ok(mut thread) = self.broadcast_task.write() {
             if thread.is_none() {
-                *thread = Some(WebBroadcastThread::run(
+                *thread = Some(WebBroadcastTask::run(
                     Handle::current(),
                     self.clients.clone(),
                     self.broadcast_receiver.clone(),
@@ -99,15 +119,15 @@ impl WebConnection {
     }
 
     #[inline]
-    pub fn broadcast(&self, data: Bytes) -> Result<(), Box<dyn std::error::Error>> {
-        if let Ok(thread) = self.broadcast_thread.read() {
-            if thread.is_none() {
-                return Err("Broadcast thread is not running".into());
+    pub fn broadcast(&self, data: Bytes) -> Result<(), BroadcastTaskError> {
+        if let Ok(task) = self.broadcast_task.read() {
+            if task.is_none() {
+                return Err(BroadcastTaskError::TaskNotRunning);
             }
         }
 
         if let Err(e) = self.broadcast_sender.send(data) {
-            return Err(format!("Failed to broadcast data {}", e).into());
+            return Err(BroadcastTaskError::TransferFailed(e.to_string()));
         }
 
         Ok(())
@@ -169,7 +189,6 @@ impl WebConnection {
 
                 data_channel.on_open(Box::new(move || {
                     println!("Data channel '{dc_label2}'-'{dc_id2}' open.");
-
 
                     Box::pin(async move {
                         let mut clients =  clients_clone.write().await;
@@ -247,7 +266,7 @@ impl Clone for WebConnection {
             clients: self.clients.clone(),
             broadcast_sender: self.broadcast_sender.clone(),
             broadcast_receiver: self.broadcast_receiver.clone(),
-            broadcast_thread: self.broadcast_thread.clone()
+            broadcast_task: self.broadcast_task.clone()
         }
     }
 }

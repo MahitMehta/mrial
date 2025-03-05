@@ -18,7 +18,7 @@ use yuv::YUVBuffer;
 
 use crate::{
     audio::{AudioServerAction, AudioServerThread},
-    conn::{ConnectionManager, ServerMeta}, 
+    conn::{web::BroadcastTaskError, ConnectionManager, ServerMeta}, 
     events::{EventsThread, EventsThreadAction}
 };
 
@@ -368,7 +368,7 @@ impl VideoServerThread {
         self.start_session_thread(ch_sender.clone());
 
         if let Ok(web) = self.conn.get_web() {
-            web.start_broadcast_thread();
+            web.start_broadcast_async_task();
         }
 
         loop {
@@ -454,7 +454,20 @@ impl VideoServerThread {
                                 self.deployer.prepare_unencrypted(
                                     &nal.as_bytes(),
                                     Box::new(|subpacket| {
-                                        self.conn.web_broadcast(subpacket);
+                                        if let Err(e) = self.conn.web_broadcast(subpacket) {
+                                            match e {
+                                                BroadcastTaskError::TaskNotRunning => {
+                                                    error!("Web Broadcast Task Not Running");
+                                                    if let Ok(web) = self.conn.get_web() {
+                                                        debug!("Restarting Web Broadcast Task");
+                                                        web.start_broadcast_async_task();
+                                                    }
+                                                }
+                                                BroadcastTaskError::TransferFailed(msg) => {
+                                                    error!("Web Broadcast Send Error: {msg}");
+                                                }
+                                            }
+                                        }
                                     }),
                                 );
                             }

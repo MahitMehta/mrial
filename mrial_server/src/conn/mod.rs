@@ -6,7 +6,7 @@ use std::{
 use app::AppConnection;
 use bytes::Bytes;
 use tokio::runtime::Handle;
-use web::WebConnection;
+use web::{BroadcastTaskError, WebConnection};
 
 pub mod app;
 pub mod web;
@@ -73,7 +73,7 @@ impl ConnectionManager {
     }
 
     #[inline]
-    pub fn web_broadcast(&self, buf: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn web_broadcast(&self, buf: &[u8]) -> Result<(), BroadcastTaskError> {
         let bytes = Bytes::copy_from_slice(buf);
         self.web.broadcast(bytes)
     }

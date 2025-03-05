@@ -164,7 +164,9 @@ impl IAudioStream for AudioServerThread {
                             deployer.prepare_unencrypted(
                                 &sample,
                                 Box::new(|subpacket| {
-                                    conn.web_broadcast(subpacket);
+                                    if let Err(e) = conn.web_broadcast(subpacket) {
+                                        
+                                    }
                                 }),
                             );
                         }
