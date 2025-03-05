@@ -2,7 +2,7 @@ use super::{AudioEncoder, AudioServerAction, AudioServerThread, IAudioStream};
 use mrial_proto::deploy::PacketDeployer;
 use mrial_proto::*;
 
-use log::debug;
+use log::{debug, error};
 
 use pipewire as pw;
 use pw::{properties::properties, spa};
@@ -78,7 +78,6 @@ impl IAudioStream for AudioServerThread {
         let mut deployer = PacketDeployer::new(EPacketType::Audio, false);
         let conn = self.conn.try_clone()?;
         let receiver = self.receiver.clone();
-        let handle = self.tokio_handle.clone();
 
         let _listener = stream
             .add_local_listener_with_user_data(data)
@@ -165,7 +164,7 @@ impl IAudioStream for AudioServerThread {
                                 &sample,
                                 Box::new(|subpacket| {
                                     if let Err(e) = conn.web_broadcast(subpacket) {
-                                        
+                                        error!("Failed to broadcast audio to web clients: {}", e);
                                     }
                                 }),
                             );
