@@ -58,25 +58,20 @@ pub struct VideoServerThread {
 
     audio_sender: Sender<AudioServerAction>,
     audio_receiver: Receiver<AudioServerAction>,
-    audio_thread: Option<thread::JoinHandle<()>>,
+    audio_thread: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl VideoServerThread {
     pub async fn new(conn: ConnectionManager) -> Result<Self, Box<dyn std::error::Error>> {
-        #[cfg(target_os = "linux")]
-        let mut setting = Setting::Unknown;
         #[cfg(not(target_os = "linux"))]
         let setting = Setting::Unknown;
-
         #[cfg(target_os = "linux")]
-        {
-            setting = session::config_xenv()?;
-        }
+        let setting = session::config_xenv()?;
 
         let display: Display = Display::primary()?;
         let capturer = Capturer::new(display)?;
 
-        conn.set_dimensions(capturer.width(), capturer.height());
+        conn.set_dimensions(capturer.width(), capturer.height()).await;
 
         let pool = ThreadPool::builder().pool_size(1).create()?;
         let yuv_handles = VecDeque::new();
@@ -162,7 +157,7 @@ impl VideoServerThread {
 
         self.row_len = 4 * capturer.width() * capturer.height();
         self.conn
-            .set_dimensions(capturer.width(), capturer.height());
+            .set_dimensions(capturer.width(), capturer.height()).await;
         self.par = VideoServerThread::get_parameters(self.conn.get_meta().await);
         self.encoder = x264::Encoder::open(&mut self.par)?;
 
@@ -188,7 +183,7 @@ impl VideoServerThread {
                 self.deployer.prepare_unencrypted(
                     &header_bytes,
                     &|subpacket| {
-                        self.conn.web_broadcast(subpacket);
+                        let _ = self.conn.web_broadcast(subpacket);
                     }
                 );
             }
@@ -222,7 +217,7 @@ impl VideoServerThread {
 
                 video_server_ch_sender
                     .send(VideoServerAction::RestartStream)?;
-                self.events_sender
+                let _ = self.events_sender
                     .send(EventsThreadAction::ReconnectInputModules).await;
             }
             VideoServerAction::NewUserSession =>
@@ -311,8 +306,7 @@ impl VideoServerThread {
        
         self.audio_thread = Some(AudioServerThread::run(
             conn, 
-            self.audio_receiver.clone(),
-            tokio::runtime::Handle::current(),
+            self.audio_receiver.clone()
         ));
 
         Ok(true)

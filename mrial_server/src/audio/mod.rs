@@ -4,17 +4,16 @@ mod encoder;
 pub use self::encoder::*;
 use crate::conn::ConnectionManager;
 
-use std::thread::JoinHandle;
 use kanal::Receiver;
+use tokio::task::JoinHandle;
 
 pub trait IAudioStream {
-    fn stream(&self) -> Result<(), Box<dyn std::error::Error>>;
+    async fn stream(&self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 pub struct AudioServerThread {
     conn: ConnectionManager,
-    receiver: Receiver<AudioServerAction>,
-    tokio_handle: tokio::runtime::Handle,
+    receiver: Receiver<AudioServerAction>
 }
 
 #[derive(Debug)]
@@ -25,25 +24,23 @@ pub enum AudioServerAction {
 impl AudioServerThread {
     pub fn new(
         conn: ConnectionManager, 
-        receiver: Receiver<AudioServerAction>,
-        tokio_handle: tokio::runtime::Handle,
+        receiver: Receiver<AudioServerAction>
     ) -> Self {
         Self {
             conn,
-            receiver,
-            tokio_handle,
+            receiver
         }
     }
 
     pub fn run(
         conn: ConnectionManager, 
-        receiver: Receiver<AudioServerAction>,
-        tokio_handle: tokio::runtime::Handle,
+        receiver: Receiver<AudioServerAction>
     )-> JoinHandle<()> {
-        std::thread::spawn(move || {
-            let server = AudioServerThread::new(conn, receiver, tokio_handle);
+        let tokio_handle = tokio::runtime::Handle::current();
+        tokio_handle.spawn(async move {
+            let server = AudioServerThread::new(conn, receiver);
             
-            if let Err(e) = server.stream() {
+            if let Err(e) = server.stream().await {
                 log::error!("Failed to start streaming audio: {}", e);
             }
         })

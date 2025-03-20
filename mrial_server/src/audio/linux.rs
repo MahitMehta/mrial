@@ -33,7 +33,7 @@ impl AudioServerThread {
 }
 
 impl IAudioStream for AudioServerThread {
-    fn stream(&self) -> Result<(), Box<dyn std::error::Error>> {
+    async fn stream(&self) -> Result<(), Box<dyn std::error::Error>> {
         pw::init();
 
         let mainloop = pw::main_loop::MainLoop::new(None)?;
@@ -167,7 +167,7 @@ impl IAudioStream for AudioServerThread {
                                 deployer.prepare_encrypted(
                                     &sample,
                                     Box::new(|subpacket| {
-                                        handle.block_on(conn.app_broadcast_audio(subpacket));
+                                        //handle.block_on(conn.app_broadcast_audio(subpacket));
                                     }),
                                 );
                             }

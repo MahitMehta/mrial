@@ -2,6 +2,7 @@ use std::{
     net::SocketAddr, sync::Arc, thread::{self, JoinHandle}
 };
 
+use bytes::Bytes;
 use enigo::{
     Direction::{Press, Release}, Enigo, InputError, Keyboard, Mouse, NewConError, Settings
 };
@@ -191,7 +192,7 @@ impl EventsEmitter {
         Ok(())
     }
 
-    fn input(&mut self, buf: &mut [u8], width: usize, height: usize) {
+    fn input(&mut self, buf: &[u8], width: usize, height: usize) {
         // TODO: Scroll only works on linux
         if scroll_requested(&buf) {
             let x_delta = i16::from_be_bytes(buf[14..16].try_into().unwrap());
@@ -267,6 +268,7 @@ pub enum EventsThreadAction {
 }
 
 pub struct EventsThread {
+    tokio_handle: tokio::runtime::Handle,
     emitter: EventsEmitter,
     conn: ConnectionManager,
     headers: Arc<Mutex<Option<Vec<u8>>>>,
@@ -276,12 +278,14 @@ pub struct EventsThread {
 
 impl EventsThread {
     pub fn new(
+        tokio_handle: tokio::runtime::Handle,
         conn: ConnectionManager,
         headers: Arc<Mutex<Option<Vec<u8>>>>,
         video_server_ch_sender: Sender<VideoServerAction>,
         audio_server_ch_sender: Sender<AudioServerAction>,
     ) -> Result<Self, NewConError> {
         Ok(Self {
+            tokio_handle,
             emitter: EventsEmitter::new(video_server_ch_sender.clone())?,
             conn,
             headers,
@@ -290,15 +294,28 @@ impl EventsThread {
         })
     }
 
-    fn handle_event(&mut self, buf: &mut [u8], src: SocketAddr, size: usize) {
-        let tokio_handle = tokio::runtime::Handle::current();
+    fn handle_web_event(&mut self, buf: &Bytes) {
+        let packet_type = parse_packet_type(&buf);
+
+        match packet_type {
+            EPacketType::InputState => {
+                let meta = self.conn.get_meta_blocking();
+
+                self.emitter
+                    .input(&buf[HEADER..], meta.width, meta.height);
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_app_event(&mut self, buf: &mut [u8], src: SocketAddr, size: usize) {
         let packet_type = parse_packet_type(&buf);
 
         match packet_type {
             EPacketType::ShakeAE => {
                 let mut app = self.conn.get_app();
               
-                tokio_handle.block_on(async {
+                self.tokio_handle.block_on(async {
                     let headers = self.headers.lock().await.clone();
                     let meta = match app.connect_client(src, &buf[HEADER..size], headers).await {
                         Ok(meta) => meta,
@@ -345,7 +362,7 @@ impl EventsThread {
             }
             EPacketType::ShakeUE => {
                 let app = self.conn.get_app();
-                let _ = tokio_handle.block_on(app.initialize_client(src));
+                let _ = self.tokio_handle.block_on(app.initialize_client(src));
             }
             EPacketType::ClientState => {
                 let app = self.conn.get_app();
@@ -365,7 +382,7 @@ impl EventsThread {
 
                 debug!("Client State: {:?}", meta);
 
-                tokio_handle.block_on(async {
+                self.tokio_handle.block_on(async {
                     app.mute_client(src, meta.muted.try_into().unwrap()).await;
                 
                     self.conn.set_dimensions(
@@ -379,13 +396,13 @@ impl EventsThread {
                     .unwrap();
             }
             EPacketType::Alive => {
-                let _ = tokio_handle.block_on(self.conn.get_app().send_alive(src));
+                let _ = self.tokio_handle.block_on(self.conn.get_app().send_alive(src));
             }
             EPacketType::PING => {
-                let _ = tokio_handle.block_on(self.conn.get_app().received_ping(src));
+                let _ = self.tokio_handle.block_on(self.conn.get_app().received_ping(src));
             }
             EPacketType::Disconnect => {
-                tokio_handle.block_on(async {
+                self.tokio_handle.block_on(async {
                     self.conn.get_app().remove_client(src).await;
 
                     if self.conn.has_clients().await {
@@ -418,13 +435,13 @@ impl EventsThread {
         loop {
             match web_receiver.try_recv() {
                 Ok(Some(bytes)) => {
-                    debug!("Web client input received");
+                    self.handle_web_event(&bytes);
                 }
                 _ => {}
             }
             match self.conn.app_try_recv_from(&mut buf) {
                 Ok((size, src)) => {
-                    self.handle_event(&mut buf, src, size);
+                    self.handle_app_event(&mut buf, src, size);
                 }
                 _ => {}
             }
@@ -453,8 +470,11 @@ impl EventsThread {
         video_server_ch_sender: Sender<VideoServerAction>,
         audio_server_ch_sender: Sender<AudioServerAction>,
     ) -> JoinHandle<()> {
+        let tokio_handle = tokio::runtime::Handle::current();
+        
         thread::spawn(move || {
             match EventsThread::new(
+                tokio_handle,
                 conn, headers, video_server_ch_sender, audio_server_ch_sender) {
                 Ok(mut events_thread) => {
                     events_thread.process_loop(event_ch_receiver);

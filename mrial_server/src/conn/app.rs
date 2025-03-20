@@ -6,7 +6,7 @@ use rsa::{pkcs1::EncodeRsaPublicKey, RsaPrivateKey, RsaPublicKey};
 use std::{
     collections::HashMap, fmt, net::SocketAddr, sync::Arc, time::SystemTime
 };
-use tokio::{net::UdpSocket, sync::{Mutex, RwLock}};
+use tokio::{net::UdpSocket, sync::RwLock};
 
 use mrial_proto::{
     packet::*, ClientShakeAE, ClientStatePayload, JSONPayloadAE, JSONPayloadSE, JSONPayloadUE,
@@ -297,6 +297,7 @@ impl AppConnection {
                 },
             );
             println!("Server Shook SE Payload Len: {}", payload_len);
+
             self.socket
                 .send_to(&buf[..HEADER + payload_len], &src)
                 .await;
