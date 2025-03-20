@@ -107,7 +107,7 @@ impl Input {
         proto::write_header(
             EPacketType::InputState,
             0,
-            (packet::HEADER + input::PAYLOAD) as u32,
+            input::PAYLOAD as u32,
             0,
             &mut buf,
         );

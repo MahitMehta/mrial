@@ -64,10 +64,10 @@ impl PacketDeployer {
     }
 
     #[inline]
-    pub fn prepare_unencrypted<'a>(
+    pub fn prepare_unencrypted(
         &mut self, 
         frame: &[u8], 
-        broadcast_unencrypted: Box<dyn Fn(&[u8]) + 'a>
+        broadcast_unencrypted: &dyn Fn(&[u8])
     ) {
         self.helper_prepare_unencrypted(frame, &broadcast_unencrypted);
 

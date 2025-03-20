@@ -1,12 +1,11 @@
 use std::{
-    net::SocketAddr, sync::{Arc, Mutex}, thread::{self, JoinHandle}
+    net::SocketAddr, sync::Arc
 };
 
 use enigo::{
-    Direction::{Press, Release},
-    Enigo, InputError, Keyboard, Mouse, Settings,
+    Direction::{Press, Release}, Enigo, InputError, Keyboard, Mouse, NewConError, Settings
 };
-use kanal::{Receiver, Sender};
+use kanal::{AsyncReceiver, Sender};
 use log::{debug, warn};
 use mrial_proto::{input::*, packet::*, ClientStatePayload, JSONPayloadSE};
 
@@ -15,6 +14,7 @@ use mouse_keyboard_input;
 #[cfg(target_os = "linux")]
 use pipewire::spa::param::audio;
 use rsa::rand_core::le;
+use tokio::{sync::{Mutex, RwLock}, task::JoinHandle};
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
@@ -22,7 +22,7 @@ use crate::{audio::AudioServerAction, conn::ConnectionManager};
 use crate::video::VideoServerAction;
 
 pub struct EventsEmitter {
-    enigo: Enigo,
+    enigo: Arc<RwLock<Enigo>>,
     left_mouse_held: bool,
     session_restart_in_progress: bool,
 
@@ -49,15 +49,15 @@ impl EventsEmitter {
     }
 
     #[cfg(not(target_os = "linux"))]
-    fn new(video_server_ch_sender: Sender<VideoServerAction>) -> Self {
-        let enigo = Enigo::new(&Settings::default()).unwrap();
+    fn new(video_server_ch_sender: Sender<VideoServerAction>) -> Result<Self, enigo::NewConError> {
+        let enigo = Arc::new(RwLock::new(Enigo::new(&Settings::default())?));
 
-        Self {
+        Ok(Self {
             enigo,
             video_server_ch_sender,
             session_restart_in_progress: false,
             left_mouse_held: false,
-        }
+        })
     }
 
     #[cfg(target_os = "linux")]
@@ -71,8 +71,8 @@ impl EventsEmitter {
     }
 
     #[cfg(not(target_os = "linux"))]
-    fn reconnect_input_modules(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.enigo = Enigo::new(&Settings::default())?;
+    fn reconnect_input_modules(&mut self) -> Result<(), enigo::NewConError> {
+        self.enigo = Arc::new(RwLock::new(Enigo::new(&Settings::default())?));
 
         self.session_restart_in_progress = false;
         Ok(())
@@ -96,96 +96,102 @@ impl EventsEmitter {
     #[cfg(not(target_os = "linux"))]
     fn scroll(&self, _x: i32, _y: i32) {}
 
-    fn handle_meta_keys(&mut self, buf: &[u8]) -> Result<(), InputError> {
+    async fn handle_meta_keys(&mut self, buf: &[u8]) -> Result<(), InputError> {
+        let mut enigo = self.enigo.write().await;
+
         if is_control_pressed(buf) {
-            self.enigo.key(enigo::Key::Control, Press)?;
+            enigo.key(enigo::Key::Control, Press)?;
         } else if is_control_released(buf) {
-            self.enigo.key(enigo::Key::Control, Release)?;
+            enigo.key(enigo::Key::Control, Release)?;
         }
 
         if is_shift_pressed(buf) {
-            self.enigo.key(enigo::Key::Shift, Press)?;
+            enigo.key(enigo::Key::Shift, Press)?;
         } else if is_shift_released(buf) {
-            self.enigo.key(enigo::Key::Shift, Release)?;
+            enigo.key(enigo::Key::Shift, Release)?;
         }
 
         if is_alt_pressed(buf) {
-            self.enigo.key(enigo::Key::Alt, Press)?;
+            enigo.key(enigo::Key::Alt, Press)?;
         } else if is_alt_released(buf) {
-            self.enigo.key(enigo::Key::Alt, Release)?;
+            enigo.key(enigo::Key::Alt, Release)?;
         }
 
         if is_meta_pressed(buf) {
-            self.enigo.key(enigo::Key::Meta, Press)?;
+            enigo.key(enigo::Key::Meta, Press)?;
         } else if is_meta_released(buf) {
-            self.enigo.key(enigo::Key::Meta, Release)?;
+            enigo.key(enigo::Key::Meta, Release)?;
         }
 
         Ok(())
     }
 
-    fn handle_pressed_key(&mut self, buf: &[u8]) -> Result<(), InputError> {
+    async fn handle_pressed_key(&mut self, buf: &[u8]) -> Result<(), InputError> {
+        let mut enigo = self.enigo.write().await;
+
         match Key::from(buf[8]) {
             Key::None => {}
             Key::Backspace => {
-                self.enigo.key(enigo::Key::Backspace, Press)?;
+                enigo.key(enigo::Key::Backspace, Press)?;
             }
             Key::DownArrow => {
-                self.enigo.key(enigo::Key::DownArrow, Press)?;
+                enigo.key(enigo::Key::DownArrow, Press)?;
             }
             Key::UpArrow => {
-                self.enigo.key(enigo::Key::UpArrow, Press)?;
+                enigo.key(enigo::Key::UpArrow, Press)?;
             }
             Key::LeftArrow => {
-                self.enigo.key(enigo::Key::LeftArrow, Press)?;
+                enigo.key(enigo::Key::LeftArrow, Press)?;
             }
             Key::RightArrow => {
-                self.enigo.key(enigo::Key::RightArrow, Press)?;
+                enigo.key(enigo::Key::RightArrow, Press)?;
             }
             Key::Space => {
-                self.enigo.key(enigo::Key::Space, enigo::Direction::Press)?;
+                enigo.key(enigo::Key::Space, enigo::Direction::Press)?;
             }
             Key::Tab => {
-                self.enigo.key(enigo::Key::Tab, enigo::Direction::Press)?;
+                enigo.key(enigo::Key::Tab, enigo::Direction::Press)?;
             }
             Key::Return => {
-                self.enigo
+                enigo
                     .key(enigo::Key::Return, enigo::Direction::Click)?;
             }
-            Key::Unicode => self.enigo.key(enigo::Key::Unicode(buf[8] as char), Press)?,
+            Key::Unicode => enigo.key(enigo::Key::Unicode(buf[8] as char), Press)?,
         }
 
         Ok(())
     }
 
-    fn handle_released_key(&mut self, buf: &[u8]) -> Result<(), InputError> {
+    async fn handle_released_key(&mut self, buf: &[u8]) -> Result<(), InputError> {
+        let mut enigo = self.enigo.write().await;
+
         match Key::from(buf[9]) {
             Key::None => {}
             Key::Backspace => {
-                self.enigo.key(enigo::Key::Backspace, Release)?;
+                enigo.key(enigo::Key::Backspace, Release)?;
             }
             Key::Space => {
-                self.enigo
+                enigo
                     .key(enigo::Key::Space, enigo::Direction::Release)?;
             }
             Key::DownArrow => {
-                self.enigo.key(enigo::Key::DownArrow, Release)?;
+                enigo.key(enigo::Key::DownArrow, Release)?;
             }
             Key::UpArrow => {
-                self.enigo.key(enigo::Key::UpArrow, Release)?;
+                enigo.key(enigo::Key::UpArrow, Release)?;
             }
             Key::LeftArrow => {
-                self.enigo.key(enigo::Key::LeftArrow, Release)?;
+                enigo.key(enigo::Key::LeftArrow, Release)?;
             }
             Key::RightArrow => {
-                self.enigo.key(enigo::Key::RightArrow, Release)?;
+                enigo.key(enigo::Key::RightArrow, Release)?;
             }
             Key::Tab => {
-                self.enigo.key(enigo::Key::Tab, enigo::Direction::Release)?;
+                enigo.key(enigo::Key::Tab, enigo::Direction::Release)?;
             }
             Key::Return => {}
             Key::Unicode => {
-                self.enigo
+                enigo
                     .key(enigo::Key::Unicode((buf[9]) as char), Release)?;
             }
         }
@@ -193,9 +199,10 @@ impl EventsEmitter {
         Ok(())
     }
 
-    fn input(&mut self, buf: &mut [u8], width: usize, height: usize) {
-        // TODO: Scroll only works on linux
+    async fn input(&mut self, buf: &mut [u8], width: usize, height: usize) {
+        let mut enigo = self.enigo.write().await;
 
+        // TODO: Scroll only works on linux
         if scroll_requested(&buf) {
             let x_delta = i16::from_be_bytes(buf[14..16].try_into().unwrap());
             let y_delta = i16::from_be_bytes(buf[16..18].try_into().unwrap());
@@ -208,17 +215,13 @@ impl EventsEmitter {
         if click_requested(buf) {
             let (x, y, right) = parse_click(buf, width, height);
 
-            match self.enigo.move_mouse(x, y, enigo::Coordinate::Abs) {
+            match enigo.move_mouse(x, y, enigo::Coordinate::Abs) {
                 Ok(_) => {
                     if right {
-                        let _ = &self
-                            .enigo
-                            .button(enigo::Button::Right, enigo::Direction::Click);
+                        let _ = enigo.button(enigo::Button::Right, enigo::Direction::Click);
                     } else {
                         self.left_mouse_held = !self.left_mouse_held;
-                        let _ = &self
-                            .enigo
-                            .button(enigo::Button::Left, enigo::Direction::Click);
+                        let _ = enigo.button(enigo::Button::Left, enigo::Direction::Click);
                     }
                 }
                 Err(e) => {
@@ -238,9 +241,7 @@ impl EventsEmitter {
         if mouse_move_requested(buf) {
             let (x, y, pressed) = parse_mouse_move(buf, width as f32, height as f32);
 
-            if let Err(e) = self
-                .enigo
-                .move_mouse(x as i32, y as i32, enigo::Coordinate::Abs)
+            if let Err(e) = enigo.move_mouse(x as i32, y as i32, enigo::Coordinate::Abs)
             {
                 debug!("Error moving mouse: {}", e);
                 if !self.session_restart_in_progress {
@@ -254,21 +255,21 @@ impl EventsEmitter {
 
             if pressed && !self.left_mouse_held {
                 self.left_mouse_held = true;
-                let _ = &self
-                    .enigo
-                    .button(enigo::Button::Left, enigo::Direction::Press);
+                let _ = enigo.button(enigo::Button::Left, enigo::Direction::Press);
             }
         }
 
-        if let Err(e) = self.handle_meta_keys(&buf) {
+        drop(enigo);
+
+        if let Err(e) = self.handle_meta_keys(&buf).await {
             debug!("Error handling meta keys: {}", e);
         }
 
-        if let Err(e) = self.handle_pressed_key(&buf) {
+        if let Err(e) = self.handle_pressed_key(&buf).await {
             debug!("Error handling pressed key: {}", e);
         }
 
-        if let Err(e) = self.handle_released_key(&buf) {
+        if let Err(e) = self.handle_released_key(&buf).await {
             debug!("Error handling released key: {}", e);
         }
     }
@@ -291,29 +292,29 @@ impl EventsThread {
         headers: Arc<Mutex<Option<Vec<u8>>>>,
         video_server_ch_sender: Sender<VideoServerAction>,
         audio_server_ch_sender: Sender<AudioServerAction>,
-    ) -> Self {
-        Self {
-            emitter: EventsEmitter::new(video_server_ch_sender.clone()),
+    ) -> Result<Self, NewConError> {
+        Ok(Self {
+            emitter: EventsEmitter::new(video_server_ch_sender.clone())?,
             conn,
             headers,
             video_server_ch_sender,
             audio_server_ch_sender,
-        }
+        })
     }
 
-    fn handle_event(&mut self, buf: &mut [u8], src: SocketAddr, size: usize) {
+    async fn handle_event(&mut self, buf: &mut [u8], src: SocketAddr, size: usize) {
         let packet_type = parse_packet_type(&buf);
 
         match packet_type {
             EPacketType::ShakeAE => {
-                let mut app = match self.conn.get_app() {
-                    Ok(app) => app,
-                    Err(_) => return,
-                };
+                let mut app = self.conn.get_app();
 
-                let meta = match app.connect_client(src, &buf[HEADER..size], self.headers.clone()) {
-                    Some(meta) => meta,
-                    None => return,
+                let meta = match app.connect_client(src, &buf[HEADER..size], self.headers.clone()).await {
+                    Ok(meta) => meta,
+                    Err(e) => {
+                        warn!("Error connecting client: {}", e);
+                        return;
+                    },
                 };
 
                 app.mute_client(src, meta.muted.try_into().unwrap());
@@ -351,16 +352,13 @@ impl EventsThread {
                 }
             }
             EPacketType::ShakeUE => {
-                if let Ok(app) = self.conn.get_app() {
-                    app.initialize_client(src);
-                }
+                let app = self.conn.get_app();
+                app.initialize_client(src);
             }
             EPacketType::ClientState => {
-                let sym_key = match self.conn.get_app() {
-                    Ok(app) => app.get_sym_key(),
-                    Err(_) => return,
-                };
-
+                let app = self.conn.get_app();
+                let sym_key = app.get_sym_key().await;
+            
                 if sym_key.is_none() {
                     return;
                 }
@@ -375,10 +373,8 @@ impl EventsThread {
 
                 debug!("Client State: {:?}", meta);
 
-                if let Ok(app) = self.conn.get_app() {
-                    app.mute_client(src, meta.muted.try_into().unwrap());
-                }
-
+                app.mute_client(src, meta.muted.try_into().unwrap());
+                
                 self.conn.set_dimensions(
                     meta.width.try_into().unwrap(),
                     meta.height.try_into().unwrap(),
@@ -389,21 +385,15 @@ impl EventsThread {
                     .unwrap();
             }
             EPacketType::Alive => {
-                if let Ok(app) = self.conn.get_app() {
-                    app.send_alive(src);
-                }
+                self.conn.get_app().send_alive(src);
             }
             EPacketType::PING => {
-                if let Ok(app) = self.conn.get_app() {
-                    app.received_ping(src);
-                }
+                self.conn.get_app().received_ping(src);
             }
             EPacketType::Disconnect => {
-                if let Ok(app) = self.conn.get_app() {
-                    app.remove_client(src);
-                }
+                self.conn.get_app().remove_client(src);
 
-                if self.conn.has_clients_blocking() {
+                if self.conn.has_clients().await {
                     return;
                 }
                 if let Err(e) = self
@@ -414,10 +404,7 @@ impl EventsThread {
                 }
             }
             EPacketType::InputState => {
-                let meta = match self.conn.get_meta() {
-                    Some(meta) => meta,
-                    None => return,
-                };
+                let meta = self.conn.get_meta().await;
 
                 self.emitter
                     .input(&mut buf[HEADER..], meta.width, meta.height);
@@ -426,49 +413,61 @@ impl EventsThread {
         }
     }
 
-    fn start_loop(&mut self, event_ch_receiver: Receiver<EventsThreadAction>) {
+    async fn process_loop(&mut self, event_ch_receiver: AsyncReceiver<EventsThreadAction>) {
+        let web_receiver = self.conn.web_receiver();
+        let mut buf = [0u8; MTU];
+
         loop {
-            let mut buf = [0u8; MTU];
+            tokio::select! { 
+                // TODO: Determine if biased is a good idea or not
+                biased;
 
-            // TODO: Look into using try_recv_realtime, it could have some adverse effects
-            // TODO: Currently used for the belief that it is faster than `try_recv`
-
-            while let Ok(action) = event_ch_receiver.try_recv_realtime() {
-                match action {
-                    Some(EventsThreadAction::ReconnectInputModules) => {
-                        if let Ok(()) = self.emitter.reconnect_input_modules() {
-                            debug!("Reconnected input modules");
-                        } else {
-                            debug!("Failed to reconnect input modules");
+                app_ret = self.conn.app_recv_from(&mut buf) => {
+                    if let Ok((size, src)) = app_ret {
+                        self.handle_event(&mut buf, src, size).await;
+                    }
+                }    
+                _web_ret = web_receiver.recv() => {
+                    debug!("Web client input received");
+                }     
+                action = event_ch_receiver.recv() => { 
+                    match action {
+                        Ok(EventsThreadAction::ReconnectInputModules) => {
+                            if let Ok(()) = self.emitter.reconnect_input_modules() {
+                                debug!("Reconnected input modules");
+                            } else {
+                                debug!("Failed to reconnect input modules");
+                            }
+                            self.emitter.session_restart_in_progress = false;
                         }
-                        self.emitter.session_restart_in_progress = false;
+                        Err(e) => {
+                            warn!("Error receiving event action: {}", e);
+                        }
                     }
-                    None => {
-                        break;
-                    }
-                }
+                }   
             }
-
-            if let Ok((size, src)) = self.conn.app_recv_from(&mut buf) {
-                self.handle_event(&mut buf, src, size);
-            }
-        }
+        }       
     }
 
     pub fn run(
         conn: ConnectionManager,
         headers: Arc<Mutex<Option<Vec<u8>>>>,
-        event_ch_receiver: Receiver<EventsThreadAction>,
+        event_ch_receiver: AsyncReceiver<EventsThreadAction>,
         video_server_ch_sender: Sender<VideoServerAction>,
         audio_server_ch_sender: Sender<AudioServerAction>,
     ) -> JoinHandle<()> {
-        let handle = thread::spawn(move || {
-            let mut events = EventsThread::new(
-                conn, headers, video_server_ch_sender, audio_server_ch_sender);
+        let tokio_handle = tokio::runtime::Handle::current();
 
-            events.start_loop(event_ch_receiver);
-        });
-
-        handle
+        tokio_handle.spawn(async move {
+            match EventsThread::new(
+                conn, headers, video_server_ch_sender, audio_server_ch_sender) {
+                Ok(mut events_thread) => {
+                    events_thread.process_loop(event_ch_receiver).await;
+                }
+                Err(e) => {
+                    warn!("Failed to start events thread: {}", e);
+                }
+            }
+         })
     }
 }

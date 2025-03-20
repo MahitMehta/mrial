@@ -1,7 +1,8 @@
 use std::{fmt, sync::{self, Arc}};
 
 use bytes::Bytes;
-use kanal::{unbounded, AsyncReceiver, Sender};
+use kanal::{bounded_async, unbounded, AsyncReceiver, AsyncSender, Sender};
+use log::{debug, error};
 
 use tokio::{runtime::Handle, sync::RwLock, task::JoinHandle};
 use webrtc::{
@@ -27,6 +28,9 @@ pub struct WebConnection {
     broadcast_sender: Sender<Bytes>,
     broadcast_receiver: AsyncReceiver<Bytes>,
     broadcast_task: Arc<sync::RwLock<Option<JoinHandle<()>>>>,
+
+    input_sender: AsyncSender<Bytes>,
+    input_receiver: AsyncReceiver<Bytes>,
 }
 
 const STUN_SERVER: &str = "stun:stun.l.google.com:19302";
@@ -61,7 +65,7 @@ impl WebBroadcastTask {
 
         for client in self.clients.read().await.iter() {
             if let Err(e) = client.data_channel.send(&data).await {
-                println!("Failed to send packet to client: {e}");
+                error!("Failed to send packet to client: {e}");
                 
                 let _ = client.data_channel.close().await;
                 let _ = client.peer_connection.close().await;
@@ -91,15 +95,20 @@ impl WebBroadcastTask {
     }
 }
 
+const MAX_INPUT_BUFFER_SIZE: usize = 100;
+
 impl WebConnection {
     pub fn new() -> Self {
-        let (sender, receiver) = unbounded::<Bytes>();
-
+        let (broadcast_sender, broadcast_receiver) = unbounded::<Bytes>();
+        let (input_sender, input_receiver) = bounded_async::<Bytes>(MAX_INPUT_BUFFER_SIZE);
+       
         Self {
             broadcast_task: Arc::new(sync::RwLock::new(None)),
-            broadcast_sender: sender,
-            broadcast_receiver: receiver.as_async().clone(),
+            broadcast_sender,
+            broadcast_receiver: broadcast_receiver.as_async().clone(),
             clients: Arc::new(RwLock::new(vec![])),
+            input_sender,
+            input_receiver
         }
     }
 
@@ -116,6 +125,11 @@ impl WebConnection {
                 ));
             }
         }
+    }
+
+    #[inline]
+    pub fn receiver(&self) -> AsyncReceiver<Bytes> {
+        self.input_receiver.clone()
     }
 
     #[inline]
@@ -166,15 +180,17 @@ impl WebConnection {
         ));
 
         let peer_connection_clone = peer_connection.clone();
-        let clients_clone = self.clients.clone();
+        let clients = self.clients.clone();
+        let input_sender = self.input_sender.clone();
         // Register data channel creation handling
         peer_connection.on_data_channel(Box::new(move |data_channel: Arc<RTCDataChannel>| {
             let dc_label = data_channel.label().to_owned();
             let dc_id = data_channel.id();
-            println!("New DataChannel {dc_label} {dc_id}");
+            debug!("New DataChannel {dc_label} {dc_id}");
 
             let peer_connection_clone = peer_connection_clone.clone();
-            let clients_clone = clients_clone.clone();
+            let clients_clone = clients.clone();
+            let input_sender = input_sender.clone();
 
             // Register channel opening handling
             Box::pin(async move {
@@ -183,12 +199,12 @@ impl WebConnection {
                 let dc_label2 = dc_label.clone();
                 let dc_id2 = dc_id;
                 data_channel.on_close(Box::new(move || {
-                    println!("Data channel closed");
+                    debug!("Data channel closed");
                     Box::pin(async {})
                 }));
 
                 data_channel.on_open(Box::new(move || {
-                    println!("Data channel '{dc_label2}'-'{dc_id2}' open.");
+                    debug!("Data channel '{dc_label2}'-'{dc_id2}' open.");
 
                     Box::pin(async move {
                         let mut clients =  clients_clone.write().await;
@@ -200,11 +216,14 @@ impl WebConnection {
                     })
                 }));
 
-                // Register text message handling
-                data_channel.on_message(Box::new(move |msg: DataChannelMessage| {
-                    let msg_str = String::from_utf8(msg.data.to_vec()).unwrap();
-                    println!("Message from DataChannel '{dc_label}': '{msg_str}'");
-                    Box::pin(async {})
+                data_channel.on_message(Box::new(move |event: DataChannelMessage| {
+                    let input_sender = input_sender.clone();
+
+                    Box::pin(async move {
+                        if let Err(e) = input_sender.send(event.data).await {
+                            error!("Failed to send event to input channel: {e}");
+                        }
+                    })
                 }));
             })
         }));
@@ -266,7 +285,9 @@ impl Clone for WebConnection {
             clients: self.clients.clone(),
             broadcast_sender: self.broadcast_sender.clone(),
             broadcast_receiver: self.broadcast_receiver.clone(),
-            broadcast_task: self.broadcast_task.clone()
+            broadcast_task: self.broadcast_task.clone(),
+            input_sender: self.input_sender.clone(),
+            input_receiver: self.input_receiver.clone(),
         }
     }
 }

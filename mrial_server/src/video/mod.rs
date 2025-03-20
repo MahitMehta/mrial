@@ -4,14 +4,14 @@ pub mod yuv;
 
 use display::DisplayMeta;
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
-use kanal::{unbounded, Receiver, Sender};
+use kanal::{unbounded, unbounded_async, AsyncReceiver, AsyncSender, Receiver, Sender};
 use log::{debug, error};
 use mrial_proto::{deploy::PacketDeployer, *};
 use scrap::{Capturer, Display};
 use session::{SessionSettingThread, Setting};
-use tokio::time::sleep;
+use tokio::{sync::Mutex, time::sleep};
 use std::{
-    collections::VecDeque, fs::File, io::{ErrorKind::WouldBlock, Write}, sync::{Arc, Mutex}, thread, time::{Duration, Instant}
+    collections::VecDeque, fs::File, io::{ErrorKind::WouldBlock, Write}, sync::Arc, thread, time::{Duration, Instant}
 };
 use x264::{Encoder, Param, Picture};
 use yuv::YUVBuffer;
@@ -52,9 +52,9 @@ pub struct VideoServerThread {
     setting: Setting,
     setting_thread: Option<thread::JoinHandle<()>>,
 
-    events_sender: Sender<EventsThreadAction>,
-    events_receiver: Receiver<EventsThreadAction>,
-    events_thread: Option<thread::JoinHandle<()>>,
+    events_sender: AsyncSender<EventsThreadAction>,
+    events_receiver: AsyncReceiver<EventsThreadAction>,
+    events_thread: Option<tokio::task::JoinHandle<()>>,
 
     audio_sender: Sender<AudioServerAction>,
     audio_receiver: Receiver<AudioServerAction>,
@@ -62,8 +62,11 @@ pub struct VideoServerThread {
 }
 
 impl VideoServerThread {
-    pub fn new(conn: ConnectionManager) -> Result<Self, Box<dyn std::error::Error>> {
+    pub async fn new(conn: ConnectionManager) -> Result<Self, Box<dyn std::error::Error>> {
+        #[cfg(target_os = "linux")]
         let mut setting = Setting::Unknown;
+        #[cfg(not(target_os = "linux"))]
+        let setting = Setting::Unknown;
 
         #[cfg(target_os = "linux")]
         {
@@ -80,13 +83,13 @@ impl VideoServerThread {
 
         let row_len = 4 * capturer.width() * capturer.height();
 
-        let mut par: Param = VideoServerThread::get_parameters(conn.get_meta());
+        let mut par: Param = VideoServerThread::get_parameters(conn.get_meta().await);
         let mut encoder = x264::Encoder::open(&mut par)?;
         let header = encoder.get_headers()?.as_bytes().to_vec();
 
         let pic = Picture::from_param(&par)?;
 
-        let (events_sender, events_receiver) = unbounded::<EventsThreadAction>();
+        let (events_sender, events_receiver) = unbounded_async::<EventsThreadAction>();
         let (audio_sender, audio_receiver) = unbounded::<AudioServerAction>();
 
         Ok(Self {
@@ -125,15 +128,12 @@ impl VideoServerThread {
         }
     }
 
-    fn get_parameters(server_meta: Option<ServerMeta>) -> Param {
+    fn get_parameters(server_meta: ServerMeta) -> Param {
         let mut par = Param::default_preset("ultrafast", "zerolatency").unwrap();
 
         // par = par.set_csp(EColorSpace::YUV444.into());
         par = par.set_csp(EColorSpace::YUV420.into());
-
-        if let Some(server_meta) = server_meta {
-            par = par.set_dimension(server_meta.height, server_meta.width);
-        }
+        par = par.set_dimension(server_meta.height, server_meta.width);
 
         if cfg!(target_os = "windows") {
             par = par.set_fullrange(1);
@@ -163,19 +163,19 @@ impl VideoServerThread {
         self.row_len = 4 * capturer.width() * capturer.height();
         self.conn
             .set_dimensions(capturer.width(), capturer.height());
-        self.par = VideoServerThread::get_parameters(self.conn.get_meta());
+        self.par = VideoServerThread::get_parameters(self.conn.get_meta().await);
         self.encoder = x264::Encoder::open(&mut self.par)?;
 
         let headers = self.encoder.get_headers()?;
         let header_bytes = headers.as_bytes();
 
         // Update the headers
-        if let Ok(mut headers_ref) = self.headers.lock() {
-            *headers_ref = Some(header_bytes.to_vec());
-        }
+        let mut header_ref = self.headers.lock().await;
+        *header_ref = Some(header_bytes.to_vec());
+
 
         if self.deployer.has_sym_key() {
-            if self.conn.has_app_clients() {
+            if self.conn.has_app_clients().await {
                 self.deployer.prepare_encrypted(
                     &header_bytes,
                     Box::new(|subpacket| {
@@ -187,9 +187,9 @@ impl VideoServerThread {
             if self.conn.has_web_clients().await {
                 self.deployer.prepare_unencrypted(
                     &header_bytes,
-                    Box::new(|subpacket| {
+                    &|subpacket| {
                         self.conn.web_broadcast(subpacket);
-                    }),
+                    }
                 );
             }
         }
@@ -223,7 +223,7 @@ impl VideoServerThread {
                 video_server_ch_sender
                     .send(VideoServerAction::RestartStream)?;
                 self.events_sender
-                    .send(EventsThreadAction::ReconnectInputModules)?;
+                    .send(EventsThreadAction::ReconnectInputModules).await;
             }
             VideoServerAction::NewUserSession =>
             {
@@ -241,10 +241,10 @@ impl VideoServerThread {
                 self.encoder = x264::Encoder::open(&mut self.par)?;
             }
             VideoServerAction::SymKey => {
-                if let Ok(app) = self.conn.get_app() {
-                    if let Some(sym_key) = app.get_sym_key() {
-                        self.deployer.set_sym_key(sym_key.clone());
-                    }
+                let app = self.conn.get_app();
+
+                if let Some(sym_key) = app.get_sym_key().await {
+                    self.deployer.set_sym_key(sym_key.clone());
                 }
             }
             VideoServerAction::RestartStream => {
@@ -261,12 +261,7 @@ impl VideoServerThread {
                 }
             }
             VideoServerAction::ConfigUpdate => {
-                let meta = match self.conn.get_meta() {
-                    Some(meta) => meta,
-                    None => {
-                        return Ok(());
-                    }
-                };
+                let meta = self.conn.get_meta().await;
 
                 let requested_width = meta.width;
                 let requested_height = meta.height;
@@ -312,7 +307,7 @@ impl VideoServerThread {
             return Ok(false);
         }
 
-        let conn = self.conn.try_clone()?;
+        let conn = self.conn.clone();
        
         self.audio_thread = Some(AudioServerThread::run(
             conn, 
@@ -337,7 +332,7 @@ impl VideoServerThread {
             return Ok(false);
         }
 
-        let conn = self.conn.try_clone()?;
+        let conn = self.conn.clone();
 
         self.events_thread = Some(EventsThread::run(
             conn,
@@ -386,8 +381,13 @@ impl VideoServerThread {
                     continue;
                 }
             };
+    
+            let (has_app_clients, has_web_clients) = tokio::join! {
+                self.conn.has_app_clients(),
+                self.conn.has_web_clients(),
+            };
 
-            if !self.conn.has_clients().await {
+            if !has_app_clients && !has_web_clients {
                 self.conn.filter_clients().await;
                 sleep(Duration::from_millis(250)).await;
                 continue;
@@ -441,7 +441,7 @@ impl VideoServerThread {
                         //self.pic.set_timestamp(self.frame_count);
 
                         if let Ok(Some((nal, _, _))) = self.encoder.encode(&self.pic) {
-                            if self.conn.has_app_clients() {
+                            if has_app_clients {
                                 self.deployer.prepare_encrypted(
                                     &nal.as_bytes(),
                                     Box::new(|subpacket| {
@@ -450,10 +450,10 @@ impl VideoServerThread {
                                 );
                             }
 
-                            if self.conn.has_web_clients().await {
+                            if has_web_clients {
                                 self.deployer.prepare_unencrypted(
                                     &nal.as_bytes(),
-                                    Box::new(|subpacket| {
+                                    &|subpacket| {
                                         if let Err(e) = self.conn.web_broadcast(subpacket) {
                                             match e {
                                                 BroadcastTaskError::TaskNotRunning => {
@@ -468,7 +468,7 @@ impl VideoServerThread {
                                                 }
                                             }
                                         }
-                                    }),
+                                    }
                                 );
                             }
 

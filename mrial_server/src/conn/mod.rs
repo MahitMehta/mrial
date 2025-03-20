@@ -1,11 +1,12 @@
 use std::{
     net::SocketAddr,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use app::AppConnection;
 use bytes::Bytes;
-use tokio::runtime::Handle;
+use kanal::AsyncReceiver;
+use tokio::sync::RwLock;
 use web::{BroadcastTaskError, WebConnection};
 
 pub mod app;
@@ -28,10 +29,10 @@ pub struct ConnectionManager {
 }
 
 impl ConnectionManager {
-    pub fn new(_tokio_handle: Handle) -> Self {
+    pub async fn new() -> Self {
         Self {
             web: WebConnection::new(),
-            app: AppConnection::new(),
+            app: AppConnection::new().await,
             meta: Arc::new(RwLock::new(ServerMeta {
                 width: 0,
                 height: 0,
@@ -43,23 +44,20 @@ impl ConnectionManager {
         Ok(self.web.clone())
     }
 
-    pub fn get_app(&self) -> Result<AppConnection, std::io::Error> {
-        Ok(self.app.try_clone()?)
+    pub fn get_app(&self) -> AppConnection {
+        self.app.clone()
     }
 
-    pub fn get_meta(&self) -> Option<ServerMeta> {
-        if let Ok(meta) = self.meta.read() {
-            return Some(meta.clone());
-        }
-
-        None
+    pub async fn get_meta(&self) -> ServerMeta {
+        let meta = self.meta.read().await;
+        return meta.clone();
     }
 
-    pub fn set_dimensions(&self, width: usize, height: usize) {
-        if let Ok(mut meta) = self.meta.write() {
-            meta.width = width;
-            meta.height = height;
-        }
+    pub async fn set_dimensions(&self, width: usize, height: usize) {
+        let mut meta = self.meta.write().await;
+        
+        meta.width = width;
+        meta.height = height;
     }
 
     #[inline]
@@ -68,8 +66,8 @@ impl ConnectionManager {
     }
 
     #[inline]
-    pub fn has_app_clients(&self) -> bool {
-        self.app.has_clients()
+    pub async fn has_app_clients(&self) -> bool {
+        self.app.has_clients().await
     }
 
     #[inline]
@@ -79,48 +77,64 @@ impl ConnectionManager {
     }
 
     #[inline]
+    pub fn web_receiver(&self) -> AsyncReceiver<Bytes> {
+        self.web.receiver()
+    }
+
+    #[inline]
     pub fn app_broadcast(&self, buf: &[u8]) {
-        self.app.broadcast(buf);
+        tokio::runtime::Handle::current()
+            .block_on(self.app.broadcast(buf));
     }
 
     #[inline]
-    pub fn app_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
-        self.app.recv_from(buf)
+    pub async fn app_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
+        self.app.recv_from(buf).await
     }
 
     #[inline]
+    #[cfg(target_os = "linux")]
     pub fn app_broadcast_audio(&self, buf: &[u8]) {
         self.app.broadcast_audio(buf);
     }
 
-    pub fn try_clone(&self) -> Result<Self, std::io::Error> {
-        let app = self.app.try_clone()?;
-
-        Ok(Self {
-            app,
-            web: self.web.clone(),
-            meta: self.meta.clone(),
-        })
-    }
-
     #[inline]
     pub async fn filter_clients(&self) {
-        self.web.filter_clients().await;
-        self.app.filter_clients();
+        tokio::join! {
+            self.web.filter_clients(),
+            self.app.filter_clients(),
+        };
     }
 
     #[inline]
     pub async fn has_clients(&self) -> bool {
-        self.app.has_clients() || self.web.has_clients().await
+        let (has_web_clients, has_app_clients) = tokio::join! {
+            self.has_web_clients(),
+            self.has_app_clients(),
+        };
+
+        has_web_clients || has_app_clients
     }
 
     #[inline]
-    pub fn has_clients_blocking(&self) -> bool {
-        self.app.has_clients() || self.web.has_clients_blocking()
+    #[cfg(target_os = "linux")]
+    pub async fn has_app_clients_blocking(&self) -> bool {
+        self.app.has_clients_blocking()
     }
 
     #[inline]
+    #[cfg(target_os = "linux")]
     pub fn has_web_clients_blocking(&self) -> bool {
         self.web.has_clients_blocking()
+    }
+}
+
+impl Clone for ConnectionManager {
+    fn clone(&self) -> Self {
+        Self {
+            web: self.web.clone(),
+            app: self.app.clone(),
+            meta: self.meta.clone(),
+        }
     }
 }
