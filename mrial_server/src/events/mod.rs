@@ -91,14 +91,16 @@ impl InputThread {
     }
 
     #[cfg(not(target_os = "linux"))]
-    fn new(video_server_ch_sender: Sender<VideoServerAction>) -> Result<Self, enigo::NewConError> {
+    fn new(input_receiver: Receiver<InputThreadAction>, video_server_ch_sender: Sender<VideoServerAction>) -> Result<Self, enigo::NewConError> {
         let enigo = Enigo::new(&Settings::default())?;
 
         Ok(Self {
             enigo,
-            video_server_ch_sender,
             session_restart_in_progress: false,
             left_mouse_held: false,
+
+            input_receiver,
+            video_server_ch_sender,
         })
     }
 
