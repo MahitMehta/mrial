@@ -5,7 +5,7 @@ use std::{
 
 use app::AppConnection;
 use bytes::Bytes;
-use kanal::AsyncReceiver;
+use kanal::Receiver;
 use tokio::sync::RwLock;
 use web::{BroadcastTaskError, WebConnection};
 
@@ -48,6 +48,10 @@ impl ConnectionManager {
         self.app.clone()
     }
 
+    pub fn get_meta_blocking(&self) -> ServerMeta {
+        self.meta.blocking_read().clone()
+    }
+
     pub async fn get_meta(&self) -> ServerMeta {
         let meta = self.meta.read().await;
         return meta.clone();
@@ -77,7 +81,7 @@ impl ConnectionManager {
     }
 
     #[inline]
-    pub fn web_receiver(&self) -> AsyncReceiver<Bytes> {
+    pub fn web_receiver(&self) -> Receiver<Bytes> {
         self.web.receiver()
     }
 
@@ -88,8 +92,8 @@ impl ConnectionManager {
     }
 
     #[inline]
-    pub async fn app_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
-        self.app.recv_from(buf).await
+    pub fn app_try_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
+        self.app.try_recv_from(buf)
     }
 
     #[inline]

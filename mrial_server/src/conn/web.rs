@@ -1,7 +1,7 @@
 use std::{fmt, sync::{self, Arc}};
 
 use bytes::Bytes;
-use kanal::{bounded_async, unbounded, AsyncReceiver, AsyncSender, Sender};
+use kanal::{bounded, unbounded, AsyncReceiver, AsyncSender, Receiver, Sender};
 use log::{debug, error};
 
 use tokio::{runtime::Handle, sync::RwLock, task::JoinHandle};
@@ -30,7 +30,7 @@ pub struct WebConnection {
     broadcast_task: Arc<sync::RwLock<Option<JoinHandle<()>>>>,
 
     input_sender: AsyncSender<Bytes>,
-    input_receiver: AsyncReceiver<Bytes>,
+    input_receiver: Receiver<Bytes>,
 }
 
 const STUN_SERVER: &str = "stun:stun.l.google.com:19302";
@@ -100,14 +100,14 @@ const MAX_INPUT_BUFFER_SIZE: usize = 100;
 impl WebConnection {
     pub fn new() -> Self {
         let (broadcast_sender, broadcast_receiver) = unbounded::<Bytes>();
-        let (input_sender, input_receiver) = bounded_async::<Bytes>(MAX_INPUT_BUFFER_SIZE);
+        let (input_sender, input_receiver) = bounded::<Bytes>(MAX_INPUT_BUFFER_SIZE);
        
         Self {
             broadcast_task: Arc::new(sync::RwLock::new(None)),
             broadcast_sender,
             broadcast_receiver: broadcast_receiver.as_async().clone(),
             clients: Arc::new(RwLock::new(vec![])),
-            input_sender,
+            input_sender: input_sender.clone_async(),
             input_receiver
         }
     }
@@ -128,7 +128,7 @@ impl WebConnection {
     }
 
     #[inline]
-    pub fn receiver(&self) -> AsyncReceiver<Bytes> {
+    pub fn receiver(&self) -> Receiver<Bytes> {
         self.input_receiver.clone()
     }
 

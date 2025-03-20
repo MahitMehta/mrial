@@ -53,8 +53,8 @@ pub struct VideoServerThread {
     setting_thread: Option<thread::JoinHandle<()>>,
 
     events_sender: AsyncSender<EventsThreadAction>,
-    events_receiver: AsyncReceiver<EventsThreadAction>,
-    events_thread: Option<tokio::task::JoinHandle<()>>,
+    events_receiver: Receiver<EventsThreadAction>,
+    events_thread: Option<thread::JoinHandle<()>>,
 
     audio_sender: Sender<AudioServerAction>,
     audio_receiver: Receiver<AudioServerAction>,
@@ -89,7 +89,7 @@ impl VideoServerThread {
 
         let pic = Picture::from_param(&par)?;
 
-        let (events_sender, events_receiver) = unbounded_async::<EventsThreadAction>();
+        let (events_sender, events_receiver) = unbounded::<EventsThreadAction>();
         let (audio_sender, audio_receiver) = unbounded::<AudioServerAction>();
 
         Ok(Self {
@@ -108,7 +108,7 @@ impl VideoServerThread {
             conn,
 
             events_receiver,
-            events_sender,
+            events_sender: events_sender.clone_async(),
             events_thread: None,
 
             setting_thread: None,

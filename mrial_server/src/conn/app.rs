@@ -181,6 +181,19 @@ impl AppConnection {
         return None;
     }
 
+    pub fn get_sym_key_blocking(&self) -> Option<ChaCha20Poly1305> {
+        if let Some(client) = self
+            .clients
+            .blocking_read()
+            .values()
+            .find(|client| client.is_connected() && client.sym_key.is_some())
+        {
+            return client.sym_key.clone();
+        }
+
+    None
+    }
+
     pub async fn get_sym_key(&self) -> Option<ChaCha20Poly1305> {
         if let Some(client) = self
             .clients
@@ -199,7 +212,7 @@ impl AppConnection {
         &mut self,
         src: SocketAddr,
         encypyted_payload: &[u8],
-        _headers: Arc<Mutex<Option<Vec<u8>>>>,
+        _headers: Option<Vec<u8>>,
     ) -> Result<ClientStatePayload, AppConnectionError> {
         let src_str = src.to_string();
 
@@ -284,9 +297,9 @@ impl AppConnection {
                 },
             );
             println!("Server Shook SE Payload Len: {}", payload_len);
-            // self.socket
-            //     .send_to(&buf[..HEADER + payload_len], &src)
-            //     .await;
+            self.socket
+                .send_to(&buf[..HEADER + payload_len], &src)
+                .await;
     
             // TODO: Send NAL Header
             // let header_bytes = match headers.lock() {
@@ -369,8 +382,8 @@ impl AppConnection {
     }
 
     #[inline]
-    pub async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
-        self.socket.recv_from(buf).await
+    pub fn try_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
+        self.socket.try_recv_from(buf)
     }
 }
 
