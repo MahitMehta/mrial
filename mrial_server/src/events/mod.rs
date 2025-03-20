@@ -11,9 +11,7 @@ use mrial_proto::{input::*, packet::*, ClientStatePayload, JSONPayloadSE};
 
 #[cfg(target_os = "linux")]
 use mouse_keyboard_input;
-#[cfg(target_os = "linux")]
-use pipewire::spa::param::audio;
-use rsa::rand_core::le;
+
 use tokio::{sync::{Mutex, RwLock}, task::JoinHandle};
 #[cfg(target_os = "linux")]
 use std::time::Duration;
@@ -34,18 +32,18 @@ pub struct EventsEmitter {
 
 impl EventsEmitter {
     #[cfg(target_os = "linux")]
-    fn new(video_server_ch_sender: Sender<VideoServerAction>) -> Self {
+    fn new(video_server_ch_sender: Sender<VideoServerAction>) -> Result<Self, enigo::NewConError> {
         let uinput =
             mouse_keyboard_input::VirtualDevice::new(Duration::new(0.040 as u64, 0), 2000).unwrap();
-        let enigo = Enigo::new(&Settings::default()).unwrap();
+        let enigo = Arc::new(RwLock::new(Enigo::new(&Settings::default())?));
 
-        Self {
+        Ok(Self {
             enigo,
             uinput,
             video_server_ch_sender,
             session_restart_in_progress: false,
             left_mouse_held: false,
-        }
+        })
     }
 
     #[cfg(not(target_os = "linux"))]
@@ -64,7 +62,7 @@ impl EventsEmitter {
     fn reconnect_input_modules(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.uinput =
             mouse_keyboard_input::VirtualDevice::new(Duration::new(0.040 as u64, 0), 2000)?;
-        self.enigo = Enigo::new(&Settings::default())?;
+        self.enigo = Arc::new(RwLock::new(Enigo::new(&Settings::default())?));
 
         self.session_restart_in_progress = false;
         Ok(())
@@ -200,8 +198,6 @@ impl EventsEmitter {
     }
 
     async fn input(&mut self, buf: &mut [u8], width: usize, height: usize) {
-        let mut enigo = self.enigo.write().await;
-
         // TODO: Scroll only works on linux
         if scroll_requested(&buf) {
             let x_delta = i16::from_be_bytes(buf[14..16].try_into().unwrap());
@@ -211,6 +207,8 @@ impl EventsEmitter {
                 self.scroll(x_delta as i32, y_delta as i32);
             }
         }
+
+        let mut enigo = self.enigo.write().await;
 
         if click_requested(buf) {
             let (x, y, right) = parse_click(buf, width, height);

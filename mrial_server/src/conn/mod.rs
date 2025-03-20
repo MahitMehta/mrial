@@ -94,8 +94,8 @@ impl ConnectionManager {
 
     #[inline]
     #[cfg(target_os = "linux")]
-    pub fn app_broadcast_audio(&self, buf: &[u8]) {
-        self.app.broadcast_audio(buf);
+    pub async fn app_broadcast_audio(&self, buf: &[u8]) {
+        self.app.broadcast_audio(buf).await;
     }
 
     #[inline]
@@ -115,13 +115,7 @@ impl ConnectionManager {
 
         has_web_clients || has_app_clients
     }
-
-    #[inline]
-    #[cfg(target_os = "linux")]
-    pub async fn has_app_clients_blocking(&self) -> bool {
-        self.app.has_clients_blocking()
-    }
-
+    
     #[inline]
     #[cfg(target_os = "linux")]
     pub fn has_web_clients_blocking(&self) -> bool {

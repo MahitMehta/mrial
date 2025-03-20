@@ -129,16 +129,6 @@ impl AppConnection {
     }
 
     #[inline]
-    pub fn has_clients_blocking(&self) -> bool {
-        let clients = self.clients.blocking_read();
-
-        clients
-            .values()
-            .find(|client| client.is_connected())
-            .is_some()
-    }
-
-    #[inline]
     pub async fn send_alive(&self, src: SocketAddr) -> Result<usize, std::io::Error> {
         let mut buf = [0u8; HEADER];
         write_header(
@@ -358,7 +348,7 @@ impl AppConnection {
         for client in clients.values() {
             if let Err(e) = self.socket.send_to(buf, client.src).await {
                 debug!("Failed to Broadcast to Client: {}", e);
-                self.remove_client(client.src);
+                self.remove_client(client.src).await;
             }
         }
     }
@@ -373,7 +363,7 @@ impl AppConnection {
             }
             if let Err(e) = self.socket.send_to(buf, client.src).await {
                 debug!("Failed to Broadcast Audio to Client: {}", e);
-                self.remove_client(client.src);
+                self.remove_client(client.src).await;
             }
         }
     }
