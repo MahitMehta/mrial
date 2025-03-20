@@ -5,10 +5,10 @@ use mrial_proto::*;
 use log::{debug, error};
 
 use opus::Decoder;
+use pipewire as pw;
 use pipewire::spa::param::audio::AudioFormat;
 use pipewire::spa::pod::Object;
 use pipewire::spa::sys::{spa_pod_builder, spa_pod_object, spa_system};
-use pipewire as pw;
 use pw::{properties::properties, spa};
 use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::format_utils;
@@ -52,7 +52,6 @@ impl IAudioStream for AudioServerThread {
             format: Default::default(),
         };
 
-
         #[cfg(not(feature = "v0_3_44"))]
         let mut props = properties! {
             *pw::keys::MEDIA_TYPE => "Audio",
@@ -80,11 +79,11 @@ impl IAudioStream for AudioServerThread {
         props.insert(*pw::keys::NODE_LATENCY, "1024/48000");
 
         let stream = pw::stream::Stream::new(&core, "audio-capture", props)?;
-        
+
         let mut opus_encoder = OpusEncoder::new(48000, opus::Channels::Stereo)?;
         // 2 = stereo, 4 = 4 bytes (32-bits), 1024 = assumed max frame size
-        let mut compressed_audio = [0u8; ENCODE_FRAME_SIZE * 2]; 
-        
+        let mut compressed_audio = [0u8; ENCODE_FRAME_SIZE * 2];
+
         let mut uncompressed_output = [0f32; ENCODE_FRAME_SIZE * 4];
 
         let mut deployer = PacketDeployer::new(EPacketType::Audio, false);
@@ -229,15 +228,14 @@ impl IAudioStream for AudioServerThread {
 
         let mut params = [Pod::from_bytes(&values).unwrap()];
 
-        stream
-            .connect(
-                spa::utils::Direction::Input,
-                None,
-                pw::stream::StreamFlags::AUTOCONNECT
-                    | pw::stream::StreamFlags::MAP_BUFFERS
-                    | pw::stream::StreamFlags::RT_PROCESS,
-                &mut params,
-            )?;
+        stream.connect(
+            spa::utils::Direction::Input,
+            None,
+            pw::stream::StreamFlags::AUTOCONNECT
+                | pw::stream::StreamFlags::MAP_BUFFERS
+                | pw::stream::StreamFlags::RT_PROCESS,
+            &mut params,
+        )?;
 
         mainloop.run();
 

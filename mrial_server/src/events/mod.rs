@@ -1,10 +1,13 @@
 use std::{
-    net::SocketAddr, sync::Arc, thread::{self, JoinHandle}
+    net::SocketAddr,
+    sync::Arc,
+    thread::{self, JoinHandle},
 };
 
 use bytes::Bytes;
 use enigo::{
-    Direction::{Press, Release}, Enigo, InputError, Keyboard, Mouse, NewConError, Settings
+    Direction::{Press, Release},
+    Enigo, InputError, Keyboard, Mouse, NewConError, Settings,
 };
 use kanal::{Receiver, Sender};
 use log::{debug, warn};
@@ -17,8 +20,8 @@ use tokio::sync::Mutex;
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
-use crate::{audio::AudioServerAction, conn::ConnectionManager};
 use crate::video::VideoServerAction;
+use crate::{audio::AudioServerAction, conn::ConnectionManager};
 
 pub struct EventsEmitter {
     enigo: Enigo,
@@ -209,10 +212,14 @@ impl EventsEmitter {
             match self.enigo.move_mouse(x, y, enigo::Coordinate::Abs) {
                 Ok(_) => {
                     if right {
-                        let _ = self.enigo.button(enigo::Button::Right, enigo::Direction::Click);
+                        let _ = self
+                            .enigo
+                            .button(enigo::Button::Right, enigo::Direction::Click);
                     } else {
                         self.left_mouse_held = !self.left_mouse_held;
-                        let _ = self.enigo.button(enigo::Button::Left, enigo::Direction::Click);
+                        let _ = self
+                            .enigo
+                            .button(enigo::Button::Left, enigo::Direction::Click);
                     }
                 }
                 Err(e) => {
@@ -232,7 +239,9 @@ impl EventsEmitter {
         if mouse_move_requested(buf) {
             let (x, y, pressed) = parse_mouse_move(buf, width as f32, height as f32);
 
-            if let Err(e) = self.enigo.move_mouse(x as i32, y as i32, enigo::Coordinate::Abs)
+            if let Err(e) = self
+                .enigo
+                .move_mouse(x as i32, y as i32, enigo::Coordinate::Abs)
             {
                 debug!("Error moving mouse: {}", e);
                 if !self.session_restart_in_progress {
@@ -246,7 +255,9 @@ impl EventsEmitter {
 
             if pressed && !self.left_mouse_held {
                 self.left_mouse_held = true;
-                let _ = self.enigo.button(enigo::Button::Left, enigo::Direction::Press);
+                let _ = self
+                    .enigo
+                    .button(enigo::Button::Left, enigo::Direction::Press);
             }
         }
 
@@ -301,8 +312,7 @@ impl EventsThread {
             EPacketType::InputState => {
                 let meta = self.conn.get_meta_blocking();
 
-                self.emitter
-                    .input(&buf[HEADER..], meta.width, meta.height);
+                self.emitter.input(&buf[HEADER..], meta.width, meta.height);
             }
             _ => {}
         }
@@ -314,7 +324,7 @@ impl EventsThread {
         match packet_type {
             EPacketType::ShakeAE => {
                 let mut app = self.conn.get_app();
-              
+
                 self.tokio_handle.block_on(async {
                     let headers = self.headers.lock().await.clone();
                     let meta = match app.connect_client(src, &buf[HEADER..size], headers).await {
@@ -327,11 +337,13 @@ impl EventsThread {
 
                     app.mute_client(src, meta.muted.try_into().unwrap()).await;
 
-                    self.conn.set_dimensions(
-                        meta.width.try_into().unwrap(),
-                        meta.height.try_into().unwrap(),
-                    ).await;
-                });               
+                    self.conn
+                        .set_dimensions(
+                            meta.width.try_into().unwrap(),
+                            meta.height.try_into().unwrap(),
+                        )
+                        .await;
+                });
 
                 if let Err(e) = self.video_server_ch_sender.send(VideoServerAction::SymKey) {
                     warn!(
@@ -367,7 +379,7 @@ impl EventsThread {
             EPacketType::ClientState => {
                 let app = self.conn.get_app();
                 let sym_key = app.get_sym_key_blocking();
-            
+
                 if sym_key.is_none() {
                     return;
                 }
@@ -384,22 +396,28 @@ impl EventsThread {
 
                 self.tokio_handle.block_on(async {
                     app.mute_client(src, meta.muted.try_into().unwrap()).await;
-                
-                    self.conn.set_dimensions(
-                        meta.width.try_into().unwrap(),
-                        meta.height.try_into().unwrap(),
-                    ).await;
+
+                    self.conn
+                        .set_dimensions(
+                            meta.width.try_into().unwrap(),
+                            meta.height.try_into().unwrap(),
+                        )
+                        .await;
                 });
-               
+
                 self.video_server_ch_sender
                     .send(VideoServerAction::ConfigUpdate)
                     .unwrap();
             }
             EPacketType::Alive => {
-                let _ = self.tokio_handle.block_on(self.conn.get_app().send_alive(src));
+                let _ = self
+                    .tokio_handle
+                    .block_on(self.conn.get_app().send_alive(src));
             }
             EPacketType::PING => {
-                let _ = self.tokio_handle.block_on(self.conn.get_app().received_ping(src));
+                let _ = self
+                    .tokio_handle
+                    .block_on(self.conn.get_app().received_ping(src));
             }
             EPacketType::Disconnect => {
                 self.tokio_handle.block_on(async {
@@ -431,7 +449,6 @@ impl EventsThread {
         let web_receiver = self.conn.web_receiver();
         let mut buf = [0u8; MTU];
 
-
         loop {
             match web_receiver.try_recv() {
                 Ok(Some(bytes)) => {
@@ -460,7 +477,7 @@ impl EventsThread {
                 }
                 _ => {}
             }
-        }       
+        }
     }
 
     pub fn run(
@@ -471,11 +488,15 @@ impl EventsThread {
         audio_server_ch_sender: Sender<AudioServerAction>,
     ) -> JoinHandle<()> {
         let tokio_handle = tokio::runtime::Handle::current();
-        
+
         thread::spawn(move || {
             match EventsThread::new(
                 tokio_handle,
-                conn, headers, video_server_ch_sender, audio_server_ch_sender) {
+                conn,
+                headers,
+                video_server_ch_sender,
+                audio_server_ch_sender,
+            ) {
                 Ok(mut events_thread) => {
                     events_thread.process_loop(event_ch_receiver);
                 }
@@ -483,6 +504,6 @@ impl EventsThread {
                     warn!("Failed to start events thread: {}", e);
                 }
             };
-         })
+        })
     }
 }

@@ -1,16 +1,33 @@
-use std::{
-    net::SocketAddr,
-    sync::Arc,
-};
+use std::{fmt, net::SocketAddr, sync::Arc};
 
 use app::AppConnection;
 use bytes::Bytes;
 use kanal::Receiver;
+use mrial_proto::EPacketType;
 use tokio::sync::RwLock;
-use web::{BroadcastTaskError, WebConnection};
+use web::WebConnection;
 
 pub mod app;
 pub mod web;
+
+#[derive(Debug)]
+pub enum BroadcastTaskError {
+    TransferFailed(String),
+    EncryptionFailed(String),
+    TaskNotRunning,
+}
+
+impl fmt::Display for BroadcastTaskError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BroadcastTaskError::TaskNotRunning => write!(f, "Broadcast Task is not running"),
+            BroadcastTaskError::EncryptionFailed(msg) => write!(f, "Encryption Failed: {}", msg),
+            BroadcastTaskError::TransferFailed(msg) => write!(f, "Transfer Failed: {}", msg),
+        }
+    }
+}
+
+impl std::error::Error for BroadcastTaskError {}
 
 pub trait Client {
     fn is_alive(&self) -> bool;
@@ -40,8 +57,8 @@ impl ConnectionManager {
         }
     }
 
-    pub fn get_web(&self) -> Result<WebConnection, ()> {
-        Ok(self.web.clone())
+    pub fn get_web(&self) -> WebConnection {
+        self.web.clone()
     }
 
     pub fn get_app(&self) -> AppConnection {
@@ -59,7 +76,7 @@ impl ConnectionManager {
 
     pub async fn set_dimensions(&self, width: usize, height: usize) {
         let mut meta = self.meta.write().await;
-        
+
         meta.width = width;
         meta.height = height;
     }
@@ -86,9 +103,8 @@ impl ConnectionManager {
     }
 
     #[inline]
-    pub fn app_broadcast(&self, buf: &[u8]) {
-        tokio::runtime::Handle::current()
-            .block_on(self.app.broadcast(buf));
+    pub fn app_encrypted_broadcast(&self, packet_type: EPacketType, buf: &[u8]) -> Result<(), BroadcastTaskError> {
+        self.app.broadcast_encrypted_frame(packet_type, buf)
     }
 
     #[inline]
@@ -119,7 +135,7 @@ impl ConnectionManager {
 
         has_web_clients || has_app_clients
     }
-    
+
     #[inline]
     #[cfg(target_os = "linux")]
     pub fn has_web_clients_blocking(&self) -> bool {

@@ -4,8 +4,8 @@ mod conn;
 mod events;
 mod video;
 
-use std::env;
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use std::env;
 
 use cli::handle_cli;
 use conn::ConnectionManager;
@@ -27,13 +27,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // TODO: Temporary code for testing
     let desc_data: String = env::var("RTC").expect("RTC not set");
-
     let desc_data = String::from_utf8(STANDARD.decode(desc_data)?)?;
 
-    if let Ok(web) = conn.get_web() {
-        if let Err(e) = web.initialize_client(desc_data).await {
-            log::error!("Failed to initialize Web Client: {}", e);
-        }
+    if let Err(e) = conn.get_web().initialize_client(desc_data).await {
+        log::error!("Failed to initialize Web Client: {}", e);
     }
 
     let conn_clone = conn.clone();

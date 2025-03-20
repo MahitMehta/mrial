@@ -1,4 +1,4 @@
-use std::{fmt, sync::{self, Arc}};
+use std::sync::{self, Arc};
 
 use bytes::Bytes;
 use kanal::{bounded, unbounded, AsyncReceiver, AsyncSender, Receiver, Sender};
@@ -14,6 +14,8 @@ use webrtc::{
         sdp::session_description::RTCSessionDescription, RTCPeerConnection,
     },
 };
+
+use super::BroadcastTaskError;
 
 #[derive(Clone)]
 struct WebClient {
@@ -40,33 +42,16 @@ struct WebBroadcastTask {
     receiver: AsyncReceiver<Bytes>,
 }
 
-#[derive(Debug)]
-pub enum BroadcastTaskError {
-    TransferFailed(String),
-    TaskNotRunning,
-}
-
-impl fmt::Display for BroadcastTaskError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            BroadcastTaskError::TaskNotRunning => write!(f, "Broadcast Task is not running"),
-            BroadcastTaskError::TransferFailed(msg) => write!(f, "Transfer Failed: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for BroadcastTaskError {}
-
 impl WebBroadcastTask {
     #[inline]
     async fn broadcast(&self, data: Bytes) {
-        // TODO: enable muting client functionalities 
+        // TODO: enable muting client functionalities
         // TODO: if the packet is an audio packet.
 
         for client in self.clients.read().await.iter() {
             if let Err(e) = client.data_channel.send(&data).await {
                 error!("Failed to send packet to client: {e}");
-                
+
                 let _ = client.data_channel.close().await;
                 let _ = client.peer_connection.close().await;
             }
@@ -80,15 +65,12 @@ impl WebBroadcastTask {
     }
 
     pub fn run(
-        tokio_handle: Handle, 
-        clients: Arc<RwLock<Vec<WebClient>>>, 
-        receiver: AsyncReceiver<Bytes>
+        tokio_handle: Handle,
+        clients: Arc<RwLock<Vec<WebClient>>>,
+        receiver: AsyncReceiver<Bytes>,
     ) -> JoinHandle<()> {
         tokio_handle.spawn(async move {
-            let thread = Self {
-                clients,
-                receiver,
-            };
+            let thread = Self { clients, receiver };
 
             thread.broadcast_loop().await;
         })
@@ -101,14 +83,14 @@ impl WebConnection {
     pub fn new() -> Self {
         let (broadcast_sender, broadcast_receiver) = unbounded::<Bytes>();
         let (input_sender, input_receiver) = bounded::<Bytes>(MAX_INPUT_BUFFER_SIZE);
-       
+
         Self {
             broadcast_task: Arc::new(sync::RwLock::new(None)),
             broadcast_sender,
             broadcast_receiver: broadcast_receiver.as_async().clone(),
             clients: Arc::new(RwLock::new(vec![])),
             input_sender: input_sender.clone_async(),
-            input_receiver
+            input_receiver,
         }
     }
 
@@ -207,8 +189,8 @@ impl WebConnection {
                     debug!("Data channel '{dc_label2}'-'{dc_id2}' open.");
 
                     Box::pin(async move {
-                        let mut clients =  clients_clone.write().await;
-                        
+                        let mut clients = clients_clone.write().await;
+
                         clients.push(WebClient {
                             peer_connection: peer_connection_clone,
                             data_channel: data_channel_clone,

@@ -1,4 +1,3 @@
-
 mod encoder;
 
 pub use self::encoder::*;
@@ -13,7 +12,7 @@ pub trait IAudioStream {
 
 pub struct AudioServerThread {
     conn: ConnectionManager,
-    receiver: Receiver<AudioServerAction>
+    receiver: Receiver<AudioServerAction>,
 }
 
 #[derive(Debug)]
@@ -22,24 +21,15 @@ pub enum AudioServerAction {
 }
 
 impl AudioServerThread {
-    pub fn new(
-        conn: ConnectionManager, 
-        receiver: Receiver<AudioServerAction>
-    ) -> Self {
-        Self {
-            conn,
-            receiver
-        }
+    pub fn new(conn: ConnectionManager, receiver: Receiver<AudioServerAction>) -> Self {
+        Self { conn, receiver }
     }
 
-    pub fn run(
-        conn: ConnectionManager, 
-        receiver: Receiver<AudioServerAction>
-    )-> JoinHandle<()> {
+    pub fn run(conn: ConnectionManager, receiver: Receiver<AudioServerAction>) -> JoinHandle<()> {
         let tokio_handle = tokio::runtime::Handle::current();
         tokio_handle.spawn(async move {
             let server = AudioServerThread::new(conn, receiver);
-            
+
             if let Err(e) = server.stream().await {
                 log::error!("Failed to start streaming audio: {}", e);
             }

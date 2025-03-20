@@ -62,7 +62,10 @@ impl DisplayMeta {
     }
 
     #[cfg(target_os = "macos")]
-    pub fn update_display_resolution(width: usize, height: usize) -> Result<bool, std::io::Error> {
+    pub fn update_display_resolution(
+        _width: usize,
+        _height: usize,
+    ) -> Result<bool, std::io::Error> {
         Ok(false)
     }
 }
