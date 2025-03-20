@@ -270,6 +270,7 @@ impl VideoServerTask {
                     }
                     Err(e) => {
                         debug!("Error Restarting Stream: {}", e);
+                        sleep(Duration::from_millis(100)).await;
                         video_server_ch_sender.send(VideoServerAction::RestartStream).await?;
                     }
                 }

@@ -558,18 +558,14 @@ impl EventsTask {
                         Ok(EventsTaskAction::RestartInputTread) => {
                             let mut input_thread_handle_lock = self.input_thread_handle.lock().await;
                             
-                            if input_thread_handle_lock.is_some() {
-                                if !input_thread_handle_lock.as_ref().unwrap().is_finished() {
-                                    if let Err(e) = self.input_sender.send(InputThreadAction::Restart).await {
-                                        warn!("Error sending restart action to input thread: {}", e);
-                                    }
-
-                                    break;
-                                } 
+                            if input_thread_handle_lock.is_none() || input_thread_handle_lock.as_ref().unwrap().is_finished() {
+                                debug!("Fresh Restarting input thread");
+                                *input_thread_handle_lock = Some(self.start_input_thread());
+                            } else {
+                                if let Err(e) = self.input_sender.send(InputThreadAction::Restart).await {
+                                    warn!("Error sending restart action to input thread: {}", e);
+                                }
                             }
-
-                            debug!("Fresh Restarting input thread");
-                            *input_thread_handle_lock = Some(self.start_input_thread());
                         }
                         Err(e) => {
                             warn!("Error receiving event action: {}", e);
