@@ -3,6 +3,7 @@ use chacha20poly1305::{aead::KeyInit, ChaCha20Poly1305};
 use kanal::{AsyncReceiver, Sender};
 use log::{debug, error};
 use mrial_fs::{storage::StorageMultiType, Users};
+use rand::thread_rng;
 use rsa::{pkcs1::EncodeRsaPublicKey, RsaPrivateKey, RsaPublicKey};
 use std::{collections::HashMap, fmt, net::SocketAddr, sync::Arc, time::SystemTime};
 use tokio::{net::UdpSocket, runtime::Handle, sync::RwLock, task::JoinHandle};
@@ -25,7 +26,7 @@ pub struct AppClient {
     muted: bool,
     connected: bool,
     priv_key: Option<RsaPrivateKey>,
-    sym_key: Option<ChaCha20Poly1305>,
+    sym_key: Arc<RwLock<Option<ChaCha20Poly1305>>>,
 }
 
 impl AppClient {
@@ -36,7 +37,7 @@ impl AppClient {
             muted: false,
             connected: false,
             last_ping: SystemTime::now(),
-            sym_key: None,
+            sym_key: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -292,28 +293,15 @@ impl AppConnection {
         return None;
     }
 
-    pub fn get_sym_key_blocking(&self) -> Option<ChaCha20Poly1305> {
-        if let Some(client) = self
-            .clients
-            .blocking_read()
-            .values()
-            .find(|client| client.is_connected() && client.sym_key.is_some())
-        {
-            return client.sym_key.clone();
-        }
-
-        None
-    }
-
     pub async fn get_sym_key(&self) -> Option<ChaCha20Poly1305> {
         if let Some(client) = self
             .clients
             .read()
             .await
             .values()
-            .find(|client| client.is_connected() && client.sym_key.is_some())
+            .find(|client| client.is_connected())
         {
-            return client.sym_key.clone();
+            return client.sym_key.read().await.clone();
         }
 
         None
@@ -364,7 +352,7 @@ impl AppConnection {
             let sym_key = ChaCha20Poly1305::new_from_slice(&sym_key_vec).unwrap();
 
             client.connected = true;
-            client.sym_key = Some(sym_key.clone());
+            *client.sym_key.write().await = Some(sym_key.clone());
 
             let mut buf = [0u8; MTU];
             write_header(
@@ -392,11 +380,10 @@ impl AppConnection {
                 heights = h;
             }
 
-            let mut rng = rand::thread_rng();
-            let payload_len = ServerShookSE::write_payload(
+            let wrapped_sym_key = client.sym_key.read().await.clone();
+            let payload_len = match ServerShookSE::write_payload(
                 &mut buf[HEADER..],
-                &mut rng,
-                &mut client.sym_key.clone().unwrap(),
+                wrapped_sym_key,
                 &ServerShookSE {
                     server_state: ServerStatePayload {
                         widths,
@@ -406,14 +393,22 @@ impl AppConnection {
                         header: Some(Vec::new()),
                     },
                 },
-            );
+            ) {
+                Ok(len) => len,
+                Err(_) => {
+                    return Err(AppConnectionError::Unexpected(
+                        "Failed to Write Server Shook SE Payload".to_string(),
+                    ));
+                }
+            };
             debug!("Server Shook SE Payload Len: {}", payload_len);
 
             if let Err(e) = self.socket
                 .send_to(&buf[..HEADER + payload_len], &src)
-                .await {
-                    return Err(AppConnectionError::Unexpected(e.to_string()));
-                }
+                .await 
+            {
+                return Err(AppConnectionError::Unexpected(e.to_string()));
+            }
 
             // TODO: Send NAL Header
             // let header_bytes = match headers.lock() {
@@ -433,8 +428,7 @@ impl AppConnection {
         let src_str = src.to_string();
         debug!("Initial Shake UE With Client: {}", src_str);
 
-        let mut rng = rand::thread_rng();
-        let priv_key = RsaPrivateKey::new(&mut rng, RSA_PRIVATE_KEY_BIT_SIZE)
+        let priv_key = RsaPrivateKey::new(&mut thread_rng(), RSA_PRIVATE_KEY_BIT_SIZE)
             .expect("Failed to Generate RSA Key Pair");
         let pub_key = RsaPublicKey::from(&priv_key);
         let pub_key_str = pub_key.to_pkcs1_pem(rsa::pkcs1::LineEnding::LF).unwrap();
@@ -514,6 +508,7 @@ impl AppConnection {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub async fn raw_broadcast(&self, buf: &[u8]) {
         let clients = self.clients.read().await;
 
@@ -526,8 +521,8 @@ impl AppConnection {
     }
 
     #[inline]
-    pub fn try_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
-        self.socket.try_recv_from(buf)
+    pub async fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
+        self.socket.recv_from(buf).await
     }
 }
 

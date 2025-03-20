@@ -9,7 +9,7 @@ use std::env;
 
 use cli::handle_cli;
 use conn::ConnectionManager;
-use video::VideoServerThread;
+use video::VideoServerTask;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,7 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let conn_clone = conn.clone();
 
-    let mut video_server = match VideoServerThread::new(conn_clone).await {
+    let mut video_server = match VideoServerTask::new(conn_clone).await {
         Ok(server) => server,
         Err(e) => {
             log::error!("Failed to start Video Server: {}", e);

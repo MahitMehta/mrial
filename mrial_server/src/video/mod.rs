@@ -4,17 +4,16 @@ pub mod yuv;
 
 use display::DisplayMeta;
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
-use kanal::{unbounded, AsyncSender, Receiver, Sender};
-use log::{debug, error};
+use kanal::{unbounded, unbounded_async, AsyncReceiver, AsyncSender, Receiver};
+use log::{debug, error, warn};
 use mrial_proto::{deploy::PacketDeployer, *};
 use scrap::{Capturer, Display};
-use session::{SessionSettingThread, Setting};
+use session::{SessionSettingTask, Setting};
 use std::{
     collections::VecDeque,
     fs::File,
     io::{ErrorKind::WouldBlock, Write},
     sync::Arc,
-    thread,
     time::{Duration, Instant},
 };
 use tokio::{sync::Mutex, time::sleep};
@@ -22,9 +21,9 @@ use x264::{Encoder, Param, Picture};
 use yuv::YUVBuffer;
 
 use crate::{
-    audio::{AudioServerAction, AudioServerThread},
+    audio::{AudioServerAction, AudioServerTask},
     conn::{BroadcastTaskError, ConnectionManager, ServerMeta},
-    events::{EventsThread, EventsThreadAction},
+    events::{EventsTask, EventsTaskAction},
 };
 
 use self::yuv::EColorSpace;
@@ -40,7 +39,7 @@ pub enum VideoServerAction {
     NewUserSession,
 }
 
-pub struct VideoServerThread {
+pub struct VideoServerTask {
     pool: ThreadPool,
     yuv_handles: VecDeque<RemoteHandle<YUVBuffer>>,
     file: Option<File>,
@@ -56,18 +55,18 @@ pub struct VideoServerThread {
     conn: ConnectionManager,
 
     setting: Setting,
-    setting_thread: Option<thread::JoinHandle<()>>,
+    setting_thread: Option<tokio::task::JoinHandle<()>>,
 
-    events_sender: AsyncSender<EventsThreadAction>,
-    events_receiver: Receiver<EventsThreadAction>,
-    events_thread: Option<thread::JoinHandle<()>>,
+    events_sender: AsyncSender<EventsTaskAction>,
+    events_receiver: AsyncReceiver<EventsTaskAction>,
+    events_thread: Option<tokio::task::JoinHandle<()>>,
 
-    audio_sender: Sender<AudioServerAction>,
+    audio_sender: AsyncSender<AudioServerAction>,
     audio_receiver: Receiver<AudioServerAction>,
     audio_thread: Option<tokio::task::JoinHandle<()>>,
 }
 
-impl VideoServerThread {
+impl VideoServerTask {
     pub async fn new(conn: ConnectionManager) -> Result<Self, Box<dyn std::error::Error>> {
         #[cfg(not(target_os = "linux"))]
         let setting = Setting::Unknown;
@@ -85,13 +84,13 @@ impl VideoServerThread {
 
         let row_len = 4 * capturer.width() * capturer.height();
 
-        let mut par: Param = VideoServerThread::get_parameters(conn.get_meta().await);
+        let mut par: Param = VideoServerTask::get_parameters(conn.get_meta().await);
         let mut encoder = x264::Encoder::open(&mut par)?;
         let header = encoder.get_headers()?.as_bytes().to_vec();
 
         let pic = Picture::from_param(&par)?;
 
-        let (events_sender, events_receiver) = unbounded::<EventsThreadAction>();
+        let (events_sender, events_receiver) = unbounded_async::<EventsTaskAction>();
         let (audio_sender, audio_receiver) = unbounded::<AudioServerAction>();
 
         Ok(Self {
@@ -110,14 +109,14 @@ impl VideoServerThread {
             conn,
 
             events_receiver,
-            events_sender: events_sender.clone_async(),
+            events_sender,
             events_thread: None,
 
             setting_thread: None,
             setting,
 
             audio_thread: None,
-            audio_sender,
+            audio_sender: audio_sender.clone_async(),
             audio_receiver,
         })
     }
@@ -183,7 +182,7 @@ impl VideoServerThread {
         self.conn
             .set_dimensions(capturer.width(), capturer.height())
             .await;
-        self.par = VideoServerThread::get_parameters(self.conn.get_meta().await);
+        self.par = VideoServerTask::get_parameters(self.conn.get_meta().await);
         self.encoder = x264::Encoder::open(&mut self.par)?;
 
         let headers = self.encoder.get_headers()?;
@@ -215,7 +214,7 @@ impl VideoServerThread {
     async fn handle_server_action(
         &mut self,
         server_action: VideoServerAction,
-        video_server_ch_sender: &kanal::Sender<VideoServerAction>,
+        video_server_ch_sender: &AsyncSender<VideoServerAction>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         match server_action {
             VideoServerAction::RestartSession => {
@@ -230,11 +229,17 @@ impl VideoServerThread {
                     _ => {}
                 }
 
-                video_server_ch_sender.send(VideoServerAction::RestartStream)?;
-                let _ = self
+                if let Err(e) = video_server_ch_sender.send(VideoServerAction::RestartStream).await {
+                    error!("Error sending RestartStream action: {}", e);
+                }
+
+                if let Err(e) = self
                     .events_sender
-                    .send(EventsThreadAction::ReconnectInputModules)
-                    .await;
+                    .send(EventsTaskAction::RestartInputTread)
+                    .await 
+                {
+                    warn!("Error sending ReconnectInputModules action: {}", e);
+                }
             }
             #[cfg(target_os = "linux")]
             VideoServerAction::NewUserSession =>
@@ -242,7 +247,7 @@ impl VideoServerThread {
                 match session::config_xenv() {
                     Ok(Setting::PostLogin) => {
                         self.setting = Setting::PostLogin;
-                        video_server_ch_sender.send(VideoServerAction::RestartStream)?;
+                        video_server_ch_sender.send(VideoServerAction::RestartStream).await?;
                     }
                     _ => {}
                 }
@@ -265,7 +270,7 @@ impl VideoServerThread {
                     }
                     Err(e) => {
                         debug!("Error Restarting Stream: {}", e);
-                        video_server_ch_sender.send(VideoServerAction::RestartStream)?;
+                        video_server_ch_sender.send(VideoServerAction::RestartStream).await?;
                     }
                 }
             }
@@ -281,62 +286,62 @@ impl VideoServerThread {
                     debug!("Error updating display resolution: {}", e);
                 }
 
-                video_server_ch_sender.send(VideoServerAction::RestartStream)?;
+                video_server_ch_sender.send(VideoServerAction::RestartStream).await?;
             }
         }
 
         Ok(())
     }
 
-    fn start_session_thread(&mut self, ch_sender: Sender<VideoServerAction>) -> bool {
+    fn start_session_thread(&mut self, ch_sender: AsyncSender<VideoServerAction>) -> Result<(), ()> {
         let has_setting_thread = match &self.setting_thread {
             Some(handle) => !handle.is_finished(),
             None => false,
         };
 
         if has_setting_thread {
-            return false;
+            return Err(());
         }
 
-        self.setting_thread = Some(SessionSettingThread::run(ch_sender, self.setting));
+        self.setting_thread = Some(SessionSettingTask::run(ch_sender, self.setting));
 
-        true
+        Ok(())
     }
 
-    fn start_audio_thread(&mut self) -> Result<bool, std::io::Error> {
+    fn start_audio_thread(&mut self) -> Result<(), ()> {
         let has_audio_thread = match &self.audio_thread {
             Some(handle) => !handle.is_finished(),
             None => false,
         };
 
         if has_audio_thread {
-            return Ok(false);
+            return Err(());
         }
 
         let conn = self.conn.clone();
 
-        self.audio_thread = Some(AudioServerThread::run(conn, self.audio_receiver.clone()));
+        self.audio_thread = Some(AudioServerTask::run(conn, self.audio_receiver.clone()));
 
-        Ok(true)
+        Ok(())
     }
 
     fn start_events_thread(
         &mut self,
         headers: Arc<Mutex<Option<Vec<u8>>>>,
-        ch_sender: Sender<VideoServerAction>,
-    ) -> Result<bool, std::io::Error> {
+        ch_sender: AsyncSender<VideoServerAction>,
+    ) -> Result<(), ()> {
         let has_events_thread = match &self.events_thread {
             Some(handle) => !handle.is_finished(),
             None => false,
         };
 
         if has_events_thread {
-            return Ok(false);
+            return Err(());
         }
 
         let conn = self.conn.clone();
 
-        self.events_thread = Some(EventsThread::run(
+        self.events_thread = Some(EventsTask::run(
             conn,
             headers,
             self.events_receiver.clone(),
@@ -344,12 +349,12 @@ impl VideoServerThread {
             self.audio_sender.clone(),
         ));
 
-        Ok(true)
+        Ok(())
     }
 
     #[inline]
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let (ch_sender, ch_receiver) = unbounded::<VideoServerAction>();
+        let (ch_sender, ch_receiver) = unbounded_async::<VideoServerAction>();
 
         let mut frames = 0u8;
         let mut fps_time = Instant::now();
@@ -362,7 +367,9 @@ impl VideoServerThread {
             error!("Error starting audio thread.");
         }
 
-        self.start_session_thread(ch_sender.clone());
+       if let Err(_) = self.start_session_thread(ch_sender.clone()) {
+            error!("Error starting session thread.");
+        }
 
         self.conn.get_app().start_broadcast_async_task();
         self.conn.get_web().start_broadcast_async_task();

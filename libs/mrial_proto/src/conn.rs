@@ -61,23 +61,28 @@ impl std::error::Error for JSONPayloadSEError {}
 pub trait JSONPayloadSE: serde::Serialize + serde::de::DeserializeOwned {
     fn write_payload(
         buf: &mut [u8],
-        rng: &mut ThreadRng,
-        sym_key: &mut ChaCha20Poly1305,
+        sym_key: Option<ChaCha20Poly1305>,
         payload: &Self,
-    ) -> usize {
+    ) -> Result<usize, &'static str> { 
         let serialized_payload = serde_json::to_string(&payload).unwrap();
-        let nonce = ChaCha20Poly1305::generate_nonce(rng);
+        let nonce = ChaCha20Poly1305::generate_nonce(ThreadRng::default());
         let bytes = serialized_payload.as_bytes();
+
+        let mut sym_key = match sym_key {
+            Some(key) => key,
+            None => return Err("No Symmetric Key"),
+        };
+
         let encrypted_payload: Vec<u8> = sym_key.encrypt(&nonce, bytes).unwrap();
         let payload_len: usize = encrypted_payload.len();
         buf[0..payload_len].copy_from_slice(&encrypted_payload);
         buf[payload_len..payload_len + SE_NONCE].copy_from_slice(&nonce);
 
-        payload_len + SE_NONCE
+        Ok(payload_len + SE_NONCE)
     }
 
     fn from_payload(
-        buf: &mut [u8],
+        buf: &[u8],
         sym_key: &mut ChaCha20Poly1305,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let encrypted_payload = &buf[0..buf.len() - SE_NONCE];

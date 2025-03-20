@@ -1,12 +1,14 @@
-use std::{process::Command, thread, time::Duration};
+use std::{process::Command, time::Duration};
 
-use kanal::{SendError, Sender};
+use kanal::{AsyncSender, SendError};
 use log::{debug, error, trace};
+use tokio::task::JoinHandle;
 
 use super::VideoServerAction;
 
 #[derive(PartialEq, Clone, Copy)]
 pub enum Setting {
+    #[cfg(not(target_os = "linux"))]
     Unknown,
     PreLogin,
     PostLogin,
@@ -63,17 +65,20 @@ pub fn config_xenv() -> Result<Setting, Box<dyn std::error::Error>> {
 }
 
 #[cfg(target_os = "linux")]
-fn get_x11_authenicated_client() -> Result<Option<String>, Box<dyn std::error::Error>> {
+fn get_x11_authenicated_client() -> Result<Option<String>, Box<dyn std::error::Error + Send>> {
     let gui_users_output = Command::new("sh")
         .arg("-c")
         .arg("who | grep tty7")
-        .output()?;
+        .output()
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?; 
 
     if gui_users_output.stdout.is_empty() || !gui_users_output.status.success() {
         return Ok(None);
     }
 
-    let output_str = String::from_utf8(gui_users_output.stdout)?;
+    let output_str = String::from_utf8(gui_users_output.stdout)
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?; 
+
     if let Some(user) = output_str.split_whitespace().next() {
         return Ok(Some(user.to_string()));
     }
@@ -83,21 +88,21 @@ fn get_x11_authenicated_client() -> Result<Option<String>, Box<dyn std::error::E
 
 const SESSION_CHECK_INTERVAL: u64 = 1;
 
-pub struct SessionSettingThread {
+pub struct SessionSettingTask {
     setting: Setting,
-    video_server_ch_sender: Sender<VideoServerAction>,
+    video_server_ch_sender: AsyncSender<VideoServerAction>,
 }
 
-impl SessionSettingThread {
+impl SessionSettingTask {
     #[cfg(target_os = "linux")]
-    fn check_x11_user_logged_in(&mut self) -> Result<(), SendError> {
+    async fn check_x11_user_logged_in(&mut self) -> Result<(), SendError> {
         match get_x11_authenicated_client() {
             Ok(Some(_)) => {
                 debug!("User has logged in");
 
                 self.setting = Setting::PostLogin;
                 self.video_server_ch_sender
-                    .send(VideoServerAction::NewUserSession)?;
+                    .send(VideoServerAction::NewUserSession).await?;
             }
             Err(e) => {
                 error!("Error checking for X11 authenticated client: {:?}", e);
@@ -110,14 +115,14 @@ impl SessionSettingThread {
     }
 
     #[cfg(target_os = "linux")]
-    fn check_x11_user_logged_out(&mut self) -> Result<(), SendError> {
+    async fn check_x11_user_logged_out(&mut self) -> Result<(), SendError> {
         match get_x11_authenicated_client() {
             Ok(None) => {
                 debug!("User has logged out");
 
                 self.setting = Setting::PreLogin;
                 self.video_server_ch_sender
-                    .send(VideoServerAction::RestartSession)?;
+                    .send(VideoServerAction::RestartSession).await?;
             }
             Err(e) => {
                 error!("Error checking for X11 authenticated client: {:?}", e);
@@ -130,34 +135,39 @@ impl SessionSettingThread {
     }
 
     #[cfg(target_os = "linux")]
-    fn x11_session_status_loop(&mut self) -> Result<(), SendError> {
+    async fn x11_session_status_loop(&mut self) -> Result<(), SendError> {
+        use tokio::time::sleep;
+
         loop {
             match self.setting {
                 Setting::PreLogin => {
-                    self.check_x11_user_logged_in()?;
+                    self.check_x11_user_logged_in().await?;
                 }
                 Setting::PostLogin => {
-                    self.check_x11_user_logged_out()?;
+                    self.check_x11_user_logged_out().await?;
                 }
+                #[cfg(not(target_os = "linux"))]
                 Setting::Unknown => {}
             }
 
-            thread::sleep(Duration::from_secs(SESSION_CHECK_INTERVAL));
+            sleep(Duration::from_secs(SESSION_CHECK_INTERVAL)).await;
         }
     }
 
     pub fn run(
-        video_server_ch_sender: Sender<VideoServerAction>,
+        video_server_ch_sender: AsyncSender<VideoServerAction>,
         setting: Setting,
-    ) -> thread::JoinHandle<()> {
-        return thread::spawn(move || {
-            let mut session_setting_thread = SessionSettingThread {
+    ) -> JoinHandle<()> {
+        let handle = tokio::runtime::Handle::current();
+
+        return handle.spawn(async move {
+            let mut session_setting_thread = SessionSettingTask {
                 video_server_ch_sender,
                 setting,
             };
 
             #[cfg(target_os = "linux")]
-            if let Err(e) = session_setting_thread.x11_session_status_loop() {
+            if let Err(e) = session_setting_thread.x11_session_status_loop().await {
                 error!("X11 session status loop crashed: {:?}", e);
             }
         });

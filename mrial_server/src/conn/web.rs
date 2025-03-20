@@ -1,7 +1,7 @@
 use std::sync::{self, Arc};
 
 use bytes::Bytes;
-use kanal::{bounded, unbounded, AsyncReceiver, AsyncSender, Receiver, Sender};
+use kanal::{bounded_async, unbounded, AsyncReceiver, AsyncSender, Sender};
 use log::{debug, error};
 
 use tokio::{runtime::Handle, sync::RwLock, task::JoinHandle};
@@ -32,7 +32,7 @@ pub struct WebConnection {
     broadcast_task: Arc<sync::RwLock<Option<JoinHandle<()>>>>,
 
     input_sender: AsyncSender<Bytes>,
-    input_receiver: Receiver<Bytes>,
+    input_receiver: AsyncReceiver<Bytes>,
 }
 
 const STUN_SERVER: &str = "stun:stun.l.google.com:19302";
@@ -82,14 +82,14 @@ const MAX_INPUT_BUFFER_SIZE: usize = 100;
 impl WebConnection {
     pub fn new() -> Self {
         let (broadcast_sender, broadcast_receiver) = unbounded::<Bytes>();
-        let (input_sender, input_receiver) = bounded::<Bytes>(MAX_INPUT_BUFFER_SIZE);
+        let (input_sender, input_receiver) = bounded_async::<Bytes>(MAX_INPUT_BUFFER_SIZE);
 
         Self {
             broadcast_task: Arc::new(sync::RwLock::new(None)),
             broadcast_sender,
             broadcast_receiver: broadcast_receiver.as_async().clone(),
             clients: Arc::new(RwLock::new(vec![])),
-            input_sender: input_sender.clone_async(),
+            input_sender,
             input_receiver,
         }
     }
@@ -110,7 +110,7 @@ impl WebConnection {
     }
 
     #[inline]
-    pub fn receiver(&self) -> Receiver<Bytes> {
+    pub fn receiver(&self) -> AsyncReceiver<Bytes> {
         self.input_receiver.clone()
     }
 
@@ -249,13 +249,6 @@ impl WebConnection {
     #[inline]
     pub async fn has_clients(&self) -> bool {
         self.clients.read().await.iter().any(|client| {
-            client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
-        })
-    }
-
-    #[inline]
-    pub fn has_clients_blocking(&self) -> bool {
-        self.clients.blocking_read().iter().any(|client| {
             client.peer_connection.connection_state() == RTCPeerConnectionState::Connected
         })
     }

@@ -1,30 +1,23 @@
 use crate::conn::BroadcastTaskError;
 
-use super::{AudioServerAction, AudioServerThread, IAudioStream, OpusEncoder, ENCODE_FRAME_SIZE};
+use super::{AudioServerAction, AudioServerTask, IAudioStream, OpusEncoder, ENCODE_FRAME_SIZE};
 use mrial_proto::deploy::PacketDeployer;
 use mrial_proto::*;
 
 use log::{debug, error};
 
-use opus::Decoder;
 use pipewire as pw;
-use pipewire::spa::param::audio::AudioFormat;
-use pipewire::spa::pod::Object;
-use pipewire::spa::sys::{spa_pod_builder, spa_pod_object, spa_system};
 use pw::{properties::properties, spa};
 use spa::param::format::{MediaSubtype, MediaType};
 use spa::param::format_utils;
 use spa::pod::Pod;
-#[cfg(feature = "v0_3_44")]
-use spa::WritableDict;
-use std::io::Write;
 use std::mem;
 
 struct UserData {
     format: spa::param::audio::AudioInfoRaw,
 }
 
-impl AudioServerThread {
+impl AudioServerTask {
     fn is_zero(buf: &[u8]) -> bool {
         let (prefix, aligned, suffix) = unsafe { buf.align_to::<u128>() };
 
@@ -34,7 +27,7 @@ impl AudioServerThread {
     }
 }
 
-impl IAudioStream for AudioServerThread {
+impl IAudioStream for AudioServerTask {
     async fn stream(&self) -> Result<(), Box<dyn std::error::Error>> {
         pw::init();
 
@@ -54,29 +47,12 @@ impl IAudioStream for AudioServerThread {
             format: Default::default(),
         };
 
-        #[cfg(not(feature = "v0_3_44"))]
         let mut props = properties! {
             *pw::keys::MEDIA_TYPE => "Audio",
             *pw::keys::MEDIA_CATEGORY => "Capture",
             *pw::keys::MEDIA_ROLE => "Music",
         };
 
-        #[cfg(feature = "v0_3_44")]
-        let mut props = {
-            let opt = Opt::parse();
-
-            let mut props = properties! {
-                *pw::keys::MEDIA_TYPE => "Audio",
-                *pw::keys::MEDIA_CATEGORY => "Capture",
-                *pw::keys::MEDIA_ROLE => "Music",
-            };
-            if let Some(target) = opt.target {
-                props.insert(*pw::keys::TARGET_OBJECT, target);
-            }
-            props
-        };
-
-        // uncomment if you want to capture from the sink monitor ports
         props.insert(*pw::keys::STREAM_CAPTURE_SINK, "true");
         props.insert(*pw::keys::NODE_LATENCY, "1024/48000");
 
@@ -155,7 +131,7 @@ impl IAudioStream for AudioServerThread {
 
                         if let Some(samples) = data.data() {
                             // TODO: find a better solution to detect if audio is not playings
-                            if AudioServerThread::is_zero(&samples[0..32]) {
+                            if AudioServerTask::is_zero(&samples[0..32]) {
                                 if samples[32] != 0 {
                                     debug!("Next: {}", samples[32]);
                                 }

@@ -10,7 +10,7 @@ pub trait IAudioStream {
     async fn stream(&self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-pub struct AudioServerThread {
+pub struct AudioServerTask {
     conn: ConnectionManager,
     receiver: Receiver<AudioServerAction>,
 }
@@ -20,7 +20,7 @@ pub enum AudioServerAction {
     SymKey,
 }
 
-impl AudioServerThread {
+impl AudioServerTask {
     pub fn new(conn: ConnectionManager, receiver: Receiver<AudioServerAction>) -> Self {
         Self { conn, receiver }
     }
@@ -28,7 +28,7 @@ impl AudioServerThread {
     pub fn run(conn: ConnectionManager, receiver: Receiver<AudioServerAction>) -> JoinHandle<()> {
         let tokio_handle = tokio::runtime::Handle::current();
         tokio_handle.spawn(async move {
-            let server = AudioServerThread::new(conn, receiver);
+            let server = AudioServerTask::new(conn, receiver);
 
             if let Err(e) = server.stream().await {
                 log::error!("Failed to start streaming audio: {}", e);
@@ -40,7 +40,6 @@ impl AudioServerThread {
 cfg_if::cfg_if! {
     if #[cfg(target_os = "linux")] {
         mod linux;
-        pub use self::linux::*;
     } else if #[cfg(target_os = "windows")] {
         mod windows;
         pub use self::windows::*;

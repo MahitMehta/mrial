@@ -361,29 +361,35 @@ impl Input {
                         height,
                         muted: state.muted,
                     };
-                    let sym_key = sym_key.read().unwrap();
-                    let mut sym_key = sym_key.clone().unwrap();
-                    let rng = &mut rand::thread_rng();
-                    debug!("Client State: {:?}", client_state);
 
-                    let size = ClientStatePayload::write_payload(
-                        &mut buf[HEADER..],
-                        rng,
-                        &mut sym_key,
-                        &client_state,
-                    );
-
-                    write_header(
-                        EPacketType::ClientState,
-                        0,
-                        size.try_into().unwrap(),
-                        0,
-                        &mut buf[0..HEADER + size],
-                    );
-
-                    client_state_sender
-                        .send(buf[0..HEADER + size].to_vec())
-                        .unwrap();
+                    if let Ok(sym_key) = sym_key.read() {
+                        let sym_key = sym_key.clone();
+                        debug!("Client State: {:?}", client_state);
+    
+                        let size = match ClientStatePayload::write_payload(
+                            &mut buf[HEADER..],
+                            sym_key,
+                            &client_state,
+                        ) {
+                            Ok(size) => size,
+                            Err(e) => {
+                                debug!("Error writing client state payload: {:?}", e);
+                                return;
+                            }
+                        };
+    
+                        write_header(
+                            EPacketType::ClientState,
+                            0,
+                            size as u32,
+                            0,
+                            &mut buf[0..HEADER + size],
+                        );
+    
+                        client_state_sender
+                            .send(buf[0..HEADER + size].to_vec())
+                            .unwrap();
+                    }
                 })
         });
     }
