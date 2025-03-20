@@ -18,7 +18,7 @@ pub struct ServerStatePayload {
     pub heights: Vec<u16>,
     pub width: u16,
     pub height: u16,
-    pub header: Option<Vec<u8>>
+    pub header: Option<Vec<u8>>,
 }
 
 impl JSONPayloadSE for ServerStatePayload {}

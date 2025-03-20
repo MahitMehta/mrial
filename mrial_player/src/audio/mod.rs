@@ -1,4 +1,7 @@
-use std::{sync::{Arc, RwLock}, thread::JoinHandle};
+use std::{
+    sync::{Arc, RwLock},
+    thread::JoinHandle,
+};
 
 use kanal::{Receiver, SendError, Sender};
 use log::debug;
@@ -22,7 +25,7 @@ impl AudioClientThread {
         AudioClientThread {
             packet_constructor: PacketConstructor::new(),
             sink: Arc::new(RwLock::new(sink)), // speed_adjustment_counter: 0.0
-            audio_sender
+            audio_sender,
         }
     }
 
@@ -49,12 +52,17 @@ impl AudioClientThread {
     //     }
     // }
 
-    pub fn run(&self, audio_receiver: Receiver<Vec<u8>>, client: Client) -> Result<JoinHandle<()>, Box<dyn std::error::Error>> {
+    pub fn run(
+        &self,
+        audio_receiver: Receiver<Vec<u8>>,
+        client: Client,
+    ) -> Result<JoinHandle<()>, Box<dyn std::error::Error>> {
         let sink = self.sink.clone();
 
         let handle = std::thread::spawn(move || {
             while let Ok(encrypted_audio) = audio_receiver.recv() {
-                let audio_packet = match AudioClientThread::decrypt_audio(&encrypted_audio, &client) {
+                let audio_packet = match AudioClientThread::decrypt_audio(&encrypted_audio, &client)
+                {
                     Ok(audio_packet) => audio_packet,
                     Err(e) => {
                         debug!("Failed to decrypt audio: {}", e);
@@ -68,9 +76,9 @@ impl AudioClientThread {
                         audio_packet.len() / std::mem::size_of::<f32>(),
                     )
                 };
-        
+
                 let samples = SamplesBuffer::new(2, 48000, f32_audio_slice);
-        
+
                 if let Ok(sink) = sink.read() {
                     sink.append(samples);
                 }
@@ -88,7 +96,7 @@ impl AudioClientThread {
             } else {
                 // self.sink.set_volume(1f32);
             }
-    
+
             if sink.len() > AUDIO_LATENCY_TOLERANCE {
                 // println!("Correcting Latency by Skipping: {}", self.sink.len());
                 for _ in 0..AUDIO_LATENCY_TOLERANCE - 1 {
@@ -100,9 +108,8 @@ impl AudioClientThread {
 
     #[inline]
     fn decrypt_audio(
-        encrypted_audio:
-        &Vec<u8>, 
-        client: &Client
+        encrypted_audio: &Vec<u8>,
+        client: &Client,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         if let Ok(sym_key) = client.get_sym_key().read() {
             if let Some(sym_key) = sym_key.as_ref() {
@@ -117,11 +124,7 @@ impl AudioClientThread {
     }
 
     #[inline]
-    pub fn packet(
-        &mut self, 
-        buf: &[u8], 
-        number_of_bytes: usize,
-    ) -> Result<(), SendError> {
+    pub fn packet(&mut self, buf: &[u8], number_of_bytes: usize) -> Result<(), SendError> {
         let encrypted_audio = match self
             .packet_constructor
             .assemble_packet(buf, number_of_bytes)
@@ -130,7 +133,6 @@ impl AudioClientThread {
             None => return Ok(()),
         };
 
-        
         self.handle_latency_by_dropping();
 
         self.audio_sender.send(encrypted_audio)?;

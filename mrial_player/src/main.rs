@@ -476,7 +476,7 @@ fn main() {
                             if let Err(e) = audio_client.packet(&buf, number_of_bytes) {
                                 debug!("Failed to play audio: {}", e);
                             }
-                        },
+                        }
                         // EPacketType::NAL | EPacketType::XOR => {
                         //     video.packet(&buf, &client, number_of_bytes)
                         // }

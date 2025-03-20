@@ -1,5 +1,6 @@
-use chacha20poly1305::{aead::Aead, ChaCha20Poly1305};
+use chacha20poly1305::{aead::Aead, AeadCore, ChaCha20Poly1305, Error};
 use log::{debug, trace};
+use rand::rngs::ThreadRng;
 use std::collections::HashMap;
 
 use crate::SE_NONCE;
@@ -30,7 +31,7 @@ pub enum EPacketType {
     XOR = 12,
     // TODO: Add Server Pings in addition to Client Pings
     InternalEOL = 13,
-    Unknown = 255
+    Unknown = 255,
 }
 
 impl From<u8> for EPacketType {
@@ -141,6 +142,21 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
 }
 
 #[inline]
+pub fn encrypt_frame(sym_key: &ChaCha20Poly1305, frame: &[u8]) -> Result<Vec<u8>, Error> {
+    let nonce = ChaCha20Poly1305::generate_nonce(ThreadRng::default());
+    
+    match sym_key.encrypt(&nonce, frame) {
+        Ok(mut ciphertext) => {
+            ciphertext.extend_from_slice(&nonce);
+            return Ok(ciphertext);
+        }
+        Err(e) => {
+            return Err(e);
+        }
+    }
+}
+
+#[inline]
 pub fn decrypt_frame(sym_key: &ChaCha20Poly1305, encrypted_frame: &[u8]) -> Option<Vec<u8>> {
     if encrypted_frame.len() < SE_NONCE {
         debug!("\x1b[93mCorrupted Frame\x1b[0m");
@@ -218,15 +234,17 @@ impl PacketConstructor {
     #[inline]
     fn reconstruct_when_deficient(&mut self) -> bool {
         let last_frame_id = parse_frame_id(self.packets.last().unwrap());
-        if false {// let Some(_cached_packets) = self.cached_packets.get(&last_frame_id) {
+        if false {
+            // let Some(_cached_packets) = self.cached_packets.get(&last_frame_id) {
             debug!("TODO: Append Found Cached Packets");
         } else {
             if let Some(xor_packets) = self.xor_packets.get(&last_frame_id) {
-                if xor_packets.len() > 0 { 
+                if xor_packets.len() > 0 {
                     debug!("Attempting Recovery from XOR");
 
                     // packets could have multiple frames
-                    let subpackets = subpacket_count(parse_real_packet_size(self.packets.last().unwrap()));
+                    let subpackets =
+                        subpacket_count(parse_real_packet_size(self.packets.last().unwrap()));
                     let parity_packet_count = (subpackets as f32 / 3.0).ceil() as u16;
 
                     for i in 0..self.packets.len() - 1 {
@@ -236,39 +254,49 @@ impl PacketConstructor {
                         let curr_remaining_packets = parse_packets_remaining(curr_packet);
                         let next_remaining_packets = parse_packets_remaining(next_packet);
 
-                        if curr_remaining_packets - next_remaining_packets  != 1 {
+                        if curr_remaining_packets - next_remaining_packets != 1 {
                             trace!("{} {}", curr_remaining_packets, next_remaining_packets);
                             let missing_subpacket_id = curr_remaining_packets - 1;
                             let xor_packet = xor_packets.iter().find(|packet| {
                                 let missing_packet_index = subpackets - missing_subpacket_id;
-                                let xor_remaining_packets = subpackets - (missing_packet_index % parity_packet_count);
+                                let xor_remaining_packets =
+                                    subpackets - (missing_packet_index % parity_packet_count);
                                 parse_packets_remaining(&packet) == xor_remaining_packets
                             });
                             if let Some(xor_packet) = xor_packet {
                                 trace!("Found XOR Packet: {}", parse_packets_remaining(xor_packet));
 
-                                let complement_packets: Vec<&Vec<u8>> = self.packets.iter().filter(|packet| {
-                                    let subpacket_index = subpackets - parse_packets_remaining(packet);
-                                    let xor_remaining_packets = subpackets - (subpacket_index % parity_packet_count);
-                                    xor_remaining_packets == parse_packets_remaining(xor_packet)
-                                }).collect();
+                                let complement_packets: Vec<&Vec<u8>> = self
+                                    .packets
+                                    .iter()
+                                    .filter(|packet| {
+                                        let subpacket_index =
+                                            subpackets - parse_packets_remaining(packet);
+                                        let xor_remaining_packets =
+                                            subpackets - (subpacket_index % parity_packet_count);
+                                        xor_remaining_packets == parse_packets_remaining(xor_packet)
+                                    })
+                                    .collect();
 
                                 if complement_packets.len() == 2 {
                                     trace!("Found Complement Packets");
 
                                     let mut recovered_packet = xor_packet.clone();
-                                    if recovered_packet.len() != complement_packets[0].len() || 
-                                        recovered_packet.len() != complement_packets[1].len() {
+                                    if recovered_packet.len() != complement_packets[0].len()
+                                        || recovered_packet.len() != complement_packets[1].len()
+                                    {
                                         trace!("Packet Size Mismatch");
                                         continue;
                                     }
                                     for i in 0..recovered_packet.len() {
-        
                                         recovered_packet[i] ^= complement_packets[0][i];
                                         recovered_packet[i] ^= complement_packets[1][i];
                                     }
 
-                                    write_packets_remaining(missing_subpacket_id, &mut recovered_packet);
+                                    write_packets_remaining(
+                                        missing_subpacket_id,
+                                        &mut recovered_packet,
+                                    );
                                     self.packets.insert(i + 1, recovered_packet);
                                 }
                             }
@@ -411,7 +439,10 @@ impl PacketConstructor {
                 parse_packets_remaining(&packet)
             ));
         }
-        if let Some(xor_packet) = self.xor_packets.get(&parse_frame_id(self.packets.last().unwrap())) {
+        if let Some(xor_packet) = self
+            .xor_packets
+            .get(&parse_frame_id(self.packets.last().unwrap()))
+        {
             for packet in xor_packet {
                 xor_packet_order.push_str(&format!(
                     "{}-{}, ",
@@ -495,11 +526,14 @@ impl PacketConstructor {
                 self.received_subpackets,
                 self.potential_subpackets
             );
-            info!("Frame Yield: {}% ({} Recovered Frames)", self.recieved_packets, self.recovered_frames);
+            info!(
+                "Frame Yield: {}% ({} Recovered Frames)",
+                self.recieved_packets, self.recovered_frames
+            );
 
             self.recieved_packets = 0;
             self.potential_packets = 0;
-            self.recovered_frames = 0; 
+            self.recovered_frames = 0;
 
             self.received_subpackets = 0.0;
             self.potential_subpackets = 0.0;

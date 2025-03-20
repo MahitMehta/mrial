@@ -13,12 +13,12 @@ impl RGBBuffer {
             rgb: vec![0u8; 3 * expected_luma_size],
             width,
             height,
-            expected_luma_size
+            expected_luma_size,
         };
 
         rval
     }
-    
+
     #[cfg(any(target_os = "windows"))]
     pub fn read_444_for_rgb8(&mut self, y: &[u8], u: &[u8], v: &[u8]) {
         use std::borrow::Borrow;
@@ -83,9 +83,7 @@ impl RGBBuffer {
     pub fn read_420_for_rgb8(&mut self, y: &[u8], u: &[u8], v: &[u8]) {
         use std::borrow::Borrow;
 
-        use libyuv_sys::{
-            kYvuI601Constants, I420ToRGB24Matrix
-        };
+        use libyuv_sys::{kYvuI601Constants, I420ToRGB24Matrix};
 
         assert_eq!(y.len(), self.expected_luma_size);
         assert_eq!(u.len(), self.expected_luma_size / 4);
