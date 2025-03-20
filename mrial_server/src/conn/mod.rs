@@ -103,19 +103,13 @@ impl ConnectionManager {
     }
 
     #[inline]
-    pub fn app_encrypted_broadcast(&self, packet_type: EPacketType, buf: &[u8]) -> Result<(), BroadcastTaskError> {
-        self.app.broadcast_encrypted_frame(packet_type, buf)
+    pub async fn app_encrypted_broadcast(&self, packet_type: EPacketType, buf: &[u8]) -> Result<(), BroadcastTaskError> {
+        self.app.broadcast_encrypted_frame(packet_type, buf).await
     }
 
     #[inline]
     pub fn app_try_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
         self.app.try_recv_from(buf)
-    }
-
-    #[inline]
-    #[cfg(target_os = "linux")]
-    pub async fn app_broadcast_audio(&self, buf: &[u8]) {
-        self.app.broadcast_audio(buf).await;
     }
 
     #[inline]

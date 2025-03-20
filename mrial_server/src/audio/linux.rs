@@ -1,3 +1,5 @@
+use crate::conn::BroadcastTaskError;
+
 use super::{AudioServerAction, AudioServerThread, IAudioStream, OpusEncoder, ENCODE_FRAME_SIZE};
 use mrial_proto::deploy::PacketDeployer;
 use mrial_proto::*;
@@ -163,6 +165,21 @@ impl IAudioStream for AudioServerThread {
                             let sample: &[u8] = &samples[0..(n_samples * n_channels * 2) as usize];
 
                             if conn.has_app_clients().await && deployer.has_sym_key() {
+                                if let Err(e) = conn.app_encrypted_broadcast(EPacketType::Audio, sample).await {
+                                    match e {
+                                        BroadcastTaskError::TaskNotRunning => {
+                                            error!("App Broadcast Task Not Running");
+                                            conn.get_app().start_broadcast_async_task();
+                                        }
+                                        BroadcastTaskError::TransferFailed(msg) => {
+                                            error!("App Broadcast Send Error: {msg}");
+                                        }
+                                        BroadcastTaskError::EncryptionFailed(msg) => {
+                                            error!("App Broadcast Encryption Error: {msg}");
+                                        }
+                                    }
+                                }
+
                                 deployer.prepare_encrypted(
                                     &sample,
                                     Box::new(|subpacket| {

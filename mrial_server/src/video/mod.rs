@@ -158,8 +158,8 @@ impl VideoServerThread {
         }
     }
 
-    fn handle_app_broadcast(&self, buf: &[u8]) {
-        if let Err(e) = self.conn.app_encrypted_broadcast(EPacketType::NAL, buf) {
+    async fn handle_app_broadcast(&self, buf: &[u8]) {
+        if let Err(e) = self.conn.app_encrypted_broadcast(EPacketType::NAL, buf).await {
             match e {
                 BroadcastTaskError::TaskNotRunning => {
                     error!("App Broadcast Task Not Running");
@@ -194,7 +194,7 @@ impl VideoServerThread {
         *header_ref = Some(header_bytes.to_vec());
 
         if self.conn.has_app_clients().await {
-            self.handle_app_broadcast(&header_bytes);
+            self.handle_app_broadcast(&header_bytes).await;
         }
 
         if self.conn.has_web_clients().await {
@@ -443,7 +443,7 @@ impl VideoServerThread {
 
                         if let Ok(Some((nal, _, _))) = self.encoder.encode(&self.pic) {
                             if has_app_clients {
-                                self.handle_app_broadcast(&nal.as_bytes());
+                                self.handle_app_broadcast(&nal.as_bytes()).await;
                             }
 
                             if has_web_clients {

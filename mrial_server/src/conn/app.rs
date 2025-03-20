@@ -485,8 +485,8 @@ impl AppConnection {
     }
 
     #[inline]
-    pub fn broadcast_encrypted_frame(&self, packet_type: EPacketType, buf: &[u8]) -> Result<(), BroadcastTaskError> {
-        let sym_key = match self.get_sym_key_blocking() {
+    pub async fn broadcast_encrypted_frame(&self, packet_type: EPacketType, buf: &[u8]) -> Result<(), BroadcastTaskError> {
+        let sym_key = match self.get_sym_key().await {
             Some(sym_key) => sym_key,
             None => {
                 return Err(BroadcastTaskError::EncryptionFailed("Symmetric Key Not Found".to_string()));
