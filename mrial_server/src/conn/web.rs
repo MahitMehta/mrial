@@ -125,7 +125,7 @@ impl WebBroadcastTask {
         tokio_handle.spawn(async move {
             let mut thread = Self { 
                 audio_deployer: PacketDeployer::new(EPacketType::Audio, false),
-                video_deployer: PacketDeployer::new(EPacketType::NAL, true),
+                video_deployer: PacketDeployer::new(EPacketType::NAL, false),
                 video_broadcaster: WebVideoBroadcaster { clients: clients.clone() },
                 audio_broadcaster: WebAudioBroadcaster { clients },
                 receiver 

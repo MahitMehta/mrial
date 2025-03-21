@@ -358,12 +358,14 @@ impl EventsTask {
 
     async fn handle_web_event(&mut self, buf: Bytes) {
         let packet_type = parse_packet_type(&buf);
-
+ 
         match packet_type {
             EPacketType::InputState => {
                 let meta = self.conn.get_meta().await;
 
-                let input = InputThreadAction::Input((buf, meta.width, meta.height));
+                let input_buf = buf.slice(HEADER..);
+                let input = InputThreadAction::Input((input_buf, meta.width, meta.height));
+
                 if let Err(e) = self.input_sender.send(input).await {
                     warn!("Error sending input payload to input thread: {}", e);
 
@@ -398,14 +400,6 @@ impl EventsTask {
                         meta.height.try_into().unwrap(),
                     )
                     .await;
-
-                if let Err(e) = self.audio_server_ch_sender.send(AudioServerAction::SymKey).await {
-                    warn!(
-                        "Error sending {:?} action to audio server: {}",
-                        AudioServerAction::SymKey,
-                        e
-                    );
-                }
 
                 if let Err(e) = self
                     .video_server_ch_sender

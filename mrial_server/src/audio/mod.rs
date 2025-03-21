@@ -17,7 +17,6 @@ pub struct AudioServerTask {
 
 #[derive(Debug)]
 pub enum AudioServerAction {
-    SymKey,
 }
 
 impl AudioServerTask {
