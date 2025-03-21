@@ -24,7 +24,7 @@ struct WebClient {
     data_channel: Arc<RTCDataChannel>,
 }
 
-type BroadcastPayload = (EPacketType, Bytes);
+type BroadcastPayload = (EPacketType, Vec<u8>);
 
 pub struct WebConnection {
     // TODO: Change this to a hashmap with the key as some client ID
@@ -175,7 +175,7 @@ impl WebConnection {
 
     #[inline]
     pub fn broadcast_frame(&self, packet_type: EPacketType, buf: &[u8]) -> Result<(), BroadcastTaskError> {
-        let bytes = Bytes::from(buf.to_owned());
+        let bytes = buf.to_owned();
 
         if let Ok(task) = self.broadcast_task.read() {
             if task.is_none() {

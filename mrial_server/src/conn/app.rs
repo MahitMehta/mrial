@@ -1,4 +1,5 @@
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
+use bytes::Bytes;
 use chacha20poly1305::{aead::KeyInit, ChaCha20Poly1305};
 use kanal::{AsyncReceiver, Sender};
 use log::{debug, error};
@@ -149,14 +150,14 @@ impl Broadcaster for AppAudioBroadcaster {
 impl AppBroadcastTask {
     #[inline]
     async fn broadcast(&mut self, payload: BroadcastPayload) {
-       let (packet_type, buf) = payload;
+        let (packet_type, bytes) = payload;
 
-       match packet_type {
+        match packet_type {
             EPacketType::NAL => {
-                self.video_deployer.slice_and_send(&buf, &self.video_broadcaster).await;
+                self.video_deployer.slice_and_send(&bytes, &self.video_broadcaster).await;
             }
             EPacketType::Audio => {
-                self.audio_deployer.slice_and_send(&buf, &self.audio_broadcaster).await;
+                self.audio_deployer.slice_and_send(&bytes, &self.audio_broadcaster).await;
             }
             _ => {
                 error!("Unsupported Packet Type (Dropping): {:?}", packet_type);

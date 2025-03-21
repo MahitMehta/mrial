@@ -22,7 +22,6 @@ impl PacketDeployer {
         write_packet_type(packet_type, &mut buf);
         write_packet_type(EPacketType::XOR, &mut xor_buf);
 
-
         Self {
             xor,
             frame_id: 1,
