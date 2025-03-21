@@ -1,6 +1,3 @@
-use chacha20poly1305::{aead::Aead, AeadCore, ChaCha20Poly1305};
-use rand::rngs::ThreadRng;
-
 use crate::{
     subpacket_count, write_dynamic_header, write_packet_type, write_packets_remaining, EPacketType,
     HEADER, MTU, PAYLOAD,
@@ -11,52 +8,27 @@ pub trait Broadcaster {
 }
 
 pub struct PacketDeployer {
+    frame_id: u8,
     xor: bool,
-
-    encrypted_frame_id: u8,
-    encrypted_xor_buf: [u8; MTU],
-    encrypted_buf: [u8; MTU],
-    sym_key: Option<ChaCha20Poly1305>,
-
-    unencrypted_frame_id: u8,
-    unencrypted_xor_buf: [u8; MTU],
-    unencrypted_buf: [u8; MTU],
+    xor_buf: [u8; MTU],
+    buf: [u8; MTU],
 }
 
 impl PacketDeployer {
     pub fn new(packet_type: EPacketType, xor: bool) -> Self {
-        let mut encrypted_buf = [0u8; MTU];
-        let mut encrypted_xor_buf = [0u8; MTU];
+        let mut buf = [0u8; MTU];
+        let mut xor_buf = [0u8; MTU];
 
-        let mut unencrypted_buf = [0u8; MTU];
-        let mut unencrypted_xor_buf = [0u8; MTU];
+        write_packet_type(packet_type, &mut buf);
+        write_packet_type(EPacketType::XOR, &mut xor_buf);
 
-        write_packet_type(packet_type, &mut encrypted_buf);
-        write_packet_type(EPacketType::XOR, &mut encrypted_xor_buf);
-
-        write_packet_type(packet_type, &mut unencrypted_buf);
-        write_packet_type(EPacketType::XOR, &mut unencrypted_xor_buf);
 
         Self {
             xor,
-
-            encrypted_frame_id: 1,
-            encrypted_xor_buf,
-            encrypted_buf,
-            sym_key: None,
-
-            unencrypted_frame_id: 1,
-            unencrypted_xor_buf,
-            unencrypted_buf,
+            frame_id: 1,
+            xor_buf,
+            buf,
         }
-    }
-
-    pub fn set_sym_key(&mut self, sym_key: ChaCha20Poly1305) {
-        self.sym_key = Some(sym_key);
-    }
-
-    pub fn has_sym_key(&self) -> bool {
-        self.sym_key.is_some()
     }
 
     #[inline]
@@ -66,138 +38,26 @@ impl PacketDeployer {
 
         write_dynamic_header(
             real_packet_size,
-            self.unencrypted_frame_id,
-            &mut self.unencrypted_buf,
+            self.frame_id,
+            &mut self.buf,
         );
         write_dynamic_header(
             real_packet_size,
-            self.unencrypted_frame_id,
-            &mut self.unencrypted_xor_buf,
-        );
-
-        if self.xor && subpackets > 2 {
-            // PacketDeployer::broadcast_xor(
-            //     subpackets,
-            //     &frame,
-            //     &mut self.unencrypted_xor_buf,
-            //     &broadcaster,
-            // );
-        }
-
-        for i in 0..subpackets {
-            write_packets_remaining(subpackets - i - 1, &mut self.unencrypted_buf);
-
-            let start = (i as usize) * PAYLOAD;
-            let addition = if start + PAYLOAD <= bytes.len() {
-                PAYLOAD
-            } else {
-                bytes.len() - start
-            };
-            self.unencrypted_buf[HEADER..addition + HEADER]
-                .copy_from_slice(&bytes[start..addition + start]);
-
-            broadcaster.broadcast(&self.unencrypted_buf[0..addition + HEADER]).await;
-        }
-    }
-
-    #[inline]
-    pub fn prepare_unencrypted(&mut self, frame: &[u8], broadcast_unencrypted: &dyn Fn(&[u8])) {
-        self.helper_prepare_unencrypted(frame, &broadcast_unencrypted);
-
-        self.unencrypted_frame_id += 1;
-    }
-
-    #[inline]
-    pub fn prepare_encrypted<'a>(
-        &mut self,
-        frame: &[u8],
-        broadcast_encrypted: Box<dyn Fn(&[u8]) + 'a>,
-    ) {
-        self.helper_prepare_encrypted(frame, &broadcast_encrypted);
-
-        self.encrypted_frame_id += 1;
-    }
-
-    #[inline]
-    fn helper_prepare_unencrypted(&mut self, frame: &[u8], broadcast: &dyn Fn(&[u8])) {
-        let real_packet_size = frame.len() as u32;
-        let subpackets = subpacket_count(real_packet_size);
-
-        write_dynamic_header(
-            real_packet_size,
-            self.unencrypted_frame_id,
-            &mut self.unencrypted_buf,
-        );
-        write_dynamic_header(
-            real_packet_size,
-            self.unencrypted_frame_id,
-            &mut self.unencrypted_xor_buf,
-        );
-
-        if self.xor && subpackets > 2 {
-            PacketDeployer::broadcast_xor(
-                subpackets,
-                &frame,
-                &mut self.unencrypted_xor_buf,
-                &broadcast,
-            );
-        }
-
-        PacketDeployer::fragment_and_broadcast(
-            subpackets,
-            &frame,
-            &mut self.unencrypted_buf,
-            &broadcast,
-        );
-    }
-
-    #[inline]
-    fn helper_prepare_encrypted(&mut self, frame: &[u8], broadcast: &dyn Fn(&[u8])) {
-        let bytes = match self.encrypted_frame(frame) {
-            Some(ciphertext) => ciphertext,
-            None => return,
-        };
-
-        let real_packet_size = bytes.len() as u32;
-        let subpackets = subpacket_count(real_packet_size);
-
-        write_dynamic_header(
-            real_packet_size,
-            self.encrypted_frame_id,
-            &mut self.encrypted_buf,
-        );
-        write_dynamic_header(
-            real_packet_size,
-            self.encrypted_frame_id,
-            &mut self.encrypted_xor_buf,
+            self.frame_id,
+            &mut self.xor_buf,
         );
 
         if self.xor && subpackets > 2 {
             PacketDeployer::broadcast_xor(
                 subpackets,
                 &bytes,
-                &mut self.encrypted_xor_buf,
-                &broadcast,
-            );
+                &mut self.xor_buf,
+                broadcaster,
+            ).await;
         }
 
-        PacketDeployer::fragment_and_broadcast(
-            subpackets,
-            &bytes,
-            &mut self.encrypted_buf,
-            &broadcast,
-        );
-    }
-
-    #[inline]
-    fn fragment_and_broadcast(
-        subpackets: u16,
-        bytes: &[u8],
-        deployment_buf: &mut [u8],
-        broadcast: &dyn Fn(&[u8]),
-    ) {
         for i in 0..subpackets {
-            write_packets_remaining(subpackets - i - 1, deployment_buf);
+            write_packets_remaining(subpackets - i - 1, &mut self.buf);
 
             let start = (i as usize) * PAYLOAD;
             let addition = if start + PAYLOAD <= bytes.len() {
@@ -205,21 +65,21 @@ impl PacketDeployer {
             } else {
                 bytes.len() - start
             };
-            deployment_buf[HEADER..addition + HEADER]
+            self.buf[HEADER..addition + HEADER]
                 .copy_from_slice(&bytes[start..addition + start]);
 
-            broadcast(&deployment_buf[0..addition + HEADER]);
+            broadcaster.broadcast(&self.buf[0..addition + HEADER]).await;
         }
     }
 
     // TODO: The broadcast XOR function needs to be rewritten for improved performance and flexibility
 
     #[inline]
-    fn broadcast_xor(
+    async fn broadcast_xor<T: Broadcaster>(
         subpackets: u16,
         bytes: &[u8],
         deployment_xor_buf: &mut [u8],
-        broadcast: &dyn Fn(&[u8]),
+        broadcaster: &T,
     ) {
         let parity_packet_count = (subpackets as f32 / 3.0).ceil() as usize; // 4
 
@@ -239,19 +99,7 @@ impl PacketDeployer {
                 deployment_xor_buf[HEADER + n] = byte_one ^ byte_two ^ byte_three;
             }
 
-            broadcast(&deployment_xor_buf);
+            broadcaster.broadcast(&deployment_xor_buf).await;
         }
-    }
-
-    fn encrypted_frame(&mut self, frame: &[u8]) -> Option<Vec<u8>> {
-        if let Some(sym_key) = &self.sym_key {
-            let nonce = ChaCha20Poly1305::generate_nonce(ThreadRng::default());
-            let mut ciphertext = sym_key.encrypt(&nonce, frame).unwrap();
-            ciphertext.extend_from_slice(&nonce);
-
-            return Some(ciphertext);
-        }
-
-        None
     }
 }

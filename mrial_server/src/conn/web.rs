@@ -4,6 +4,7 @@ use bytes::Bytes;
 use kanal::{bounded_async, unbounded, AsyncReceiver, AsyncSender, Sender};
 use log::{debug, error};
 
+use mrial_proto::{deploy::{Broadcaster, PacketDeployer}, EPacketType};
 use tokio::{runtime::Handle, sync::RwLock, task::JoinHandle};
 use webrtc::{
     api::APIBuilder,
@@ -23,12 +24,14 @@ struct WebClient {
     data_channel: Arc<RTCDataChannel>,
 }
 
+type BroadcastPayload = (EPacketType, Bytes);
+
 pub struct WebConnection {
     // TODO: Change this to a hashmap with the key as some client ID
     clients: Arc<RwLock<Vec<WebClient>>>,
 
-    broadcast_sender: Sender<Bytes>,
-    broadcast_receiver: AsyncReceiver<Bytes>,
+    broadcast_sender: Sender<BroadcastPayload>,
+    broadcast_receiver: AsyncReceiver<BroadcastPayload>,
     broadcast_task: Arc<sync::RwLock<Option<JoinHandle<()>>>>,
 
     input_sender: AsyncSender<Bytes>,
@@ -37,40 +40,96 @@ pub struct WebConnection {
 
 const STUN_SERVER: &str = "stun:stun.l.google.com:19302";
 
-struct WebBroadcastTask {
+struct WebVideoBroadcaster {
     clients: Arc<RwLock<Vec<WebClient>>>,
-    receiver: AsyncReceiver<Bytes>,
 }
 
-impl WebBroadcastTask {
-    #[inline]
-    async fn broadcast(&self, data: Bytes) {
-        // TODO: enable muting client functionalities
-        // TODO: if the packet is an audio packet.
+impl Broadcaster for WebVideoBroadcaster {
+    async fn broadcast(&self, bytes: &[u8]) {
+        let clients = self.clients.read().await;
 
-        for client in self.clients.read().await.iter() {
-            if let Err(e) = client.data_channel.send(&data).await {
-                error!("Failed to send packet to client: {e}");
+        for client in clients.iter(){
+            let bytes = Bytes::from(bytes.to_owned());
+            if let Err(e) = client.data_channel.send(&bytes).await {
+                error!("Failed to Broadcast Audio to Client (Disconnecting): {e}");
 
                 let _ = client.data_channel.close().await;
                 let _ = client.peer_connection.close().await;
             }
         }
     }
+}
 
-    async fn broadcast_loop(&self) {
-        while let Ok(data) = self.receiver.recv().await {
-            self.broadcast(data).await;
+struct WebAudioBroadcaster {
+    clients: Arc<RwLock<Vec<WebClient>>>
+}
+
+impl Broadcaster for WebAudioBroadcaster {
+    async fn broadcast(&self, bytes: &[u8]) {
+        let clients = self.clients.read().await;
+
+        for client in clients.iter(){
+            // if client.muted {
+            //     continue;
+            // }
+
+            let bytes = Bytes::from(bytes.to_owned());
+            if let Err(e) = client.data_channel.send(&bytes).await {
+                error!("Failed to Broadcast Audio to Client (Disconnecting): {e}");
+
+                let _ = client.data_channel.close().await;
+                let _ = client.peer_connection.close().await;
+            }
+        }
+    }
+}
+
+struct WebBroadcastTask {
+    receiver: AsyncReceiver<BroadcastPayload>,
+
+    video_deployer: PacketDeployer,
+    audio_deployer: PacketDeployer,
+    video_broadcaster: WebVideoBroadcaster,
+    audio_broadcaster: WebAudioBroadcaster,
+}
+
+impl WebBroadcastTask {
+    #[inline]
+    async fn broadcast(&mut self, payload: BroadcastPayload) {
+        let (packet_type, buf) = payload;
+
+        match packet_type {
+             EPacketType::NAL => {
+                 self.video_deployer.slice_and_send(&buf, &self.video_broadcaster).await;
+             }
+             EPacketType::Audio => {
+                 self.audio_deployer.slice_and_send(&buf, &self.audio_broadcaster).await;
+             }
+             _ => {
+                 error!("Unsupported Packet Type (Dropping): {:?}", packet_type);
+             }
+        }
+    }
+
+    async fn broadcast_loop(&mut self) {
+        while let Ok(payload) = self.receiver.recv().await {
+            self.broadcast(payload).await;
         }
     }
 
     pub fn run(
         tokio_handle: Handle,
         clients: Arc<RwLock<Vec<WebClient>>>,
-        receiver: AsyncReceiver<Bytes>,
+        receiver: AsyncReceiver<BroadcastPayload>,
     ) -> JoinHandle<()> {
         tokio_handle.spawn(async move {
-            let thread = Self { clients, receiver };
+            let mut thread = Self { 
+                audio_deployer: PacketDeployer::new(EPacketType::Audio, false),
+                video_deployer: PacketDeployer::new(EPacketType::NAL, true),
+                video_broadcaster: WebVideoBroadcaster { clients: clients.clone() },
+                audio_broadcaster: WebAudioBroadcaster { clients },
+                receiver 
+            };
 
             thread.broadcast_loop().await;
         })
@@ -81,7 +140,7 @@ const MAX_INPUT_BUFFER_SIZE: usize = 100;
 
 impl WebConnection {
     pub fn new() -> Self {
-        let (broadcast_sender, broadcast_receiver) = unbounded::<Bytes>();
+        let (broadcast_sender, broadcast_receiver) = unbounded::<BroadcastPayload>();
         let (input_sender, input_receiver) = bounded_async::<Bytes>(MAX_INPUT_BUFFER_SIZE);
 
         Self {
@@ -115,14 +174,16 @@ impl WebConnection {
     }
 
     #[inline]
-    pub fn broadcast(&self, data: Bytes) -> Result<(), BroadcastTaskError> {
+    pub fn broadcast_frame(&self, packet_type: EPacketType, buf: &[u8]) -> Result<(), BroadcastTaskError> {
+        let bytes = Bytes::from(buf.to_owned());
+
         if let Ok(task) = self.broadcast_task.read() {
             if task.is_none() {
                 return Err(BroadcastTaskError::TaskNotRunning);
             }
         }
 
-        if let Err(e) = self.broadcast_sender.send(data) {
+        if let Err(e) = self.broadcast_sender.send((packet_type, bytes)) {
             return Err(BroadcastTaskError::TransferFailed(e.to_string()));
         }
 

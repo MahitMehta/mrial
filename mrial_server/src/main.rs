@@ -26,12 +26,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conn = ConnectionManager::new().await;
 
     // TODO: Temporary code for testing
-    // let desc_data: String = env::var("RTC").expect("RTC not set");
-    // let desc_data = String::from_utf8(STANDARD.decode(desc_data)?)?;
+    let desc_data: String = env::var("RTC").expect("RTC not set");
+    let desc_data = String::from_utf8(STANDARD.decode(desc_data)?)?;
 
-    // if let Err(e) = conn.get_web().initialize_client(desc_data).await {
-    //     log::error!("Failed to initialize Web Client: {}", e);
-    // }
+    if let Err(e) = conn.get_web().initialize_client(desc_data).await {
+        log::error!("Failed to initialize Web Client: {}", e);
+    }
 
     let conn_clone = conn.clone();
 

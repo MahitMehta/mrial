@@ -398,15 +398,6 @@ impl EventsTask {
                         meta.height.try_into().unwrap(),
                     )
                     .await;
-            
-
-                if let Err(e) = self.video_server_ch_sender.send(VideoServerAction::SymKey).await {
-                    warn!(
-                        "Error sending {:?} action to video server: {}",
-                        VideoServerAction::SymKey,
-                        e
-                    );
-                }
 
                 if let Err(e) = self.audio_server_ch_sender.send(AudioServerAction::SymKey).await {
                     warn!(

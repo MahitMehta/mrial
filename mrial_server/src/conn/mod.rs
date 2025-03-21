@@ -88,14 +88,13 @@ impl ConnectionManager {
     }
 
     #[inline]
-    pub fn web_broadcast(&self, buf: &[u8]) -> Result<(), BroadcastTaskError> {
-        let bytes = Bytes::copy_from_slice(buf);
-        self.web.broadcast(bytes)
+    pub fn web_receiver(&self) -> AsyncReceiver<Bytes> {
+        self.web.receiver()
     }
 
     #[inline]
-    pub fn web_receiver(&self) -> AsyncReceiver<Bytes> {
-        self.web.receiver()
+    pub fn web_encrypted_broadcast(&self, packet_type: EPacketType, buf: &[u8]) -> Result<(), BroadcastTaskError> {
+        self.web.broadcast_frame(packet_type, buf)
     }
 
     #[inline]

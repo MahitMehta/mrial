@@ -92,7 +92,7 @@ impl fmt::Display for AppConnectionError {
     }
 }
 
-pub type BroadcastPayload = (EPacketType, Vec<u8>);
+type BroadcastPayload = (EPacketType, Vec<u8>);
 
 struct AppBroadcastTask {
     receiver: AsyncReceiver<BroadcastPayload>,

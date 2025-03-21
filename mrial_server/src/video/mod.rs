@@ -2,11 +2,12 @@ pub mod display;
 pub mod session;
 pub mod yuv;
 
+use bytes::Bytes;
 use display::DisplayMeta;
 use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use kanal::{unbounded, unbounded_async, AsyncReceiver, AsyncSender, Receiver};
 use log::{debug, error, warn};
-use mrial_proto::{deploy::PacketDeployer, *};
+use mrial_proto::EPacketType;
 use scrap::{Capturer, Display};
 use session::{SessionSettingTask, Setting};
 use std::{
@@ -33,7 +34,6 @@ pub enum VideoServerAction {
     Inactive,
     ConfigUpdate,
     RestartStream,
-    SymKey,
     RestartSession,
     #[cfg(target_os = "linux")]
     NewUserSession,
@@ -51,7 +51,6 @@ pub struct VideoServerTask {
     encoder: Encoder,
     headers: Arc<Mutex<Option<Vec<u8>>>>,
 
-    deployer: PacketDeployer,
     conn: ConnectionManager,
 
     setting: Setting,
@@ -105,7 +104,6 @@ impl VideoServerTask {
             encoder,
             headers: Arc::new(Mutex::new(Some(header))),
 
-            deployer: PacketDeployer::new(EPacketType::NAL, false),
             conn,
 
             events_receiver,
@@ -158,10 +156,13 @@ impl VideoServerTask {
     }
 
     async fn handle_app_broadcast(&self, buf: &[u8]) {
-        if let Err(e) = self.conn.app_encrypted_broadcast(EPacketType::NAL, buf).await {
+        if let Err(e) = self.conn.app_encrypted_broadcast(
+            EPacketType::NAL, buf).await {
             match e {
                 BroadcastTaskError::TaskNotRunning => {
                     error!("App Broadcast Task Not Running");
+
+                    debug!("Restarting App Broadcast Task");
                     self.conn.get_app().start_broadcast_async_task();
                 }
                 BroadcastTaskError::TransferFailed(msg) => {
@@ -170,6 +171,24 @@ impl VideoServerTask {
                 BroadcastTaskError::EncryptionFailed(msg) => {
                     error!("App Broadcast Encryption Error: {msg}");
                 }
+            }
+        }
+    }
+
+    fn handle_web_broadcast(&self, buf: &[u8]) {
+        if let Err(e) = self.conn.web_encrypted_broadcast(
+            EPacketType::NAL, buf) {
+            match e {
+                BroadcastTaskError::TaskNotRunning => {
+                    error!("Web Broadcast Task Not Running");
+                 
+                    debug!("Restarting Web Broadcast Task");
+                    self.conn.get_web().start_broadcast_async_task();
+                }
+                BroadcastTaskError::TransferFailed(msg) => {
+                    error!("Web Broadcast Send Error: {msg}");
+                }
+                _ => {}
             }
         }
     }
@@ -197,10 +216,7 @@ impl VideoServerTask {
         }
 
         if self.conn.has_web_clients().await {
-            self.deployer
-                .prepare_unencrypted(&header_bytes, &|subpacket| {
-                    let _ = self.conn.web_broadcast(subpacket);
-                });
+            self.handle_web_broadcast(&header_bytes);
         }
 
         self.pic = Picture::from_param(&self.par)?;
@@ -254,13 +270,6 @@ impl VideoServerTask {
             }
             VideoServerAction::Inactive => {
                 self.encoder = x264::Encoder::open(&mut self.par)?;
-            }
-            VideoServerAction::SymKey => {
-                let app = self.conn.get_app();
-
-                if let Some(sym_key) = app.get_sym_key().await {
-                    self.deployer.set_sym_key(sym_key.clone());
-                }
             }
             VideoServerAction::RestartStream => {
                 self.drop_capturer();
@@ -455,25 +464,9 @@ impl VideoServerTask {
                             }
 
                             if has_web_clients {
-                                self.deployer
-                                    .prepare_unencrypted(&nal.as_bytes(), &|subpacket| {
-                                        if let Err(e) = self.conn.web_broadcast(subpacket) {
-                                            match e {
-                                                BroadcastTaskError::TaskNotRunning => {
-                                                    error!("Web Broadcast Task Not Running");
-                                                 
-                                                    debug!("Restarting Web Broadcast Task");
-                                                    self.conn.get_web().start_broadcast_async_task();
-                                                }
-                                                BroadcastTaskError::TransferFailed(msg) => {
-                                                    error!("Web Broadcast Send Error: {msg}");
-                                                }
-                                                _ => {}
-                                            }
-                                        }
-                                    });
+                                self.handle_web_broadcast(&nal.as_bytes());
                             }
-
+                
                             frames += 1;
                         }
 
