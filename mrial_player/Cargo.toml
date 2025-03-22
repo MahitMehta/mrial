@@ -26,6 +26,7 @@ rsa = "0.9.6"
 rand = "0.8.5"
 chacha20poly1305 = "0.10.1"
 base64 = "0.22.1"
+opus = "0.3.0"
 
 [target."cfg(target_os = \"linux\")".dependencies] 
 libyuv-sys = { path = "../libs/libyuv-sys" }

@@ -1,11 +1,12 @@
 use crate::conn::BroadcastTaskError;
 
-use super::{AudioServerAction, AudioServerTask, IAudioStream, OpusEncoder, ENCODE_FRAME_SIZE};
+use super::{AudioServerTask, IAudioStream, OpusEncoder, ENCODE_FRAME_SIZE};
 use mrial_proto::*;
 
 use log::{debug, error};
 
 use opus::Decoder;
+use pipewire::spa::param::audio::AudioInfoRaw;
 use pipewire as pw;
 use pw::{properties::properties, spa};
 use spa::param::format::{MediaSubtype, MediaType};
@@ -27,6 +28,8 @@ impl AudioServerTask {
             && aligned.iter().all(|&x| x == 0)
     }
 }
+
+const CHANNELS: usize = 2;
 
 impl IAudioStream for AudioServerTask {
     async fn stream(&self) -> Result<(), Box<dyn std::error::Error>> {
@@ -59,13 +62,10 @@ impl IAudioStream for AudioServerTask {
 
         let stream = pw::stream::Stream::new(&core, "audio-capture", props)?;
 
-        let mut opus_decoder = Decoder::new(48000, opus::Channels::Stereo)?;
-        let mut opus_encoder = OpusEncoder::new(48000, opus::Channels::Stereo)?;
-        // 2 = stereo, 4 = 4 bytes (32-bits), 1024 = assumed max frame size
-        let mut compressed_audio = [0u8; ENCODE_FRAME_SIZE * 2];
-        let mut pcm_file = std::fs::File::create("audio.pcm").unwrap();
-
-        let mut uncompressed_output = [0f32; ENCODE_FRAME_SIZE * 4];
+        let mut opus_encoder = OpusEncoder::new(48000, CHANNELS)?;
+        let mut compressed_audio = [0u8; ENCODE_FRAME_SIZE * CHANNELS];
+        // let mut compressed_file = std::fs::File::create("compressed.pcm").unwrap();
+        // let mut uncompressed_output = [0f32; ENCODE_FRAME_SIZE * CHANNELS];
 
         let conn = self.conn.clone();
         let receiver = self.receiver.clone();
@@ -106,7 +106,7 @@ impl IAudioStream for AudioServerTask {
                     user_data.format.channels()
                 );
             })
-            .process(move |stream, user_data| match stream.dequeue_buffer() {
+            .process(move |stream, _user_data| match stream.dequeue_buffer() {
                 None => println!("out of buffers"),
                 Some(mut buffer) => {
                     while let Ok(Some(action)) = receiver.try_recv() {
@@ -122,9 +122,9 @@ impl IAudioStream for AudioServerTask {
 
                         let data = &mut datas[0];
 
-                        let n_channels = user_data.format.channels();
-                        let n_samples: u32 = data.chunk().size() / (mem::size_of::<f32>() as u32);
-
+                        // let n_channels = user_data.format.channels() as usize;
+                        let chunk_len = data.chunk().size();
+    
                         if let Some(samples) = data.data() {
                             // TODO: find a better solution to detect if audio is not playings
                             if AudioServerTask::is_zero(&samples[0..32]) {
@@ -134,59 +134,82 @@ impl IAudioStream for AudioServerTask {
                                 return;
                             }
 
-                            let sample: &[u8] = &samples[0..(n_samples * n_channels * 2) as usize];
+                            let sample: &[u8] = &samples[0..chunk_len as usize];
 
                             if conn.has_app_clients().await {
-                                if let Err(e) = conn.app_encrypted_broadcast(EPacketType::Audio, sample).await {
-                                    match e {
-                                        BroadcastTaskError::TaskNotRunning => {
-                                            error!("App Broadcast Task Not Running");
-                                            conn.get_app().start_broadcast_async_task();
-                                        }
-                                        BroadcastTaskError::TransferFailed(msg) => {
-                                            error!("App Broadcast Send Error: {msg}");
-                                        }
-                                        BroadcastTaskError::EncryptionFailed(msg) => {
-                                            error!("App Broadcast Encryption Error: {msg}");
-                                        }
-                                    }
-                                }
-                            }
-
-                            if conn.has_web_clients().await {
-                                // TODO: Ensure 1024 * 2 (stereo) samples are being received
-
-                                //raw_pcm_file.write_all(&sample).unwrap();
-                                match opus_encoder.encode_32bit(&samples, &mut compressed_audio) {
+                                match opus_encoder.encode_f32(&sample, &mut compressed_audio) {
                                     Ok(Some(compressed_len)) => {
-                                        match opus_decoder.decode_float(&compressed_audio[..compressed_len], &mut uncompressed_output, false) {
-                                            Ok(len) => {
-                                                println!("Decoded: {}", len);
-                                                pcm_file.write_all(unsafe { std::slice::from_raw_parts(uncompressed_output.as_ptr() as *const u8, 4 * len) }).unwrap();
-                                            }
-                                            Err(e) => error!("Failed to decode audio: {}", e)
-                                        }
-
-
-                                        if let Err(e) = conn.web_encrypted_broadcast(
-                                            EPacketType::Audio, &compressed_audio[..compressed_len]) {
+                                        if let Err(e) = conn.app_encrypted_broadcast(
+                                            EPacketType::AudioOpus, &compressed_audio[..compressed_len]).await {
                                             match e {
                                                 BroadcastTaskError::TaskNotRunning => {
-                                                    error!("Web Broadcast Task Not Running");
-                                                 
-                                                    debug!("Restarting Web Broadcast Task");
-                                                    conn.get_web().start_broadcast_async_task();
+                                                    error!("App Broadcast Task Not Running");
+                                                    conn.get_app().start_broadcast_async_task();
                                                 }
                                                 BroadcastTaskError::TransferFailed(msg) => {
-                                                    error!("Web Broadcast Send Error: {msg}");
+                                                    error!("App Broadcast Send Error: {msg}");
                                                 }
-                                                _ => {}
+                                                BroadcastTaskError::EncryptionFailed(msg) => {
+                                                    error!("App Broadcast Encryption Error: {msg}");
+                                                }
                                             }
                                         }
                                     }
                                     Err(e) =>  error!("Failed to encode audio: {}", e),
                                     _ => {}
                                 }
+                            }
+
+                            if conn.has_web_clients().await {
+                                if let Err(e) = conn.web_encrypted_broadcast(
+                                    EPacketType::AudioPCM, &sample) {
+                                    match e {
+                                        BroadcastTaskError::TaskNotRunning => {
+                                            error!("Web Broadcast Task Not Running");
+                                         
+                                            debug!("Restarting Web Broadcast Task");
+                                            conn.get_web().start_broadcast_async_task();
+                                        }
+                                        BroadcastTaskError::TransferFailed(msg) => {
+                                            error!("Web Broadcast Send Error: {msg}");
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                            //     match opus_encoder.encode_f32(&sample, &mut compressed_audio) {
+                            //         Ok(Some(compressed_len)) => {
+                            //             match opus_decoder.decode_float(&compressed_audio[..compressed_len], &mut uncompressed_output, false) {
+                            //                 Ok(len) => {
+                            //                     println!("Compressed Len: {}", compressed_len);
+                            //                     compressed_file.write_all(unsafe { 
+                            //                         std::slice::from_raw_parts(
+                            //                         uncompressed_output[0..len * CHANNELS].as_ptr() as *const u8,
+                            //                         CHANNELS * mem::size_of::<f32>() * len) 
+                            //                     }).unwrap();
+                            //                 }
+                            //                 Err(e) => error!("Failed to decode audio: {}", e)
+                            //             }
+
+                            //             if let Err(e) = conn.web_encrypted_broadcast(
+                            //                 EPacketType::Audio, &compressed_audio[..compressed_len]) {
+                            //                 match e {
+                            //                     BroadcastTaskError::TaskNotRunning => {
+                            //                         error!("Web Broadcast Task Not Running");
+                                                 
+                            //                         debug!("Restarting Web Broadcast Task");
+                            //                         conn.get_web().start_broadcast_async_task();
+                            //                     }
+                            //                     BroadcastTaskError::TransferFailed(msg) => {
+                            //                         error!("Web Broadcast Send Error: {msg}");
+                            //                     }
+                            //                     _ => {}
+                            //                 }
+                            //             }
+                            //         }
+                            //         Err(e) =>  error!("Failed to encode audio: {}", e),
+                            //         _ => {}
+                            //     }
                             }
                         }
                     });

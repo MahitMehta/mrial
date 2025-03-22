@@ -1,52 +1,81 @@
+use std::mem;
+
 use opus::{Channels, Encoder};
 
-pub const ENCODE_FRAME_SIZE: usize = 1920 * 2;
+pub const ENCODE_FRAME_SIZE: usize = 1920;
 pub struct OpusEncoder {
     encoder: Encoder,
-    buffer: [f32; ENCODE_FRAME_SIZE],
-    cursor: usize
+    buf: Vec<u8>,
+    cursor: usize,
 }
 
 impl OpusEncoder {
-    pub fn new(sample_rate: u32, channels: Channels) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(sample_rate: u32, channels: usize) -> Result<Self, Box<dyn std::error::Error>> {
+        assert!(channels == 1 || channels == 2);
+
+        let channel_setting = match channels {
+            1 => Channels::Mono,
+            2 => Channels::Stereo,
+            _ => unreachable!(),
+        };
+
+        let encoder = Encoder::new(
+            sample_rate, 
+            channel_setting, 
+            opus::Application::LowDelay)?;
+    
+        let mut buf = Vec::with_capacity(ENCODE_FRAME_SIZE * channels * mem::size_of::<f32>());
+        buf.resize(ENCODE_FRAME_SIZE * channels * mem::size_of::<f32>(), 0u8);
+
         Ok(Self {
-            encoder: Encoder::new(sample_rate, channels, opus::Application::LowDelay)?,
-            buffer: [0f32; ENCODE_FRAME_SIZE],
-            cursor: 0,
+            encoder,
+            buf,
+            cursor: 0
         })
     }
 
-    pub fn encode_32bit(
+    pub fn encode_f32(
         &mut self,
         samples: &[u8],
         output: &mut [u8],
     ) -> Result<Option<usize>, Box<dyn std::error::Error>> {
-        if samples.len() % 4 != 0 {
-            return Err("Invalid sample length (Not divisible by 4)".into());
-        }
+        assert!(samples.len() % mem::size_of::<f32>() == 0, "Invalid sample length (Not divisible by sizeof(f32)): {}", samples.len()); 
+        assert!(samples.len() <= self.buf.len(), "Invalid sample length (Exceeds max frame size): {}", self.buf.len());
 
+        let buf_len = self.buf.len();
+        if self.cursor + samples.len() <= buf_len {
+            self.buf[self.cursor..self.cursor + samples.len()].copy_from_slice(samples);
+            self.cursor += samples.len();
+
+            // If the buffer is full, encode the buffer
+            if self.cursor == buf_len {
+                self.cursor = 0;
+                let f32_slice: &[f32] = unsafe {
+                    std::slice::from_raw_parts(self.buf.as_ptr() as *const f32, self.buf.len() / mem::size_of::<f32>())
+                };
+
+                return Ok(Some(self.encoder.encode_float(&f32_slice, output)?));
+            } else {
+                // Return early if the buffer is not full
+                return Ok(None);
+            }
+        } 
+        
+        // If the buffer is not full, copy the needed samples to the buffer and encode the buffer
+        self.buf[self.cursor..].copy_from_slice(&samples[0..buf_len - self.cursor]);
+        
         let f32_slice: &[f32] = unsafe {
-            std::slice::from_raw_parts(samples.as_ptr() as *const f32, samples.len() / 4)
+            std::slice::from_raw_parts(self.buf.as_ptr() as *const f32, buf_len / mem::size_of::<f32>())
         };
 
-        // If the buffer has enough space, copy all the samples into the buffer
-        if self.cursor + f32_slice.len() <= ENCODE_FRAME_SIZE {
-            self.buffer[self.cursor..f32_slice.len()].copy_from_slice(f32_slice);
-            self.cursor += f32_slice.len();
-        } else {
-            // Copy the whatever samples that can fit in the buffer
-            self.buffer[self.cursor..ENCODE_FRAME_SIZE]
-                .copy_from_slice(&f32_slice[..ENCODE_FRAME_SIZE - self.cursor]);
-            self.cursor = ENCODE_FRAME_SIZE;
-        }
+        let encoded = self.encoder.encode_float(&f32_slice, output)?;
 
-        if self.cursor < ENCODE_FRAME_SIZE {
-            return Ok(None);
-        }
+        // Set the cursor to the remaining samples
+        self.cursor = samples.len() - (buf_len - self.cursor); 
 
-        let compressed_len = self.encoder.encode_float(&self.buffer, output)?;
-        self.cursor = 0;
+        // Copy the remaining samples to the buffer
+        self.buf[0..self.cursor].copy_from_slice(&samples[samples.len() - self.cursor..]);
 
-        Ok(Some(compressed_len))
+        return Ok(Some(encoded));
     }
 }

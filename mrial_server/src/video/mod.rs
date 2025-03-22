@@ -2,22 +2,19 @@ pub mod display;
 pub mod session;
 pub mod yuv;
 
-use bytes::Bytes;
 use display::DisplayMeta;
-use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
 use kanal::{unbounded, unbounded_async, AsyncReceiver, AsyncSender, Receiver};
 use log::{debug, error, warn};
 use mrial_proto::EPacketType;
 use scrap::{Capturer, Display};
 use session::{SessionSettingTask, Setting};
 use std::{
-    collections::VecDeque,
     fs::File,
     io::{ErrorKind::WouldBlock, Write},
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
-use tokio::{sync::Mutex, time::sleep};
+use tokio::{sync::Mutex, time::{sleep, Instant}};
 use x264::{Encoder, Param, Picture};
 use yuv::YUVBuffer;
 
@@ -40,8 +37,6 @@ pub enum VideoServerAction {
 }
 
 pub struct VideoServerTask {
-    pool: ThreadPool,
-    yuv_handles: VecDeque<RemoteHandle<YUVBuffer>>,
     file: Option<File>,
     row_len: usize,
 
@@ -78,9 +73,6 @@ impl VideoServerTask {
         conn.set_dimensions(capturer.width(), capturer.height())
             .await;
 
-        let pool = ThreadPool::builder().pool_size(1).create()?;
-        let yuv_handles = VecDeque::new();
-
         let row_len = 4 * capturer.width() * capturer.height();
 
         let mut par: Param = VideoServerTask::get_parameters(conn.get_meta().await);
@@ -93,8 +85,6 @@ impl VideoServerTask {
         let (audio_sender, audio_receiver) = unbounded::<AudioServerAction>();
 
         Ok(Self {
-            pool,
-            yuv_handles,
             row_len,
             file: None,
 
@@ -220,8 +210,6 @@ impl VideoServerTask {
         }
 
         self.pic = Picture::from_param(&self.par)?;
-
-        self.yuv_handles.clear();
         self.capturer = Some(capturer);
 
         Ok(())
@@ -361,6 +349,19 @@ impl VideoServerTask {
 
         Ok(())
     }
+    
+    #[inline]
+    async fn frame_delay(&self, duration: Duration) {
+        let start = Instant::now();
+        let accuracy = Duration::new(0, 1_000_000);
+        if duration > accuracy {
+            tokio::time::sleep(duration - accuracy).await;
+        }
+        // spin the rest of the duration
+        while start.elapsed() < duration {
+            std::hint::spin_loop();
+        }
+    }
 
     #[inline]
     pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -432,59 +433,50 @@ impl VideoServerTask {
                         continue;
                     }
 
-                    let cvt_rgb_yuv = async move {
-                        // TODO: figure out why this is neccessary
-                        let yuv = YUVBuffer::with_argb_for_i420(
-                            width,
-                            height,
-                            &argb_frame[0..width * height * 4],
-                        );
-                        yuv
-                    };
-                    self.yuv_handles
-                        .push_back(self.pool.spawn_with_handle(cvt_rgb_yuv).unwrap());
+                    let yuv = YUVBuffer::with_argb_for_i420(
+                        width,
+                        height,
+                        &argb_frame[0..width * height * 4],
+                    );
 
-                    // set to 1 to increase FPS at the cost of latency, or 0  for the opposite effect
-                    if self.yuv_handles.len() > 0 {
-                        let yuv = self.yuv_handles.pop_front().unwrap().await;
+                    let y_plane = self.pic.as_mut_slice(0).unwrap();
+                    y_plane.copy_from_slice(yuv.y());
+                    let u_plane = self.pic.as_mut_slice(1).unwrap();
+                    u_plane.copy_from_slice(yuv.u_420());
+                    let v_plane = self.pic.as_mut_slice(2).unwrap();
+                    v_plane.copy_from_slice(yuv.v_420());
 
-                        let y_plane = self.pic.as_mut_slice(0).unwrap();
-                        y_plane.copy_from_slice(yuv.y());
-                        let u_plane = self.pic.as_mut_slice(1).unwrap();
-                        u_plane.copy_from_slice(yuv.u_420());
-                        let v_plane = self.pic.as_mut_slice(2).unwrap();
-                        v_plane.copy_from_slice(yuv.v_420());
+                    // TODO: Is this important?
+                    // self.pic.set_timestamp(self.frame_count);
 
-                        // TODO: Is this important?
-                        // self.pic.set_timestamp(self.frame_count);
-
-                        if let Ok(Some((nal, _, _))) = self.encoder.encode(&self.pic) {
-                            if has_app_clients {
-                                self.handle_app_broadcast(&nal.as_bytes()).await;
-                            }
-
-                            if has_web_clients {
-                                self.handle_web_broadcast(&nal.as_bytes());
-                            }
-                
-                            frames += 1;
+                    if let Ok(Some((nal, _, _))) = self.encoder.encode(&self.pic) {
+                        if has_app_clients {
+                            self.handle_app_broadcast(&nal.as_bytes()).await;
                         }
 
-                        if fps_time.elapsed().as_secs() >= 1 && frames > 0 {
-                            self.conn.filter_clients().await;
-                            debug!(
-                                "FPS: {}",
-                                frames as f32 / fps_time.elapsed().as_secs() as f32
-                            );
-                            frames = 0;
-                            fps_time = Instant::now();
+                        if has_web_clients {
+                            self.handle_web_broadcast(&nal.as_bytes());
                         }
-
-                        if sleep.elapsed().as_millis() > 0 && sleep.elapsed().as_millis() < 17 {
-                            let delay = 17 - sleep.elapsed().as_millis();
-                            spin_sleep::sleep(Duration::from_millis(delay as u64));
-                        }
+            
+                        frames += 1;
                     }
+
+                    if fps_time.elapsed().as_secs() >= 1 && frames > 0 {
+                        self.conn.filter_clients().await;
+                        debug!(
+                            "FPS: {}",
+                            frames as f32 / fps_time.elapsed().as_secs() as f32
+                        );
+                        frames = 0;
+                        fps_time = Instant::now();
+                    }
+
+                    let current_elapsed = sleep.elapsed().as_micros();
+                    if current_elapsed > 0 && current_elapsed < 16667 {
+                        let requested_delay = 16667 - current_elapsed;
+                        self.frame_delay(Duration::from_micros(requested_delay as u64)).await;
+                    }
+                    
                 }
                 Err(ref e) if e.kind() == WouldBlock => {}
                 Err(e) => {

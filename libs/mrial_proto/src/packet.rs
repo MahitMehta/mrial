@@ -15,7 +15,7 @@ pub enum EPacketType {
     NAL = 2,
     InputState = 3,
     /// Header (Unecrypted) + Byte stream (Encrypted)
-    Audio = 4,
+    AudioPCM = 4,
     /// Header (Unecrypted)
     Disconnect = 5,
     /// Header (Unecrypted)
@@ -31,6 +31,7 @@ pub enum EPacketType {
     XOR = 12,
     // TODO: Add Server Pings in addition to Client Pings
     InternalEOL = 13,
+    AudioOpus = 14,
     Unknown = 255,
 }
 
@@ -41,7 +42,7 @@ impl From<u8> for EPacketType {
             1 => EPacketType::ShookUE,
             2 => EPacketType::NAL,
             3 => EPacketType::InputState,
-            4 => EPacketType::Audio,
+            4 => EPacketType::AudioPCM,
             5 => EPacketType::Disconnect,
             6 => EPacketType::PING,
             7 => EPacketType::ClientState,

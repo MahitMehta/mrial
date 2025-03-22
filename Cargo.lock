@@ -3671,6 +3671,7 @@ dependencies = [
  "log",
  "mrial_fs",
  "mrial_proto",
+ "opus",
  "pretty_env_logger",
  "rand",
  "rodio",

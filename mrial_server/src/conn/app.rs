@@ -156,7 +156,7 @@ impl AppBroadcastTask {
             EPacketType::NAL => {
                 self.video_deployer.slice_and_send(&bytes, &self.video_broadcaster).await;
             }
-            EPacketType::Audio => {
+            EPacketType::AudioPCM => {
                 self.audio_deployer.slice_and_send(&bytes, &self.audio_broadcaster).await;
             }
             _ => {
@@ -180,7 +180,7 @@ impl AppBroadcastTask {
         tokio_handle.spawn(async move {
             let mut thread = Self { 
                 receiver,
-                audio_deployer: PacketDeployer::new(EPacketType::Audio, false),
+                audio_deployer: PacketDeployer::new(EPacketType::AudioPCM, false),
                 video_deployer: PacketDeployer::new(EPacketType::NAL, false),
                 video_broadcaster: AppVideoBroadcaster {
                     socket: socket.clone(),

@@ -102,7 +102,7 @@ impl WebBroadcastTask {
              EPacketType::NAL => {
                  self.video_deployer.slice_and_send(&buf, &self.video_broadcaster).await;
              }
-             EPacketType::Audio => {
+             EPacketType::AudioPCM => {
                  self.audio_deployer.slice_and_send(&buf, &self.audio_broadcaster).await;
              }
              _ => {
@@ -124,7 +124,7 @@ impl WebBroadcastTask {
     ) -> JoinHandle<()> {
         tokio_handle.spawn(async move {
             let mut thread = Self { 
-                audio_deployer: PacketDeployer::new(EPacketType::Audio, false),
+                audio_deployer: PacketDeployer::new(EPacketType::AudioPCM, false),
                 video_deployer: PacketDeployer::new(EPacketType::NAL, false),
                 video_broadcaster: WebVideoBroadcaster { clients: clients.clone() },
                 audio_broadcaster: WebAudioBroadcaster { clients },
