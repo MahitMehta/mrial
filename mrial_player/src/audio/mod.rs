@@ -6,14 +6,14 @@ use std::{
 use kanal::{Receiver, SendError, Sender};
 use log::debug;
 use mrial_proto::*;
-use opus::Decoder;
+use opus::{Channels, Decoder};
 use rodio::{buffer::SamplesBuffer, Sink};
 
 use crate::client::Client;
 
 pub type AudioPacket = (EPacketType, Vec<u8>);
 
-const AUDIO_LATENCY_TOLERANCE: usize = 4;
+const AUDIO_LATENCY_TOLERANCE: usize = 5; // ~max (0.04 * 5) = 200ms
 const SAMPLE_RATE: u32 = 48000;
 const CHANNELS: u16 = 2;
 const OPUS_MAX_FRAME_SIZE: usize = 1920;
@@ -21,7 +21,7 @@ const OPUS_MAX_FRAME_SIZE: usize = 1920;
 pub struct AudioClientThread {
     packet_constructor: PacketConstructor,
     sink: Arc<RwLock<Sink>>,
-    audio_sender: Sender<AudioPacket>
+    audio_sender: Sender<AudioPacket>,
 }
 
 impl AudioClientThread {
@@ -50,13 +50,14 @@ impl AudioClientThread {
 
         let handle = std::thread::spawn(move || {
             let mut uncompressed_audio_buf = [0f32; OPUS_MAX_FRAME_SIZE * CHANNELS as usize];
-            let opus_channels = if CHANNELS == 1 {
-                opus::Channels::Mono
-            } else {
-                opus::Channels::Stereo
+            let opus_channels = match CHANNELS {
+                1 => Channels::Mono,
+                2 => Channels::Stereo,
+                _ => unreachable!(),
             };
+
             let mut opus_decoder = Decoder::new(SAMPLE_RATE, opus_channels).unwrap();
-    
+
             while let Ok((packet_type, encrypted_audio)) = audio_receiver.recv() {
                 let audio_packet = match AudioClientThread::decrypt_audio(&encrypted_audio, &client)
                 {
@@ -75,34 +76,38 @@ impl AudioClientThread {
                                 audio_packet.len() / std::mem::size_of::<f32>(),
                             )
                         };
-        
+
                         let samples = SamplesBuffer::new(CHANNELS, SAMPLE_RATE, f32_audio_slice);
-        
+
                         if let Ok(sink) = sink.read() {
                             sink.append(samples);
                         }
                     }
                     EPacketType::AudioOpus => {
                         let uncompressed_len = match opus_decoder.decode_float(
-                            &audio_packet, 
-                            &mut uncompressed_audio_buf, 
-                            false) {
+                            &audio_packet,
+                            &mut uncompressed_audio_buf,
+                            false,
+                        ) {
                             Ok(audio_frame) => audio_frame,
                             Err(e) => {
                                 debug!("Failed to decode audio: {}", e);
                                 continue;
                             }
                         };
-        
+
                         let samples = SamplesBuffer::new(
-                            CHANNELS, SAMPLE_RATE, &uncompressed_audio_buf[..uncompressed_len]);
-        
+                            CHANNELS,
+                            SAMPLE_RATE,
+                            &uncompressed_audio_buf[..uncompressed_len * CHANNELS as usize],
+                        );
+
                         if let Ok(sink) = sink.read() {
                             sink.append(samples);
                         }
                     }
-                    _ => unreachable!()
-                }                
+                    _ => unreachable!(),
+                }
             }
         });
 
@@ -112,7 +117,9 @@ impl AudioClientThread {
     pub fn handle_latency_by_dropping(&mut self) {
         if let Ok(sink) = self.sink.read() {
             if sink.len() > AUDIO_LATENCY_TOLERANCE {
-                sink.clear();
+                debug!("Correcting Latency by Dropping Audio Packet");
+                sink.skip_one();
+                sink.skip_one();
                 return;
             }
 
@@ -141,10 +148,10 @@ impl AudioClientThread {
 
     #[inline]
     pub fn packet(
-        &mut self, 
+        &mut self,
         packet_type: EPacketType,
-        buf: &[u8], 
-        number_of_bytes: usize
+        buf: &[u8],
+        number_of_bytes: usize,
     ) -> Result<(), SendError> {
         let encrypted_audio = match self
             .packet_constructor

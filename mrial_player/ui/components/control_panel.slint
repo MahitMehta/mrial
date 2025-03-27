@@ -13,7 +13,8 @@ import { MrialVolumeControl } from "../components/volume_control.slint";
 
 struct ClientState {
     resolution: string,
-    muted: bool
+    muted: bool,
+    opus: bool
 }
 
 export global ControlPanelFunctions {
@@ -24,6 +25,7 @@ export global ControlPanelAdapter {
     in-out property <[IMrialDropdownItem]> resolutions: [];
     in-out property <int> resolution_index: 0;
     in-out property <bool> muted: false;
+    in-out property <bool> opus: false;
 }
 
 export component ControlPanel inherits TouchArea {
@@ -66,7 +68,8 @@ export component ControlPanel inherits TouchArea {
                             
                             ControlPanelFunctions.state_update({
                                 resolution: ControlPanelAdapter.resolutions[ControlPanelAdapter.resolution_index].value,
-                                muted: ControlPanelAdapter.muted
+                                muted: ControlPanelAdapter.muted,
+                                opus: ControlPanelAdapter.opus
                             });
                         }
                         volume_changed(value) => {
@@ -90,7 +93,8 @@ export component ControlPanel inherits TouchArea {
 
                             ControlPanelFunctions.state_update({
                                 resolution: ControlPanelAdapter.resolutions[ControlPanelAdapter.resolution_index].value,
-                                muted: ControlPanelAdapter.muted
+                                muted: ControlPanelAdapter.muted,
+                                opus: ControlPanelAdapter.opus
                             });
                             root.selected_dropdown = "";
                         }
@@ -145,6 +149,15 @@ export component ControlPanel inherits TouchArea {
                             }; 
                         }
                         selected => {
+                            ControlPanelAdapter.opus = self.items[self.current_index].value == "opus";
+
+                            ControlPanelFunctions.state_update({
+                                resolution: ControlPanelAdapter.resolutions[ControlPanelAdapter.resolution_index].value,
+                                muted: ControlPanelAdapter.muted,
+                                opus: ControlPanelAdapter.opus
+                            });
+
+
                             root.selected_dropdown = "";
                         }
                         current-index: 0;

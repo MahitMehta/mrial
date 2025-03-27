@@ -204,11 +204,14 @@ impl VideoThread {
             let mut fps_clock = std::time::Instant::now();
             let mut frame_count = 0u8;
             let mut fps = 0u8;
+            let mut frame_interval = 0u128;
 
             let mut previous_width = 0;
             let mut previous_height = 0;
 
             let mut rgb_buffer = Option::<RGBBuffer>::None;
+
+            let mut last: Option<std::time::Instant> = None;
 
             loop {
                 let buf = match receiver.recv() {
@@ -218,6 +221,25 @@ impl VideoThread {
                         break;
                     }
                 };
+                let skip = match last {
+                    Some(last) => {
+                        if last.elapsed().as_millis() > frame_interval && receiver.len() > 0 {
+                            debug!(
+                                "Skipping Frame | Interval: {} | Elapsed: {} | Queue: {}",
+                                frame_interval,
+                                last.elapsed().as_millis(),
+                                receiver.len()
+                            );
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    None => false,
+                };
+
+                last = Some(std::time::Instant::now());
+
                 let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&buf);
 
                 match ffmpeg_decoder.send_packet(&pt) {
@@ -264,6 +286,9 @@ impl VideoThread {
                                     .set_resolution_index(resolution_index.try_into().unwrap());
                             }
                         });
+                    } else if skip {
+                        debug!("Skipping Frame");
+                        continue;
                     }
 
                     if let Some(rgb) = &mut rgb_buffer {
@@ -272,6 +297,11 @@ impl VideoThread {
                             fps_clock = std::time::Instant::now();
                             trace!("FPS: {}", frame_count);
                             fps = frame_count;
+
+                            if fps > 0 {
+                                frame_interval = (1000.0 / fps as f32).ceil() as u128;
+                            }
+
                             frame_count = 0;
                         }
 

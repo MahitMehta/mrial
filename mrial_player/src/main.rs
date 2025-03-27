@@ -100,20 +100,7 @@ fn main() {
     let conn_channel = unbounded::<ConnectionAction>();
     let conn_sender = conn_channel.0.clone();
     let mut client = Client::new(
-        ClientMetaData {
-            width,
-            height,
-            widths: vec![],
-            heights: vec![],
-            server: Server {
-                name: String::new(),
-                address: String::new(),
-                port: 0,
-                os: String::new(),
-                username: String::new(),
-                pass: String::new(),
-            },
-        },
+        ClientMetaData::default(),
         conn_channel.0.clone(),
     );
 
@@ -472,16 +459,14 @@ fn main() {
                     let packet_type = parse_packet_type(&buf);
 
                     match packet_type {
+                        EPacketType::NAL | EPacketType::XOR => {
+                            video.packet(&buf, &client, number_of_bytes)
+                        }
                         EPacketType::AudioPCM | EPacketType::AudioOpus => {
-                            if let Err(e) = audio_client.packet(packet_type, &buf, number_of_bytes) {
+                            if let Err(e) = audio_client.packet(packet_type, &buf, number_of_bytes)
+                            {
                                 debug!("Failed to play audio: {}", e);
                             }
-                        }
-                        // EPacketType::NAL | EPacketType::XOR => {
-                        //     video.packet(&buf, &client, number_of_bytes)
-                        // }
-                        EPacketType::NAL => {
-                            video.packet(&buf, &client, number_of_bytes);
                         }
                         _ => {}
                     }

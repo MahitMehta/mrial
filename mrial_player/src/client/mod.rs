@@ -22,12 +22,28 @@ pub enum ConnectionState {
     Connected,
 }
 
+impl Default for ClientMetaData {
+    fn default() -> Self {
+        ClientMetaData {
+            width: 0,
+            height: 0,
+            widths: vec![],
+            heights: vec![],
+            muted: false,
+            opus: true,
+            server: Server::default(),
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct ClientMetaData {
     pub width: usize,
     pub height: usize,
     pub widths: Vec<u16>,
     pub heights: Vec<u16>,
+    pub muted: bool,
+    pub opus: bool,
     pub server: Server,
 }
 
@@ -180,10 +196,12 @@ impl Client {
     }
 
     fn update_client_conn_state(&self, payload: ServerStatePayload) {
-        self.meta.write().unwrap().widths = payload.widths.try_into().unwrap();
-        self.meta.write().unwrap().heights = payload.heights.try_into().unwrap();
+        if let Ok(mut meta_handle) = self.meta.write() {
+            meta_handle.widths = payload.widths;
+            meta_handle.heights = payload.heights;
 
-        let _ = &self.conn_sender.send(ConnectionAction::UpdateState);
+            let _ = &self.conn_sender.send(ConnectionAction::UpdateState);
+        }
     }
 
     pub fn send_handshake(&mut self) {
@@ -210,10 +228,17 @@ impl Client {
                     if let Ok(pub_key) = RsaPublicKey::from_pkcs1_pem(&shookue_payload.pub_key) {
                         debug!("Valid Public Key Received");
 
-                        let client_state = ClientStatePayload {
-                            width: self.meta.read().unwrap().width.try_into().unwrap(),
-                            height: self.meta.read().unwrap().height.try_into().unwrap(),
-                            muted: false,
+                        let client_state = match self.meta.read() {
+                            Ok(meta) => ClientStatePayload {
+                                width: meta.width as u16,
+                                height: meta.height as u16,
+                                muted: meta.muted,
+                                opus: meta.opus
+                            },
+                            Err(_e) => {
+                                debug!("Failed to Read Client Meta Data");
+                                return;
+                            }
                         };
 
                         let mut rng = rand::thread_rng();

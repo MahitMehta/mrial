@@ -360,12 +360,13 @@ impl Input {
                         width,
                         height,
                         muted: state.muted,
+                        opus: state.opus,
                     };
 
                     if let Ok(sym_key) = sym_key.read() {
                         let sym_key = sym_key.clone();
                         debug!("Client State: {:?}", client_state);
-    
+
                         let size = match ClientStatePayload::write_payload(
                             &mut buf[HEADER..],
                             sym_key,
@@ -377,7 +378,7 @@ impl Input {
                                 return;
                             }
                         };
-    
+
                         write_header(
                             EPacketType::ClientState,
                             0,
@@ -385,7 +386,7 @@ impl Input {
                             0,
                             &mut buf[0..HEADER + size],
                         );
-    
+
                         client_state_sender
                             .send(buf[0..HEADER + size].to_vec())
                             .unwrap();
