@@ -8,6 +8,7 @@ pub struct ClientStatePayload {
     pub width: u16,
     pub height: u16,
     pub muted: bool,
+    pub opus: bool,
 }
 
 impl JSONPayloadSE for ClientStatePayload {}
@@ -63,7 +64,7 @@ pub trait JSONPayloadSE: serde::Serialize + serde::de::DeserializeOwned {
         buf: &mut [u8],
         sym_key: Option<ChaCha20Poly1305>,
         payload: &Self,
-    ) -> Result<usize, &'static str> { 
+    ) -> Result<usize, &'static str> {
         let serialized_payload = serde_json::to_string(&payload).unwrap();
         let nonce = ChaCha20Poly1305::generate_nonce(ThreadRng::default());
         let bytes = serialized_payload.as_bytes();

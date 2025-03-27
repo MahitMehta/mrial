@@ -5,6 +5,19 @@ use storage::{StorageMulti, StorageMultiType};
 
 pub mod storage;
 
+impl Default for Server {
+    fn default() -> Self {
+        Server {
+            name: String::new(),
+            address: String::new(),
+            port: 0,
+            os: String::new(),
+            username: String::new(),
+            pass: String::new(),
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Server {
     pub name: String,

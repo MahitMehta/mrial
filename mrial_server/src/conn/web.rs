@@ -4,7 +4,10 @@ use bytes::Bytes;
 use kanal::{bounded_async, unbounded, AsyncReceiver, AsyncSender, Sender};
 use log::{debug, error};
 
-use mrial_proto::{deploy::{Broadcaster, PacketDeployer}, EPacketType};
+use mrial_proto::{
+    deploy::{Broadcaster, PacketDeployer},
+    EPacketType,
+};
 use tokio::{runtime::Handle, sync::RwLock, task::JoinHandle};
 use webrtc::{
     api::APIBuilder,
@@ -48,7 +51,7 @@ impl Broadcaster for WebVideoBroadcaster {
     async fn broadcast(&self, bytes: &[u8]) {
         let clients = self.clients.read().await;
 
-        for client in clients.iter(){
+        for client in clients.iter() {
             let bytes = Bytes::from(bytes.to_owned());
             if let Err(e) = client.data_channel.send(&bytes).await {
                 error!("Failed to Broadcast Audio to Client (Disconnecting): {e}");
@@ -61,14 +64,14 @@ impl Broadcaster for WebVideoBroadcaster {
 }
 
 struct WebAudioBroadcaster {
-    clients: Arc<RwLock<Vec<WebClient>>>
+    clients: Arc<RwLock<Vec<WebClient>>>,
 }
 
 impl Broadcaster for WebAudioBroadcaster {
     async fn broadcast(&self, bytes: &[u8]) {
         let clients = self.clients.read().await;
 
-        for client in clients.iter(){
+        for client in clients.iter() {
             // if client.muted {
             //     continue;
             // }
@@ -99,15 +102,19 @@ impl WebBroadcastTask {
         let (packet_type, buf) = payload;
 
         match packet_type {
-             EPacketType::NAL => {
-                 self.video_deployer.slice_and_send(&buf, &self.video_broadcaster).await;
-             }
-             EPacketType::AudioPCM => {
-                 self.audio_deployer.slice_and_send(&buf, &self.audio_broadcaster).await;
-             }
-             _ => {
-                 error!("Unsupported Packet Type (Dropping): {:?}", packet_type);
-             }
+            EPacketType::NAL => {
+                self.video_deployer
+                    .slice_and_send(&buf, &self.video_broadcaster)
+                    .await;
+            }
+            EPacketType::AudioPCM => {
+                self.audio_deployer
+                    .slice_and_send(&buf, &self.audio_broadcaster)
+                    .await;
+            }
+            _ => {
+                error!("Unsupported Packet Type (Dropping): {:?}", packet_type);
+            }
         }
     }
 
@@ -123,12 +130,14 @@ impl WebBroadcastTask {
         receiver: AsyncReceiver<BroadcastPayload>,
     ) -> JoinHandle<()> {
         tokio_handle.spawn(async move {
-            let mut thread = Self { 
+            let mut thread = Self {
                 audio_deployer: PacketDeployer::new(EPacketType::AudioPCM, false),
                 video_deployer: PacketDeployer::new(EPacketType::NAL, false),
-                video_broadcaster: WebVideoBroadcaster { clients: clients.clone() },
+                video_broadcaster: WebVideoBroadcaster {
+                    clients: clients.clone(),
+                },
                 audio_broadcaster: WebAudioBroadcaster { clients },
-                receiver 
+                receiver,
             };
 
             thread.broadcast_loop().await;
@@ -174,7 +183,11 @@ impl WebConnection {
     }
 
     #[inline]
-    pub fn broadcast_frame(&self, packet_type: EPacketType, buf: &[u8]) -> Result<(), BroadcastTaskError> {
+    pub fn broadcast_frame(
+        &self,
+        packet_type: EPacketType,
+        buf: &[u8],
+    ) -> Result<(), BroadcastTaskError> {
         let bytes = buf.to_owned();
 
         if let Ok(task) = self.broadcast_task.read() {

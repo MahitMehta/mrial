@@ -14,7 +14,10 @@ use std::{
     sync::Arc,
     time::Duration,
 };
-use tokio::{sync::Mutex, time::{sleep, Instant}};
+use tokio::{
+    sync::Mutex,
+    time::{sleep, Instant},
+};
 use x264::{Encoder, Param, Picture};
 use yuv::YUVBuffer;
 
@@ -146,8 +149,11 @@ impl VideoServerTask {
     }
 
     async fn handle_app_broadcast(&self, buf: &[u8]) {
-        if let Err(e) = self.conn.app_encrypted_broadcast(
-            EPacketType::NAL, buf).await {
+        if let Err(e) = self
+            .conn
+            .app_encrypted_broadcast(EPacketType::NAL, buf)
+            .await
+        {
             match e {
                 BroadcastTaskError::TaskNotRunning => {
                     error!("App Broadcast Task Not Running");
@@ -166,12 +172,11 @@ impl VideoServerTask {
     }
 
     fn handle_web_broadcast(&self, buf: &[u8]) {
-        if let Err(e) = self.conn.web_encrypted_broadcast(
-            EPacketType::NAL, buf) {
+        if let Err(e) = self.conn.web_encrypted_broadcast(EPacketType::NAL, buf) {
             match e {
                 BroadcastTaskError::TaskNotRunning => {
                     error!("Web Broadcast Task Not Running");
-                 
+
                     debug!("Restarting Web Broadcast Task");
                     self.conn.get_web().start_broadcast_async_task();
                 }
@@ -233,29 +238,31 @@ impl VideoServerTask {
                     _ => {}
                 }
 
-                if let Err(e) = video_server_ch_sender.send(VideoServerAction::RestartStream).await {
+                if let Err(e) = video_server_ch_sender
+                    .send(VideoServerAction::RestartStream)
+                    .await
+                {
                     error!("Error sending RestartStream action: {}", e);
                 }
 
                 if let Err(e) = self
                     .events_sender
                     .send(EventsTaskAction::RestartInputTread)
-                    .await 
+                    .await
                 {
                     warn!("Error sending ReconnectInputModules action: {}", e);
                 }
             }
             #[cfg(target_os = "linux")]
-            VideoServerAction::NewUserSession =>
-            {
-                match session::config_xenv() {
-                    Ok(Setting::PostLogin) => {
-                        self.setting = Setting::PostLogin;
-                        video_server_ch_sender.send(VideoServerAction::RestartStream).await?;
-                    }
-                    _ => {}
+            VideoServerAction::NewUserSession => match session::config_xenv() {
+                Ok(Setting::PostLogin) => {
+                    self.setting = Setting::PostLogin;
+                    video_server_ch_sender
+                        .send(VideoServerAction::RestartStream)
+                        .await?;
                 }
-            }
+                _ => {}
+            },
             VideoServerAction::Inactive => {
                 self.encoder = x264::Encoder::open(&mut self.par)?;
             }
@@ -268,7 +275,9 @@ impl VideoServerTask {
                     Err(e) => {
                         debug!("Error Restarting Stream: {}", e);
                         sleep(Duration::from_millis(100)).await;
-                        video_server_ch_sender.send(VideoServerAction::RestartStream).await?;
+                        video_server_ch_sender
+                            .send(VideoServerAction::RestartStream)
+                            .await?;
                     }
                 }
             }
@@ -284,14 +293,19 @@ impl VideoServerTask {
                     debug!("Error updating display resolution: {}", e);
                 }
 
-                video_server_ch_sender.send(VideoServerAction::RestartStream).await?;
+                video_server_ch_sender
+                    .send(VideoServerAction::RestartStream)
+                    .await?;
             }
         }
 
         Ok(())
     }
 
-    fn start_session_thread(&mut self, ch_sender: AsyncSender<VideoServerAction>) -> Result<(), ()> {
+    fn start_session_thread(
+        &mut self,
+        ch_sender: AsyncSender<VideoServerAction>,
+    ) -> Result<(), ()> {
         let has_setting_thread = match &self.setting_thread {
             Some(handle) => !handle.is_finished(),
             None => false,
@@ -349,7 +363,7 @@ impl VideoServerTask {
 
         Ok(())
     }
-    
+
     #[inline]
     async fn frame_delay(&self, duration: Duration) {
         let start = Instant::now();
@@ -378,7 +392,7 @@ impl VideoServerTask {
             error!("Error starting audio thread.");
         }
 
-       if let Err(_) = self.start_session_thread(ch_sender.clone()) {
+        if let Err(_) = self.start_session_thread(ch_sender.clone()) {
             error!("Error starting session thread.");
         }
 
@@ -457,7 +471,7 @@ impl VideoServerTask {
                         if has_web_clients {
                             self.handle_web_broadcast(&nal.as_bytes());
                         }
-            
+
                         frames += 1;
                     }
 
@@ -474,9 +488,9 @@ impl VideoServerTask {
                     let current_elapsed = sleep.elapsed().as_micros();
                     if current_elapsed > 0 && current_elapsed < 16667 {
                         let requested_delay = 16667 - current_elapsed;
-                        self.frame_delay(Duration::from_micros(requested_delay as u64)).await;
+                        self.frame_delay(Duration::from_micros(requested_delay as u64))
+                            .await;
                     }
-                    
                 }
                 Err(ref e) if e.kind() == WouldBlock => {}
                 Err(e) => {

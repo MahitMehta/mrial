@@ -1,7 +1,4 @@
-use std::{
-    net::SocketAddr,
-    sync::Arc, thread
-};
+use std::{net::SocketAddr, sync::Arc, thread};
 
 use bytes::Bytes;
 use enigo::{
@@ -24,7 +21,7 @@ use crate::{audio::AudioServerAction, conn::ConnectionManager};
 
 pub enum InputThreadAction {
     Restart,
-    Input(InputPayload)
+    Input(InputPayload),
 }
 
 pub struct InputThread {
@@ -43,8 +40,8 @@ pub struct InputThread {
 impl InputThread {
     #[cfg(target_os = "linux")]
     fn new(
-        input_receiver: Receiver<InputThreadAction>, 
-        video_server_ch_sender: Sender<VideoServerAction>
+        input_receiver: Receiver<InputThreadAction>,
+        video_server_ch_sender: Sender<VideoServerAction>,
     ) -> Result<Self, enigo::NewConError> {
         let uinput =
             mouse_keyboard_input::VirtualDevice::new(Duration::new(0.040 as u64, 0), 2000).unwrap();
@@ -91,7 +88,10 @@ impl InputThread {
     }
 
     #[cfg(not(target_os = "linux"))]
-    fn new(input_receiver: Receiver<InputThreadAction>, video_server_ch_sender: Sender<VideoServerAction>) -> Result<Self, enigo::NewConError> {
+    fn new(
+        input_receiver: Receiver<InputThreadAction>,
+        video_server_ch_sender: Sender<VideoServerAction>,
+    ) -> Result<Self, enigo::NewConError> {
         let enigo = Enigo::new(&Settings::default())?;
 
         Ok(Self {
@@ -358,7 +358,7 @@ impl EventsTask {
 
     async fn handle_web_event(&mut self, buf: Bytes) {
         let packet_type = parse_packet_type(&buf);
- 
+
         match packet_type {
             EPacketType::InputState => {
                 let meta = self.conn.get_meta().await;
@@ -403,7 +403,8 @@ impl EventsTask {
 
                 if let Err(e) = self
                     .video_server_ch_sender
-                    .send(VideoServerAction::ConfigUpdate).await
+                    .send(VideoServerAction::ConfigUpdate)
+                    .await
                 {
                     warn!(
                         "Error sending {:?} action to video server: {}",
@@ -433,7 +434,7 @@ impl EventsTask {
                 };
 
                 debug!("Client State: {:?}", meta);
-                
+
                 app.mute_client(src, meta.muted.try_into().unwrap()).await;
 
                 self.conn
@@ -442,11 +443,12 @@ impl EventsTask {
                         meta.height.try_into().unwrap(),
                     )
                     .await;
-            
 
-                if let Err(e) = self.video_server_ch_sender
+                if let Err(e) = self
+                    .video_server_ch_sender
                     .send(VideoServerAction::ConfigUpdate)
-                    .await {
+                    .await
+                {
                     warn!(
                         "Error sending {:?} action to video server: {}",
                         VideoServerAction::ConfigUpdate,
@@ -471,7 +473,8 @@ impl EventsTask {
 
                 if let Err(e) = self
                     .video_server_ch_sender
-                    .send(VideoServerAction::Inactive).await
+                    .send(VideoServerAction::Inactive)
+                    .await
                 {
                     warn!("Error sending inactive action to video server: {}", e);
                 }
@@ -491,7 +494,7 @@ impl EventsTask {
     }
 
     fn start_input_thread(&self) -> thread::JoinHandle<()> {
-        let video_server_ch_sender = self.video_server_ch_sender.clone_sync(); 
+        let video_server_ch_sender = self.video_server_ch_sender.clone_sync();
         let input_receiver = self.input_receiver.clone();
 
         thread::spawn(move || {
@@ -544,7 +547,7 @@ impl EventsTask {
                     match action_ret {
                         Ok(EventsTaskAction::RestartInputTread) => {
                             let mut input_thread_handle_lock = self.input_thread_handle.lock().await;
-                            
+
                             if input_thread_handle_lock.is_none() || input_thread_handle_lock.as_ref().unwrap().is_finished() {
                                 debug!("Fresh Restarting input thread");
                                 *input_thread_handle_lock = Some(self.start_input_thread());
@@ -557,7 +560,7 @@ impl EventsTask {
                         Err(e) => {
                             warn!("Error receiving event action: {}", e);
                         }
-                    }  
+                    }
                 }
             }
         }

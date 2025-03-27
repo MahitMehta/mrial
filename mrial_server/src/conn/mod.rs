@@ -93,17 +93,28 @@ impl ConnectionManager {
     }
 
     #[inline]
-    pub fn web_encrypted_broadcast(&self, packet_type: EPacketType, buf: &[u8]) -> Result<(), BroadcastTaskError> {
+    pub fn web_encrypted_broadcast(
+        &self,
+        packet_type: EPacketType,
+        buf: &[u8],
+    ) -> Result<(), BroadcastTaskError> {
         self.web.broadcast_frame(packet_type, buf)
     }
 
     #[inline]
-    pub async fn app_encrypted_broadcast(&self, packet_type: EPacketType, buf: &[u8]) -> Result<(), BroadcastTaskError> {
+    pub async fn app_encrypted_broadcast(
+        &self,
+        packet_type: EPacketType,
+        buf: &[u8],
+    ) -> Result<(), BroadcastTaskError> {
         self.app.broadcast_encrypted_frame(packet_type, buf).await
     }
 
     #[inline]
-    pub async fn app_recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
+    pub async fn app_recv_from(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<(usize, SocketAddr), std::io::Error> {
         self.app.recv_from(buf).await
     }
 

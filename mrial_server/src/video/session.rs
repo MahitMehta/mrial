@@ -70,14 +70,14 @@ fn get_x11_authenicated_client() -> Result<Option<String>, Box<dyn std::error::E
         .arg("-c")
         .arg("who | grep tty7")
         .output()
-        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?; 
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
     if gui_users_output.stdout.is_empty() || !gui_users_output.status.success() {
         return Ok(None);
     }
 
     let output_str = String::from_utf8(gui_users_output.stdout)
-        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?; 
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
 
     if let Some(user) = output_str.split_whitespace().next() {
         return Ok(Some(user.to_string()));
@@ -102,7 +102,8 @@ impl SessionSettingTask {
 
                 self.setting = Setting::PostLogin;
                 self.video_server_ch_sender
-                    .send(VideoServerAction::NewUserSession).await?;
+                    .send(VideoServerAction::NewUserSession)
+                    .await?;
             }
             Err(e) => {
                 error!("Error checking for X11 authenticated client: {:?}", e);
@@ -122,7 +123,8 @@ impl SessionSettingTask {
 
                 self.setting = Setting::PreLogin;
                 self.video_server_ch_sender
-                    .send(VideoServerAction::RestartSession).await?;
+                    .send(VideoServerAction::RestartSession)
+                    .await?;
             }
             Err(e) => {
                 error!("Error checking for X11 authenticated client: {:?}", e);

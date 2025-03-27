@@ -52,6 +52,7 @@ impl From<u8> for EPacketType {
             11 => EPacketType::Alive,
             12 => EPacketType::XOR,
             13 => EPacketType::InternalEOL,
+            14 => EPacketType::AudioOpus,
             _ => EPacketType::Unknown,
         }
     }
@@ -145,7 +146,7 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
 #[inline]
 pub fn encrypt_frame(sym_key: &ChaCha20Poly1305, frame: &[u8]) -> Result<Vec<u8>, Error> {
     let nonce = ChaCha20Poly1305::generate_nonce(ThreadRng::default());
-    
+
     match sym_key.encrypt(&nonce, frame) {
         Ok(mut ciphertext) => {
             ciphertext.extend_from_slice(&nonce);

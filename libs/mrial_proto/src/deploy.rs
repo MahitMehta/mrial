@@ -35,24 +35,11 @@ impl PacketDeployer {
         let real_packet_size = bytes.len() as u32;
         let subpackets = subpacket_count(real_packet_size);
 
-        write_dynamic_header(
-            real_packet_size,
-            self.frame_id,
-            &mut self.buf,
-        );
-        write_dynamic_header(
-            real_packet_size,
-            self.frame_id,
-            &mut self.xor_buf,
-        );
+        write_dynamic_header(real_packet_size, self.frame_id, &mut self.buf);
+        write_dynamic_header(real_packet_size, self.frame_id, &mut self.xor_buf);
 
         if self.xor && subpackets > 2 {
-            PacketDeployer::broadcast_xor(
-                subpackets,
-                &bytes,
-                &mut self.xor_buf,
-                broadcaster,
-            ).await;
+            PacketDeployer::broadcast_xor(subpackets, &bytes, &mut self.xor_buf, broadcaster).await;
         }
 
         for i in 0..subpackets {
@@ -64,8 +51,7 @@ impl PacketDeployer {
             } else {
                 bytes.len() - start
             };
-            self.buf[HEADER..addition + HEADER]
-                .copy_from_slice(&bytes[start..addition + start]);
+            self.buf[HEADER..addition + HEADER].copy_from_slice(&bytes[start..addition + start]);
 
             broadcaster.broadcast(&self.buf[0..addition + HEADER]).await;
         }

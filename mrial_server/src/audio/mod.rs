@@ -16,8 +16,7 @@ pub struct AudioServerTask {
 }
 
 #[derive(Debug)]
-pub enum AudioServerAction {
-}
+pub enum AudioServerAction {}
 
 impl AudioServerTask {
     pub fn new(conn: ConnectionManager, receiver: Receiver<AudioServerAction>) -> Self {

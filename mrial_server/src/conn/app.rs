@@ -10,7 +10,10 @@ use std::{collections::HashMap, fmt, net::SocketAddr, sync::Arc, time::SystemTim
 use tokio::{net::UdpSocket, runtime::Handle, sync::RwLock, task::JoinHandle};
 
 use mrial_proto::{
-    deploy::{Broadcaster, PacketDeployer}, packet::*, ClientShakeAE, ClientStatePayload, JSONPayloadAE, JSONPayloadSE, JSONPayloadUE, ServerShookSE, ServerShookUE, ServerStatePayload, SERVER_PING_TOLERANCE
+    deploy::{Broadcaster, PacketDeployer},
+    packet::*,
+    ClientShakeAE, ClientStatePayload, JSONPayloadAE, JSONPayloadSE, JSONPayloadUE, ServerShookSE,
+    ServerShookUE, ServerStatePayload, SERVER_PING_TOLERANCE,
 };
 
 #[cfg(target_os = "linux")]
@@ -116,7 +119,7 @@ impl Broadcaster for AppVideoBroadcaster {
         for client in clients.values() {
             if let Err(e) = self.socket.send_to(bytes, client.src).await {
                 debug!("Failed to Broadcast Video to Client (Disconnecting): {}", e);
-                
+
                 let src_str: String = client.src.to_string();
                 self.clients.write().await.remove(&src_str);
             }
@@ -139,7 +142,7 @@ impl Broadcaster for AppAudioBroadcaster {
             }
             if let Err(e) = self.socket.send_to(bytes, client.src).await {
                 debug!("Failed to Broadcast Audio to Client (Disconnecting): {}", e);
-                
+
                 let src_str: String = client.src.to_string();
                 self.clients.write().await.remove(&src_str);
             }
@@ -154,15 +157,19 @@ impl AppBroadcastTask {
 
         match packet_type {
             EPacketType::NAL => {
-                self.video_deployer.slice_and_send(&bytes, &self.video_broadcaster).await;
+                self.video_deployer
+                    .slice_and_send(&bytes, &self.video_broadcaster)
+                    .await;
             }
             EPacketType::AudioPCM => {
-                self.audio_deployer.slice_and_send(&bytes, &self.audio_broadcaster).await;
+                self.audio_deployer
+                    .slice_and_send(&bytes, &self.audio_broadcaster)
+                    .await;
             }
             _ => {
                 error!("Unsupported Packet Type (Dropping): {:?}", packet_type);
             }
-       }
+        }
     }
 
     async fn broadcast_loop(&mut self) {
@@ -178,18 +185,15 @@ impl AppBroadcastTask {
         receiver: AsyncReceiver<BroadcastPayload>,
     ) -> JoinHandle<()> {
         tokio_handle.spawn(async move {
-            let mut thread = Self { 
+            let mut thread = Self {
                 receiver,
                 audio_deployer: PacketDeployer::new(EPacketType::AudioPCM, false),
                 video_deployer: PacketDeployer::new(EPacketType::NAL, false),
                 video_broadcaster: AppVideoBroadcaster {
                     socket: socket.clone(),
-                    clients: clients.clone()
+                    clients: clients.clone(),
                 },
-                audio_broadcaster: AppAudioBroadcaster {
-                    socket,
-                    clients
-                }
+                audio_broadcaster: AppAudioBroadcaster { socket, clients },
             };
 
             thread.broadcast_loop().await;
@@ -404,9 +408,10 @@ impl AppConnection {
             };
             debug!("Server Shook SE Payload Len: {}", payload_len);
 
-            if let Err(e) = self.socket
+            if let Err(e) = self
+                .socket
                 .send_to(&buf[..HEADER + payload_len], &src)
-                .await 
+                .await
             {
                 return Err(AppConnectionError::Unexpected(e.to_string()));
             }
@@ -480,12 +485,18 @@ impl AppConnection {
     }
 
     #[inline]
-    pub async fn broadcast_encrypted_frame(&self, packet_type: EPacketType, buf: &[u8]) -> Result<(), BroadcastTaskError> {
+    pub async fn broadcast_encrypted_frame(
+        &self,
+        packet_type: EPacketType,
+        buf: &[u8],
+    ) -> Result<(), BroadcastTaskError> {
         let sym_key = match self.get_sym_key().await {
             Some(sym_key) => sym_key,
             None => {
-                return Err(BroadcastTaskError::EncryptionFailed("Symmetric Key Not Found".to_string()));
-            },
+                return Err(BroadcastTaskError::EncryptionFailed(
+                    "Symmetric Key Not Found".to_string(),
+                ));
+            }
         };
 
         match encrypt_frame(&sym_key, buf) {
@@ -495,7 +506,7 @@ impl AppConnection {
                         return Err(BroadcastTaskError::TaskNotRunning);
                     }
                 }
-        
+
                 if let Err(e) = self.broadcast_sender.send((packet_type, encrypted_frame)) {
                     return Err(BroadcastTaskError::TransferFailed(e.to_string()));
                 }
