@@ -100,9 +100,6 @@ impl Input {
         app_weak: slint::Weak<super::slint_generatedMainWindow::MainWindow>,
         client: Client,
     ) {
-        // TODO: don't store, make access to these values dynamic
-        let meta = client.get_meta_clone();
-
         let mut buf = [0; packet::HEADER + input::PAYLOAD];
         proto::write_header(
             EPacketType::InputState,
@@ -114,12 +111,12 @@ impl Input {
 
         let sender = self.channel.0.clone();
         let connected = Arc::clone(&self.connected);
-        let meta_clone = meta.clone();
 
         let _ = slint::invoke_from_event_loop(move || {
             let click_sender = sender.clone();
             let click_connected = connected.clone();
             let app_weak_clone = app_weak.clone();
+            let meta = client.get_meta_clone();
 
             app_weak
                 .unwrap()
@@ -130,7 +127,7 @@ impl Input {
                     }
 
                     let (x_offset, y_offset, win_width, win_height) =
-                        Input::video_offset(&meta_clone, &app_weak_clone);
+                        Input::video_offset(&meta, &app_weak_clone);
                     if y < y_offset
                         || y > win_height - y_offset
                         || x < x_offset
@@ -154,8 +151,8 @@ impl Input {
 
             let mouse_move_sender = sender.clone();
             let mouse_move_connected = connected.clone();
-            let meta_clone = meta.clone();
             let app_weak_clone = app_weak.clone();
+            let meta = client.get_meta_clone();
 
             app_weak
                 .unwrap()
@@ -166,7 +163,7 @@ impl Input {
                     }
 
                     let (x_offset, y_offset, win_width, win_height) =
-                        Input::video_offset(&meta_clone, &app_weak_clone);
+                        Input::video_offset(&meta, &app_weak_clone);
                     if y < y_offset
                         || y > win_height - y_offset
                         || x < x_offset
@@ -338,6 +335,7 @@ impl Input {
             let client_state_sender: Sender<Vec<u8>> = sender.clone();
             let client_state_sender_connected = connected.clone();
             let sym_key = client.get_sym_key();
+            let mut client_clone = client.clone();
 
             app_weak
                 .unwrap()
@@ -356,6 +354,7 @@ impl Input {
 
                     let mut buf = [0; MTU];
 
+                    client_clone.set_meta_via_state(&state);
                     let client_state = ClientStatePayload {
                         width,
                         height,

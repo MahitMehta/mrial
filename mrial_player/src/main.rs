@@ -333,10 +333,14 @@ fn main() {
                         audio_client.set_volume(volume.lock().unwrap().clone());
                     }
                     Some(ConnectionAction::UpdateState) => {
-                        let widths = client.get_meta().widths.clone();
-                        let heights = client.get_meta().heights.clone();
-                        let username = client.get_meta().server.username.clone();
-                        let server_name = client.get_meta().server.name.clone();
+                        let meta_lock = client.get_meta();
+                        let widths = meta_lock.widths.clone();
+                        let heights = meta_lock.heights.clone();
+                        let username = meta_lock.server.username.clone();
+                        let opus = meta_lock.opus;
+                        let muted = meta_lock.muted;
+
+                        let server_name = meta_lock.server.name.clone();
 
                         let app_weak_clone = app_weak.clone();
                         let _ = slint::invoke_from_event_loop(move || {
@@ -348,10 +352,21 @@ fn main() {
                                 });
                             });
 
+                            println!("Is Opus: {}", opus);
+                            println!("Is Muted: {}", muted);
+
                             app_weak_clone
                                 .unwrap()
                                 .global::<ControlPanelAdapter>()
                                 .set_resolutions(resolutions_model.into());
+                            app_weak_clone
+                                .unwrap()
+                                .global::<ControlPanelAdapter>()
+                                .set_opus(opus);
+                            app_weak_clone
+                                .unwrap()
+                                .global::<ControlPanelAdapter>()
+                                .set_muted(muted);
                             app_weak_clone
                                 .unwrap()
                                 .global::<BarialState>()

@@ -13,7 +13,7 @@ use mrial_fs::Server;
 use mrial_proto::*;
 use rsa::{pkcs1::DecodeRsaPublicKey, RsaPublicKey};
 
-use crate::ConnectionAction;
+use crate::{ClientState, ConnectionAction};
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum ConnectionState {
@@ -70,6 +70,13 @@ impl Client {
 
     pub fn get_meta_clone(&self) -> Arc<RwLock<ClientMetaData>> {
         self.meta.clone()
+    }
+
+    pub fn set_meta_via_state(&mut self, state: &ClientState) {
+        if let Ok(mut meta_handle) = self.meta.write() {
+            meta_handle.opus = state.opus;
+            meta_handle.muted = state.muted;
+        }
     }
 
     pub fn get_meta(&self) -> std::sync::RwLockReadGuard<ClientMetaData> {

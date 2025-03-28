@@ -130,6 +130,7 @@ export component ControlPanel inherits TouchArea {
                     }
                     MrialDropdown {
                         label: "Audio";
+                        current-index: ControlPanelAdapter.opus ? 1 : 0;
                         items: [
                             {
                                 label: "Original",
@@ -149,18 +150,15 @@ export component ControlPanel inherits TouchArea {
                             }; 
                         }
                         selected => {
-                            ControlPanelAdapter.opus = self.items[self.current_index].value == "opus";
-
                             ControlPanelFunctions.state_update({
                                 resolution: ControlPanelAdapter.resolutions[ControlPanelAdapter.resolution_index].value,
                                 muted: ControlPanelAdapter.muted,
-                                opus: ControlPanelAdapter.opus
+                                opus: self.items[self.current_index].value == "opus"
                             });
 
 
                             root.selected_dropdown = "";
                         }
-                        current-index: 0;
                     }
                 }
             }
