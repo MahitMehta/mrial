@@ -352,9 +352,6 @@ fn main() {
                                 });
                             });
 
-                            println!("Is Opus: {}", opus);
-                            println!("Is Muted: {}", muted);
-
                             app_weak_clone
                                 .unwrap()
                                 .global::<ControlPanelAdapter>()
