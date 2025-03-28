@@ -19,7 +19,8 @@ impl OpusEncoder {
             _ => unreachable!(),
         };
 
-        let encoder = Encoder::new(sample_rate, channel_setting, opus::Application::LowDelay)?;
+        let mut encoder = Encoder::new(sample_rate, channel_setting, opus::Application::LowDelay)?;
+        encoder.set_bitrate(opus::Bitrate::Bits(192_000))?;
 
         let mut buf = Vec::with_capacity(ENCODE_FRAME_SIZE * channels * mem::size_of::<f32>());
         buf.resize(ENCODE_FRAME_SIZE * channels * mem::size_of::<f32>(), 0u8);
@@ -29,6 +30,18 @@ impl OpusEncoder {
             buf,
             cursor: 0,
         })
+    }
+
+    pub fn flush_raw(&mut self, remaining: &mut [u8]) -> Option<usize> {
+        if self.cursor == 0 {
+            return None;
+        }
+
+        remaining[..self.cursor].copy_from_slice(&self.buf[0..self.cursor]);
+        let remaining_len = self.cursor;
+        self.cursor = 0;
+
+        Some(remaining_len)
     }
 
     pub fn encode_f32(

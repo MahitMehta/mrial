@@ -101,9 +101,10 @@ type BroadcastPayload = (EPacketType, Vec<u8>);
 struct AppBroadcastTask {
     receiver: AsyncReceiver<BroadcastPayload>,
 
-    audio_deployer: PacketDeployer,
-    audio_broadcaster: AppAudioBroadcaster,
+    audio_opus_deployer: PacketDeployer,
+    audio_pcm_deployer: PacketDeployer,
     video_deployer: PacketDeployer,
+    audio_broadcaster: AppAudioBroadcaster,
     video_broadcaster: AppVideoBroadcaster,
 }
 
@@ -162,7 +163,12 @@ impl AppBroadcastTask {
                     .await;
             }
             EPacketType::AudioPCM => {
-                self.audio_deployer
+                self.audio_pcm_deployer
+                    .slice_and_send(&bytes, &self.audio_broadcaster)
+                    .await;
+            }
+            EPacketType::AudioOpus => {
+                self.audio_opus_deployer
                     .slice_and_send(&bytes, &self.audio_broadcaster)
                     .await;
             }
@@ -187,7 +193,8 @@ impl AppBroadcastTask {
         tokio_handle.spawn(async move {
             let mut thread = Self {
                 receiver,
-                audio_deployer: PacketDeployer::new(EPacketType::AudioPCM, false),
+                audio_opus_deployer: PacketDeployer::new(EPacketType::AudioOpus, false),
+                audio_pcm_deployer: PacketDeployer::new(EPacketType::AudioPCM, false),
                 video_deployer: PacketDeployer::new(EPacketType::NAL, false),
                 video_broadcaster: AppVideoBroadcaster {
                     socket: socket.clone(),

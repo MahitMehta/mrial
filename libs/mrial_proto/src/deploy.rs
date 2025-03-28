@@ -55,6 +55,8 @@ impl PacketDeployer {
 
             broadcaster.broadcast(&self.buf[0..addition + HEADER]).await;
         }
+
+        self.frame_id += 1;
     }
 
     // TODO: The broadcast XOR function needs to be rewritten for improved performance and flexibility

@@ -1,9 +1,11 @@
 mod encoder;
 
 pub use self::encoder::*;
-use crate::conn::ConnectionManager;
+use crate::conn::{BroadcastTaskError, ConnectionManager};
 
 use kanal::Receiver;
+use log::{debug, error};
+use mrial_proto::EPacketType;
 use tokio::task::JoinHandle;
 
 pub trait IAudioStream {
@@ -16,7 +18,44 @@ pub struct AudioServerTask {
 }
 
 #[derive(Debug)]
-pub enum AudioServerAction {}
+pub enum AudioServerAction {
+}
+
+async fn broadcast_web_audio(conn: &ConnectionManager, packet_type: EPacketType, bytes: &[u8]) {
+    if let Err(e) = conn.web_encrypted_broadcast(packet_type, bytes) {
+        match e {
+            BroadcastTaskError::TaskNotRunning => {
+                error!("Web Broadcast Task Not Running");
+
+                debug!("Restarting Web Broadcast Task");
+                conn.get_web().start_broadcast_async_task();
+            }
+            BroadcastTaskError::TransferFailed(msg) => {
+                error!("Web Broadcast Send Error: {msg}");
+            }
+            _ => {}
+        }
+    }
+}
+
+async fn broadcast_app_audio(conn: &ConnectionManager, packet_type: EPacketType, bytes: &[u8]) {
+    if let Err(e) = conn.app_encrypted_broadcast(packet_type, bytes).await {
+        match e {
+            BroadcastTaskError::TaskNotRunning => {
+                error!("App Broadcast Task Not Running");
+
+                debug!("Restarting Web Broadcast Task");
+                conn.get_app().start_broadcast_async_task();
+            }
+            BroadcastTaskError::TransferFailed(msg) => {
+                error!("App Broadcast Send Error: {msg}");
+            }
+            BroadcastTaskError::EncryptionFailed(msg) => {
+                error!("App Broadcast Encryption Error: {msg}");
+            }
+        }
+    }
+}
 
 impl AudioServerTask {
     pub fn new(conn: ConnectionManager, receiver: Receiver<AudioServerAction>) -> Self {

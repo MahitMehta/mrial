@@ -37,6 +37,17 @@ pub trait Client {
 pub struct ServerMeta {
     pub width: usize,
     pub height: usize,
+    pub opus: bool
+}
+
+impl Default for ServerMeta {
+    fn default() -> Self {
+        Self {
+            width: 0,
+            height: 0,
+            opus: true
+        }
+    }
 }
 
 pub struct ConnectionManager {
@@ -50,10 +61,7 @@ impl ConnectionManager {
         Self {
             web: WebConnection::new(),
             app: AppConnection::new().await,
-            meta: Arc::new(RwLock::new(ServerMeta {
-                width: 0,
-                height: 0,
-            })),
+            meta: Arc::new(RwLock::new(ServerMeta::default())),
         }
     }
 
@@ -65,9 +73,33 @@ impl ConnectionManager {
         self.app.clone()
     }
 
+    #[inline]
+    pub async fn is_opus(&self) -> bool {
+        let meta = self.meta.read().await;
+        meta.opus
+    }
+
     pub async fn get_meta(&self) -> ServerMeta {
         let meta = self.meta.read().await;
-        return meta.clone();
+        meta.clone()
+    }
+
+    pub async fn set_meta(&self, meta: ServerMeta) -> bool {
+        let mut stream_restart_flag = false;
+
+        let mut current_meta = self.meta.write().await;
+
+        if current_meta.width != meta.width
+            || current_meta.height != meta.height
+        {
+            stream_restart_flag = true;
+        }
+
+        current_meta.width = meta.width;
+        current_meta.height = meta.height;
+        current_meta.opus = meta.opus;
+
+        stream_restart_flag
     }
 
     pub async fn set_dimensions(&self, width: usize, height: usize) {

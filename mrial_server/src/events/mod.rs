@@ -16,7 +16,7 @@ use tokio::{sync::Mutex, task::JoinHandle};
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
-use crate::video::VideoServerAction;
+use crate::{conn::ServerMeta, video::VideoServerAction};
 use crate::{audio::AudioServerAction, conn::ConnectionManager};
 
 pub enum InputThreadAction {
@@ -330,6 +330,9 @@ pub struct EventsTask {
     conn: ConnectionManager,
     headers: Arc<Mutex<Option<Vec<u8>>>>,
     video_server_ch_sender: AsyncSender<VideoServerAction>,
+
+    // TODO: Consider adding actions for configuring audio
+    #[allow(dead_code)]
     audio_server_ch_sender: AsyncSender<AudioServerAction>,
 }
 
@@ -392,13 +395,15 @@ impl EventsTask {
                     }
                 };
 
-                app.mute_client(src, meta.muted.try_into().unwrap()).await;
+                debug!("Client Meta: {:?}", meta);
 
+                app.mute_client(src, meta.muted).await;
                 self.conn
-                    .set_dimensions(
-                        meta.width.try_into().unwrap(),
-                        meta.height.try_into().unwrap(),
-                    )
+                    .set_meta(ServerMeta {
+                        width: meta.width as usize,
+                        height: meta.height as usize,
+                        opus: meta.opus,
+                    })
                     .await;
 
                 if let Err(e) = self
@@ -435,14 +440,18 @@ impl EventsTask {
 
                 debug!("Client State: {:?}", meta);
 
-                app.mute_client(src, meta.muted.try_into().unwrap()).await;
-
-                self.conn
-                    .set_dimensions(
-                        meta.width.try_into().unwrap(),
-                        meta.height.try_into().unwrap(),
-                    )
+                app.mute_client(src, meta.muted).await;
+                let needs_restart = self.conn
+                    .set_meta(ServerMeta {
+                        width: meta.width as usize,
+                        height: meta.height as usize,
+                        opus: meta.opus,
+                    })
                     .await;
+
+                if !needs_restart {
+                    return;
+                }
 
                 if let Err(e) = self
                     .video_server_ch_sender
