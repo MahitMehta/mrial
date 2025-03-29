@@ -471,10 +471,10 @@ fn main() {
                     let packet_type = parse_packet_type(&buf);
 
                     match packet_type {
-                        EPacketType::NAL | EPacketType::XOR => {
+                        EPacketType::NAL(_) | EPacketType::XOR => {
                             video.packet(&buf, &client, number_of_bytes)
                         }
-                        EPacketType::AudioPCM | EPacketType::AudioOpus => {
+                        EPacketType::Audio(_) => {
                             if let Err(e) = audio_client.packet(packet_type, &buf, number_of_bytes)
                             {
                                 debug!("Failed to play audio: {}", e);

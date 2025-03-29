@@ -31,7 +31,7 @@ impl VideoThread {
         let mut ping_buf = [0u8; HEADER];
 
         write_header(
-            crate::EPacketType::PING,
+            crate::EPacketType::Ping,
             0,
             HEADER.try_into().unwrap(),
             0,
@@ -239,6 +239,8 @@ impl VideoThread {
                 };
 
                 last = Some(std::time::Instant::now());
+
+                // println!("Packet Priority: {}", (buf[0] >> 5) & 0x3);
 
                 let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&buf);
 

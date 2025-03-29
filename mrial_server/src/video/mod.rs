@@ -5,7 +5,7 @@ pub mod yuv;
 use display::DisplayMeta;
 use kanal::{unbounded, unbounded_async, AsyncReceiver, AsyncSender, Receiver};
 use log::{debug, error, warn};
-use mrial_proto::EPacketType;
+use mrial_proto::{ENalType, EPacketType};
 use scrap::{Capturer, Display};
 use session::{SessionSettingTask, Setting};
 use std::{
@@ -149,9 +149,15 @@ impl VideoServerTask {
     }
 
     async fn handle_app_broadcast(&self, buf: &[u8]) {
+        let packet_type = if buf[0] & 0x1F == 5 {
+            EPacketType::NAL(ENalType::KeyFrame) }
+        else { 
+            EPacketType::NAL(ENalType::NonKeyFrame) 
+        };
+        
         if let Err(e) = self
             .conn
-            .app_encrypted_broadcast(EPacketType::NAL, buf)
+            .app_encrypted_broadcast(packet_type, buf)
             .await
         {
             match e {
@@ -172,7 +178,13 @@ impl VideoServerTask {
     }
 
     fn handle_web_broadcast(&self, buf: &[u8]) {
-        if let Err(e) = self.conn.web_encrypted_broadcast(EPacketType::NAL, buf) {
+        let packet_type = if buf[0] & 0x1F == 5 {
+            EPacketType::NAL(ENalType::KeyFrame) }
+        else { 
+            EPacketType::NAL(ENalType::NonKeyFrame) 
+        };
+        
+        if let Err(e) = self.conn.web_encrypted_broadcast(packet_type, buf) {
             match e {
                 BroadcastTaskError::TaskNotRunning => {
                     error!("Web Broadcast Task Not Running");

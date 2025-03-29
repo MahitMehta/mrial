@@ -1,5 +1,4 @@
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
-use bytes::Bytes;
 use chacha20poly1305::{aead::KeyInit, ChaCha20Poly1305};
 use kanal::{AsyncReceiver, Sender};
 use log::{debug, error};
@@ -103,6 +102,7 @@ struct AppBroadcastTask {
 
     audio_opus_deployer: PacketDeployer,
     audio_pcm_deployer: PacketDeployer,
+    video_key_deployer: PacketDeployer,
     video_deployer: PacketDeployer,
     audio_broadcaster: AppAudioBroadcaster,
     video_broadcaster: AppVideoBroadcaster,
@@ -157,17 +157,22 @@ impl AppBroadcastTask {
         let (packet_type, bytes) = payload;
 
         match packet_type {
-            EPacketType::NAL => {
+            EPacketType::NAL(ENalType::KeyFrame) => {
+                self.video_key_deployer
+                    .slice_and_send(&bytes, &self.video_broadcaster)
+                    .await;
+            }
+            EPacketType::NAL(ENalType::NonKeyFrame) => {
                 self.video_deployer
                     .slice_and_send(&bytes, &self.video_broadcaster)
                     .await;
             }
-            EPacketType::AudioPCM => {
+            EPacketType::Audio(EAudioType::PCM) => {
                 self.audio_pcm_deployer
                     .slice_and_send(&bytes, &self.audio_broadcaster)
                     .await;
             }
-            EPacketType::AudioOpus => {
+            EPacketType::Audio(EAudioType::Opus) => {
                 self.audio_opus_deployer
                     .slice_and_send(&bytes, &self.audio_broadcaster)
                     .await;
@@ -193,9 +198,10 @@ impl AppBroadcastTask {
         tokio_handle.spawn(async move {
             let mut thread = Self {
                 receiver,
-                audio_opus_deployer: PacketDeployer::new(EPacketType::AudioOpus, false),
-                audio_pcm_deployer: PacketDeployer::new(EPacketType::AudioPCM, false),
-                video_deployer: PacketDeployer::new(EPacketType::NAL, false),
+                audio_opus_deployer: PacketDeployer::new(EPacketType::Audio(EAudioType::Opus), false),
+                audio_pcm_deployer: PacketDeployer::new(EPacketType::Audio(EAudioType::PCM), false),
+                video_key_deployer: PacketDeployer::new(EPacketType::NAL(ENalType::KeyFrame), false),
+                video_deployer: PacketDeployer::new(EPacketType::NAL(ENalType::NonKeyFrame), false),
                 video_broadcaster: AppVideoBroadcaster {
                     socket: socket.clone(),
                     clients: clients.clone(),

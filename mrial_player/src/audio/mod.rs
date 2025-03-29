@@ -69,7 +69,7 @@ impl AudioClientThread {
                 };
 
                 match packet_type {
-                    EPacketType::AudioPCM => {
+                    EPacketType::Audio(EAudioType::PCM) => {
                         let f32_audio_slice = unsafe {
                             std::slice::from_raw_parts(
                                 audio_packet.as_ptr() as *const f32,
@@ -83,7 +83,7 @@ impl AudioClientThread {
                             sink.append(samples);
                         }
                     }
-                    EPacketType::AudioOpus => {
+                    EPacketType::Audio(EAudioType::Opus) => {
                         let uncompressed_len = match opus_decoder.decode_float(
                             &audio_packet,
                             &mut uncompressed_audio_buf,

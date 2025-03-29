@@ -470,7 +470,7 @@ impl EventsTask {
                     warn!("Error sending alive packet: {}", e);
                 }
             }
-            EPacketType::PING => {
+            EPacketType::Ping => {
                 self.conn.get_app().received_ping(src).await;
             }
             EPacketType::Disconnect => {
