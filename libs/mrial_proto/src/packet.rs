@@ -87,6 +87,7 @@ pub const PAYLOAD: usize = MTU - HEADER;
 // Payload Schema
 // variables sized unencrypted bytes (MAX = MTU - HEADER)
 
+/// Note: Resets the packet variant bits to 0
 #[inline]
 pub fn write_static_header(
     packet_type: EPacketType,
@@ -94,13 +95,14 @@ pub fn write_static_header(
     frame_id: u8,
     buf: &mut [u8],
 ) {
-    buf[0] |= packet_type as u8;
+    buf[0] = packet_type as u8;
     buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
     buf[7] = frame_id;
 }
 
 #[inline] 
 pub fn write_packet_type_variant(packet_type_variant: u8, buf: &mut [u8]) {
+    buf[0] &= 0b00011111; // reset the first 3 bits
     buf[0] |= (packet_type_variant << 5) & 0b11100000; // first 3 bits
 }
 
@@ -110,9 +112,10 @@ pub fn write_dynamic_header(real_packet_size: u32, frame_id: u8, buf: &mut [u8])
     buf[7] = frame_id;
 }
 
+/// Note: Resets the packet variant bits to 0
 #[inline]
 pub fn write_packet_type(packet_type: EPacketType, buf: &mut [u8]) {
-    buf[0] |= packet_type as u8;
+    buf[0] = packet_type as u8;
 }
 
 #[inline]
