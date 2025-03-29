@@ -57,7 +57,7 @@ impl Input {
     pub fn close_send_loop(&self) {
         self.channel
             .0
-            .send(vec![EPacketType::InternalEOL.into()])
+            .send(vec![EPacketType::InternalEOL as u8])
             .unwrap();
 
         while *self.connected.lock().unwrap() {

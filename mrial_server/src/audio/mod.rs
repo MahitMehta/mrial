@@ -39,7 +39,7 @@ async fn broadcast_web_audio(conn: &ConnectionManager, packet_type: EPacketType,
 }
 
 async fn broadcast_app_audio(conn: &ConnectionManager, packet_type: EPacketType, bytes: &[u8]) {
-    if let Err(e) = conn.app_encrypted_broadcast(packet_type, bytes).await {
+    if let Err(e) = conn.app_encrypted_broadcast(packet_type, 0, bytes).await {
         match e {
             BroadcastTaskError::TaskNotRunning => {
                 error!("App Broadcast Task Not Running");

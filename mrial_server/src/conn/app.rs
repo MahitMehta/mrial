@@ -10,7 +10,7 @@ use tokio::{net::UdpSocket, runtime::Handle, sync::RwLock, task::JoinHandle};
 
 use mrial_proto::{
     deploy::{Broadcaster, PacketDeployer},
-    packet::*,
+    packet::{self, *},
     ClientShakeAE, ClientStatePayload, JSONPayloadAE, JSONPayloadSE, JSONPayloadUE, ServerShookSE,
     ServerShookUE, ServerStatePayload, SERVER_PING_TOLERANCE,
 };
@@ -18,7 +18,7 @@ use mrial_proto::{
 #[cfg(target_os = "linux")]
 use crate::video::display::DisplayMeta;
 
-use super::{BroadcastTaskError, Client};
+use super::{BroadcastTaskError, Client, PacketTypeVariant};
 
 const SERVER_DEFAULT_PORT: u16 = 8554;
 const RSA_PRIVATE_KEY_BIT_SIZE: usize = 2048;
@@ -95,14 +95,13 @@ impl fmt::Display for AppConnectionError {
     }
 }
 
-type BroadcastPayload = (EPacketType, Vec<u8>);
+type BroadcastPayload = (EPacketType, PacketTypeVariant, Vec<u8>);
 
 struct AppBroadcastTask {
     receiver: AsyncReceiver<BroadcastPayload>,
 
-    audio_opus_deployer: PacketDeployer,
     audio_pcm_deployer: PacketDeployer,
-    video_key_deployer: PacketDeployer,
+    audio_opus_deployer: PacketDeployer,
     video_deployer: PacketDeployer,
     audio_broadcaster: AppAudioBroadcaster,
     video_broadcaster: AppVideoBroadcaster,
@@ -154,25 +153,20 @@ impl Broadcaster for AppAudioBroadcaster {
 impl AppBroadcastTask {
     #[inline]
     async fn broadcast(&mut self, payload: BroadcastPayload) {
-        let (packet_type, bytes) = payload;
+        let (packet_type, packet_type_variant, bytes) = payload;
 
         match packet_type {
-            EPacketType::NAL(ENalType::KeyFrame) => {
-                self.video_key_deployer
-                    .slice_and_send(&bytes, &self.video_broadcaster)
-                    .await;
-            }
-            EPacketType::NAL(ENalType::NonKeyFrame) => {
+            EPacketType::NAL => {
                 self.video_deployer
-                    .slice_and_send(&bytes, &self.video_broadcaster)
+                    .slice_and_send_variant(&bytes, packet_type_variant,  &self.video_broadcaster)
                     .await;
             }
-            EPacketType::Audio(EAudioType::PCM) => {
+            EPacketType::AudioPCM => {
                 self.audio_pcm_deployer
                     .slice_and_send(&bytes, &self.audio_broadcaster)
                     .await;
             }
-            EPacketType::Audio(EAudioType::Opus) => {
+            EPacketType::AudioOpus => {
                 self.audio_opus_deployer
                     .slice_and_send(&bytes, &self.audio_broadcaster)
                     .await;
@@ -198,10 +192,9 @@ impl AppBroadcastTask {
         tokio_handle.spawn(async move {
             let mut thread = Self {
                 receiver,
-                audio_opus_deployer: PacketDeployer::new(EPacketType::Audio(EAudioType::Opus), false),
-                audio_pcm_deployer: PacketDeployer::new(EPacketType::Audio(EAudioType::PCM), false),
-                video_key_deployer: PacketDeployer::new(EPacketType::NAL(ENalType::KeyFrame), false),
-                video_deployer: PacketDeployer::new(EPacketType::NAL(ENalType::NonKeyFrame), false),
+                audio_pcm_deployer: PacketDeployer::new(EPacketType::AudioPCM, false),
+                audio_opus_deployer: PacketDeployer::new(EPacketType::AudioOpus, false),
+                video_deployer: PacketDeployer::new(EPacketType::NAL, false),
                 video_broadcaster: AppVideoBroadcaster {
                     socket: socket.clone(),
                     clients: clients.clone(),
@@ -501,6 +494,7 @@ impl AppConnection {
     pub async fn broadcast_encrypted_frame(
         &self,
         packet_type: EPacketType,
+        packet_type_variant: PacketTypeVariant,
         buf: &[u8],
     ) -> Result<(), BroadcastTaskError> {
         let sym_key = match self.get_sym_key().await {
@@ -520,7 +514,7 @@ impl AppConnection {
                     }
                 }
 
-                if let Err(e) = self.broadcast_sender.send((packet_type, encrypted_frame)) {
+                if let Err(e) = self.broadcast_sender.send((packet_type, packet_type_variant ,encrypted_frame)) {
                     return Err(BroadcastTaskError::TransferFailed(e.to_string()));
                 }
 

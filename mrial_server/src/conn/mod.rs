@@ -10,6 +10,8 @@ use web::WebConnection;
 pub mod app;
 pub mod web;
 
+pub type PacketTypeVariant = u8;
+
 #[derive(Debug)]
 pub enum BroadcastTaskError {
     TransferFailed(String),
@@ -137,9 +139,10 @@ impl ConnectionManager {
     pub async fn app_encrypted_broadcast(
         &self,
         packet_type: EPacketType,
+        packet_type_variant: PacketTypeVariant,
         buf: &[u8],
     ) -> Result<(), BroadcastTaskError> {
-        self.app.broadcast_encrypted_frame(packet_type, buf).await
+        self.app.broadcast_encrypted_frame(packet_type, packet_type_variant, buf).await
     }
 
     #[inline]

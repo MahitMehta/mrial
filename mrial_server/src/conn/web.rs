@@ -5,7 +5,7 @@ use kanal::{bounded_async, unbounded, AsyncReceiver, AsyncSender, Sender};
 use log::{debug, error};
 
 use mrial_proto::{
-    deploy::{Broadcaster, PacketDeployer}, EAudioType, ENalType, EPacketType
+    deploy::{Broadcaster, PacketDeployer}, EPacketType
 };
 use tokio::{runtime::Handle, sync::RwLock, task::JoinHandle};
 use webrtc::{
@@ -89,9 +89,8 @@ impl Broadcaster for WebAudioBroadcaster {
 struct WebBroadcastTask {
     receiver: AsyncReceiver<BroadcastPayload>,
 
-    video_key_deployer: PacketDeployer,
     video_deployer: PacketDeployer,
-    audio_deployer: PacketDeployer,
+    audio_pcm_deployer: PacketDeployer,
     video_broadcaster: WebVideoBroadcaster,
     audio_broadcaster: WebAudioBroadcaster,
 }
@@ -102,18 +101,13 @@ impl WebBroadcastTask {
         let (packet_type, buf) = payload;
 
         match packet_type {
-            EPacketType::NAL(ENalType::KeyFrame) => {
-                self.video_key_deployer
-                    .slice_and_send(&buf, &self.video_broadcaster)
-                    .await;
-            }
-            EPacketType::NAL(ENalType::NonKeyFrame) => {
+            EPacketType::NAL => {
                 self.video_deployer
                     .slice_and_send(&buf, &self.video_broadcaster)
                     .await;
             }
-            EPacketType::Audio(EAudioType::PCM) => {
-                self.audio_deployer
+            EPacketType::AudioPCM => {
+                self.audio_pcm_deployer
                     .slice_and_send(&buf, &self.audio_broadcaster)
                     .await;
             }
@@ -136,9 +130,8 @@ impl WebBroadcastTask {
     ) -> JoinHandle<()> {
         tokio_handle.spawn(async move {
             let mut thread = Self {
-                audio_deployer: PacketDeployer::new(EPacketType::Audio(EAudioType::PCM), false),
-                video_deployer: PacketDeployer::new(EPacketType::NAL(ENalType::NonKeyFrame), false),
-                video_key_deployer: PacketDeployer::new(EPacketType::NAL(ENalType::NonKeyFrame), false),
+                audio_pcm_deployer: PacketDeployer::new(EPacketType::AudioPCM, false),
+                video_deployer: PacketDeployer::new(EPacketType::NAL, false),
                 video_broadcaster: WebVideoBroadcaster {
                     clients: clients.clone(),
                 },

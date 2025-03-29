@@ -6,39 +6,22 @@ use std::collections::HashMap;
 use crate::SE_NONCE;
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum ENalType {
+pub enum ENalVariant {
     KeyFrame = 0,
     NonKeyFrame = 1,
 }
 
-impl From<u8> for ENalType {
+impl From<u8> for ENalVariant {
     fn from(v: u8) -> Self {
         match v {
-            0 => ENalType::KeyFrame,
-            1 => ENalType::NonKeyFrame,
-            _ => ENalType::NonKeyFrame,
+            0 => ENalVariant::KeyFrame,
+            1 => ENalVariant::NonKeyFrame,
+            _ => ENalVariant::NonKeyFrame,
         }
     }
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
-pub enum EAudioType {
-    PCM = 0,
-    Opus = 1,
-}
-
-impl From<u8> for EAudioType {
-    fn from(v: u8) -> Self {
-        match v {
-            0 => EAudioType::PCM,
-            1 => EAudioType::Opus,
-            _ => EAudioType::PCM,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-#[repr(u8)]
 pub enum EPacketType {
     /// Header (Unecrypted)
     ShakeUE = 0,
@@ -50,69 +33,42 @@ pub enum EPacketType {
     // Header (Unecrypted) + JSON Containing Server State (Symmetrically Encrypted)
     ShookSE = 3,
     /// Header (Unecrypted) + Byte stream (Encrypted)
-    NAL(ENalType) = 4,
+    NAL = 4,
     /// Header (Unecrypted) + Byte stream (Encrypted)
-    Audio(EAudioType) = 5,
-    InputState = 6,
-    ClientState = 7,
-    ServerState = 8,
+    AudioPCM = 5,
+    AudioOpus = 6,
+    InputState = 7,
+    ClientState = 8,
+    ServerState = 9,
     /// Header (Unecrypted)
-    Disconnect = 9,
+    Disconnect = 10,
     /// Header (Unecrypted)
-    Ping = 10,
-    Alive = 11,
-    XOR = 12,
+    Ping = 11,
+    Alive = 12,
+    XOR = 13,
     // TODO: Add Server Pings in addition to Client Pings
-    InternalEOL = 13,
+    InternalEOL = 14,
     Unknown = 31,
-}
-
-impl Into<u8> for EPacketType {
-    fn into(self) -> u8 {
-        match self {
-            EPacketType::NAL(nal_type) => {
-                (nal_type as u8) << 5 | 4
-            }
-            EPacketType::Audio(audio_type) => {
-                (audio_type as u8) << 5 | 5
-            }
-            EPacketType::ShakeUE => 0,
-            EPacketType::ShookUE => 1,
-            EPacketType::ShakeAE => 2,
-            EPacketType::ShookSE => 3,
-            EPacketType::InputState => 6,
-            EPacketType::ClientState => 7,
-            EPacketType::ServerState => 8,
-            EPacketType::Disconnect => 9,
-            EPacketType::Ping => 10,
-            EPacketType::Alive => 11,
-            EPacketType::XOR => 12,
-            EPacketType::InternalEOL => 13,
-            EPacketType::Unknown => 31,
-        }
-    }
 }
 
 impl From<u8> for EPacketType {
     fn from(v: u8) -> Self {
-        let header_type = v >> 5;
-        let packet_type = v & 0x1F;
-
-        match packet_type {
+        match v {
             0 => EPacketType::ShakeUE,
             1 => EPacketType::ShookUE,
             2 => EPacketType::ShakeAE,
             3 => EPacketType::ShookSE,
-            4 => EPacketType::NAL(ENalType::from(header_type)),
-            5 => EPacketType::Audio(EAudioType::from(header_type)),
-            6 => EPacketType::InputState,
-            7 => EPacketType::ClientState,
-            8 => EPacketType::ServerState,
-            9 => EPacketType::Disconnect,
-            10 => EPacketType::Ping,
-            11 => EPacketType::Alive,
-            12 => EPacketType::XOR,
-            13 => EPacketType::InternalEOL,
+            4 => EPacketType::NAL,
+            5 => EPacketType::AudioPCM,
+            6 => EPacketType::AudioOpus,
+            7 => EPacketType::InputState,
+            8 => EPacketType::ClientState,
+            9 => EPacketType::ServerState,
+            10 => EPacketType::Disconnect,
+            11 => EPacketType::Ping,
+            12 => EPacketType::Alive,
+            13 => EPacketType::XOR,
+            14 => EPacketType::InternalEOL,
             _ => EPacketType::Unknown,
         }
     }
@@ -138,9 +94,14 @@ pub fn write_static_header(
     frame_id: u8,
     buf: &mut [u8],
 ) {
-    buf[0] = packet_type.into();
+    buf[0] |= packet_type as u8;
     buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
     buf[7] = frame_id;
+}
+
+#[inline] 
+pub fn write_packet_type_variant(packet_type_variant: u8, buf: &mut [u8]) {
+    buf[0] |= (packet_type_variant << 5) & 0b11100000; // first 3 bits
 }
 
 #[inline]
@@ -151,7 +112,7 @@ pub fn write_dynamic_header(real_packet_size: u32, frame_id: u8, buf: &mut [u8])
 
 #[inline]
 pub fn write_packet_type(packet_type: EPacketType, buf: &mut [u8]) {
-    buf[0] = packet_type.into();
+    buf[0] |= packet_type as u8;
 }
 
 #[inline]
@@ -185,7 +146,12 @@ pub fn parse_real_packet_size(buf: &[u8]) -> u32 {
 
 #[inline]
 pub fn parse_packet_type(buf: &[u8]) -> EPacketType {
-    EPacketType::from(buf[0])
+    EPacketType::from(buf[0] & 0x1F)
+}
+
+#[inline]
+pub fn parse_packet_type_variant(buf: &[u8]) -> u8 {
+    (buf[0] & 0b11100000) >> 5
 }
 
 #[inline]
@@ -620,7 +586,8 @@ impl PacketConstructor {
 
     #[inline]
     pub fn assemble_packet(&mut self, buf: &[u8], number_of_bytes: usize) -> Option<Vec<u8>> {
-        if parse_packet_type(buf) == EPacketType::XOR {
+        let packet_type = parse_packet_type(buf);
+        if packet_type == EPacketType::XOR {
             if !self.xor_packets.contains_key(&parse_frame_id(buf)) {
                 self.xor_packets
                     .insert(parse_frame_id(buf), vec![buf[..number_of_bytes].to_vec()]);
@@ -665,6 +632,13 @@ impl PacketConstructor {
         for packet in &self.packets {
             assembled_packet.extend_from_slice(&packet[HEADER..]);
         }
+
+        if packet_type == EPacketType::NAL {
+            debug!("Assembled Packet Variant: {:?}",
+                ENalVariant::from(parse_packet_type_variant(&self.packets[0]))
+            );
+        }
+
 
         #[cfg(feature = "stat")]
         self.calculate_yield(frame_id);

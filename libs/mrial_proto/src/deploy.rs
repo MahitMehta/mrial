@@ -1,6 +1,5 @@
 use crate::{
-    subpacket_count, write_dynamic_header, write_packet_type, write_packets_remaining, EPacketType,
-    HEADER, MTU, PAYLOAD,
+    subpacket_count, write_dynamic_header, write_packet_type, write_packet_type_variant, write_packets_remaining, EPacketType, HEADER, MTU, PAYLOAD
 };
 
 pub trait Broadcaster {
@@ -28,6 +27,14 @@ impl PacketDeployer {
             xor_buf,
             buf,
         }
+    }
+
+    #[inline] 
+    pub async fn slice_and_send_variant<T: Broadcaster>(
+        &mut self, bytes: &[u8], packet_type_variant: u8, broadcaster: &T) {
+
+        write_packet_type_variant(packet_type_variant, &mut self.buf);
+        self.slice_and_send(bytes, broadcaster).await;
     }
 
     #[inline]
