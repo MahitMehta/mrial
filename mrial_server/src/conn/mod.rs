@@ -136,6 +136,21 @@ impl ConnectionManager {
     }
 
     #[inline]
+    pub async fn app_retransmit_frame(
+        &self,
+        src: SocketAddr,
+        frame_id: u8,
+        real_packet_size: u32,
+        subpacket_ids: Vec<u16>,
+    ) {
+        self.app.retransmit_frame(src, frame_id, real_packet_size, subpacket_ids).await
+    }
+    
+    pub async fn app_drain_subpacket_cache(&self) {
+        self.app.drain_subpacket_cache().await
+    }
+
+    #[inline]
     pub async fn app_encrypted_broadcast(
         &self,
         packet_type: EPacketType,

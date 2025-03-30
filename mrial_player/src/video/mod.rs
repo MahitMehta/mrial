@@ -20,7 +20,7 @@ use crate::client::Client;
 
 pub struct VideoThread {
     pub channel: (Sender<Vec<u8>>, Receiver<Vec<u8>>),
-    packet_constructor: PacketConstructor,
+    packet_constructor: NALPacketConstructor,
     clock: std::time::Instant,
     ping_buf: [u8; HEADER],
     file: Option<File>,
@@ -39,7 +39,7 @@ impl VideoThread {
         );
 
         VideoThread {
-            packet_constructor: PacketConstructor::new(),
+            packet_constructor: NALPacketConstructor::new(),
             clock: std::time::Instant::now(),
             channel: unbounded(),
             ping_buf,
@@ -240,8 +240,6 @@ impl VideoThread {
 
                 last = Some(std::time::Instant::now());
 
-                // println!("Packet Priority: {}", (buf[0] >> 5) & 0x3);
-
                 let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&buf);
 
                 match ffmpeg_decoder.send_packet(&pt) {
@@ -352,25 +350,32 @@ impl VideoThread {
 
     #[inline]
     pub fn packet(&mut self, buf: &[u8], client: &Client, number_of_bytes: usize) {
-        let encrypted_nalu = match self
+        let state =self
             .packet_constructor
-            .assemble_packet(buf, number_of_bytes)
-        {
-            Some(encrypted_nalu) => encrypted_nalu,
-            None => return,
-        };
+            .assemble_packet(buf, number_of_bytes, &|encrypted_nalu: Vec<u8>| {
+                let sym_key = client.get_sym_key();
+                let sym_key = sym_key.read().unwrap();
+        
+                let nalu = match decrypt_frame(sym_key.as_ref().unwrap(), &encrypted_nalu) {
+                    Some(nalu) => nalu,
+                    None => return,
+                };
+        
+                self.channel.0.send(nalu).unwrap();
+            }, &|frame_id, real_packet_size, subpacket_ids| {
+                if let Err(e) = client.retransmit(
+                    frame_id,
+                    real_packet_size,
+                    subpacket_ids,
+                ) {
+                    log::error!("Error Requesting Retransmission: {}", e);
+                }
+            });       
 
-        let sym_key = client.get_sym_key();
-        let sym_key = sym_key.read().unwrap();
+        if state == EAssemblerState::Waiting {
+            return;
+        }
 
-        let nalu = match decrypt_frame(sym_key.as_ref().unwrap(), &encrypted_nalu) {
-            Some(nalu) => nalu,
-            None => return,
-        };
-
-        self.channel.0.send(nalu).unwrap();
-
-        // TODO: Possibly remove this computation from the main thread
         if self.clock.elapsed().as_secs() > CLIENT_PING_FREQUENCY {
             self.clock = std::time::Instant::now();
             client.send(&self.ping_buf).unwrap();

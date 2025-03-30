@@ -383,6 +383,10 @@ impl EventsTask {
         let packet_type = parse_packet_type(&buf);
 
         match packet_type {
+            EPacketType::Retransmit => {
+                let (frame_id, real_packet_size, subpacket_ids) = parse_retransmit_body(buf);
+                self.conn.app_retransmit_frame(src, frame_id, real_packet_size, subpacket_ids).await;
+            }
             EPacketType::ShakeAE => {
                 let mut app = self.conn.get_app();
 

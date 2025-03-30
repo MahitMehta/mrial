@@ -488,6 +488,8 @@ impl VideoServerTask {
                         );
                         frames = 0;
                         fps_time = Instant::now();
+
+                        self.conn.app_drain_subpacket_cache().await;
                     }
 
                     let current_elapsed = sleep.elapsed().as_micros();

@@ -3,14 +3,16 @@ use chacha20poly1305::{aead::KeyInit, ChaCha20Poly1305};
 use kanal::{AsyncReceiver, Sender};
 use log::{debug, error};
 use mrial_fs::{storage::StorageMultiType, Users};
+use opus::packet::parse;
 use rand::thread_rng;
 use rsa::{pkcs1::EncodeRsaPublicKey, RsaPrivateKey, RsaPublicKey};
+use serde_json::de;
 use std::{collections::HashMap, fmt, net::SocketAddr, sync::Arc, time::SystemTime};
 use tokio::{net::UdpSocket, runtime::Handle, sync::RwLock, task::JoinHandle};
 
 use mrial_proto::{
     deploy::{Broadcaster, PacketDeployer},
-    packet::{self, *},
+    packet::*,
     ClientShakeAE, ClientStatePayload, JSONPayloadAE, JSONPayloadSE, JSONPayloadUE, ServerShookSE,
     ServerShookUE, ServerStatePayload, SERVER_PING_TOLERANCE,
 };
@@ -107,9 +109,16 @@ struct AppBroadcastTask {
     video_broadcaster: AppVideoBroadcaster,
 }
 
+const SUBPACKET_CACHE_LIFETIME: u64 = 4; // 4 seconds
+
+fn subpacket_key(frame_id: u8, real_packet_size: u32, remaining_packets: u16) -> u64 {
+    ((frame_id as u64) << 48) | ((real_packet_size as u64) << 16) | (remaining_packets as u64)
+}
+
 struct AppVideoBroadcaster {
     socket: Arc<UdpSocket>,
     clients: Arc<RwLock<HashMap<String, AppClient>>>,
+    subpacket_cache: Arc<RwLock<HashMap<u64, (Vec<u8>, u64)>>>,
 }
 
 impl Broadcaster for AppVideoBroadcaster {
@@ -124,6 +133,17 @@ impl Broadcaster for AppVideoBroadcaster {
                 self.clients.write().await.remove(&src_str);
             }
         }
+
+        // TODO: benchmark how long cache insertion takes, optimize if needed
+        let mut subpacket_cache = self.subpacket_cache.write().await;
+        subpacket_cache.insert(
+            subpacket_key(
+                parse_frame_id(bytes),
+                parse_real_packet_size(bytes),
+                parse_packets_remaining(bytes),
+            ),
+            (bytes.to_vec(), SystemTime::now().elapsed().unwrap().as_secs()),
+        );
     }
 }
 
@@ -187,6 +207,7 @@ impl AppBroadcastTask {
         tokio_handle: Handle,
         socket: Arc<UdpSocket>,
         clients: Arc<RwLock<HashMap<String, AppClient>>>,
+        subpacket_cache: Arc<RwLock<HashMap<u64, (Vec<u8>, u64)>>>,
         receiver: AsyncReceiver<BroadcastPayload>,
     ) -> JoinHandle<()> {
         tokio_handle.spawn(async move {
@@ -198,6 +219,7 @@ impl AppBroadcastTask {
                 video_broadcaster: AppVideoBroadcaster {
                     socket: socket.clone(),
                     clients: clients.clone(),
+                    subpacket_cache,
                 },
                 audio_broadcaster: AppAudioBroadcaster { socket, clients },
             };
@@ -211,6 +233,8 @@ pub struct AppConnection {
     socket: Arc<UdpSocket>,
     clients: Arc<RwLock<HashMap<String, AppClient>>>,
     users: Users,
+
+    subpacket_cache: Arc<RwLock<HashMap<u64, (Vec<u8>, u64)>>>,
 
     broadcast_sender: Sender<BroadcastPayload>,
     broadcast_receiver: AsyncReceiver<BroadcastPayload>,
@@ -232,6 +256,8 @@ impl AppConnection {
             broadcast_sender,
             broadcast_receiver: broadcast_receiver.clone_async(),
             broadcast_task: Arc::new(std::sync::RwLock::new(None)),
+
+            subpacket_cache: Arc::new(RwLock::new(HashMap::new())),
 
             clients: Arc::new(RwLock::new(HashMap::new())),
             socket: Arc::new(socket),
@@ -316,6 +342,46 @@ impl AppConnection {
         }
 
         None
+    }
+
+    pub async fn drain_subpacket_cache(&self) {
+        let mut cache = self.subpacket_cache.write().await;
+
+        let now = SystemTime::now().elapsed().unwrap().as_secs();
+        
+        let cache_size = cache.len();
+
+        cache.retain(|_, (_, timestamp)| {
+            now - *timestamp < SUBPACKET_CACHE_LIFETIME
+        });
+
+        debug!("Drained {} Subpackets", cache_size - cache.len());
+    }
+
+    pub async fn retransmit_frame(
+        &self,
+        src: SocketAddr,
+        frame_id: u8,
+        real_packet_size: u32,
+        subpacket_ids: Vec<u16>) {
+
+        let clients = self.clients.read().await;
+
+        if let Some(client) = clients.get(&src.to_string()) {
+            for subpacket_id in subpacket_ids {
+                if let Some((subpacket, _)) = self
+                    .subpacket_cache
+                    .read()
+                    .await
+                    .get(&subpacket_key(frame_id, real_packet_size, subpacket_id))
+                {
+                    if let Err(e) = self.socket.send_to(subpacket, client.src).await {
+                        debug!("Failed to Retransmit Frame to Client: {}", e);
+                        self.remove_client(client.src).await;
+                    }
+                }
+            }
+        }
     }
 
     pub async fn connect_client(
@@ -484,6 +550,7 @@ impl AppConnection {
                     Handle::current(),
                     self.socket.clone(),
                     self.clients.clone(),
+                    self.subpacket_cache.clone(),
                     self.broadcast_receiver.clone(),
                 ));
             }
@@ -551,6 +618,8 @@ impl Clone for AppConnection {
             broadcast_sender: self.broadcast_sender.clone(),
             broadcast_receiver: self.broadcast_receiver.clone(),
             broadcast_task: self.broadcast_task.clone(),
+
+            subpacket_cache: self.subpacket_cache.clone(),
 
             socket: self.socket.clone(),
             clients: self.clients.clone(),

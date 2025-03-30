@@ -108,6 +108,40 @@ impl Client {
         self.send_handshake();
     }
 
+    /// Retransmit a packet
+    /// # Arguments
+    /// * `frame_id` - The ID of the frame to retransmit
+    /// * `real_packet_size` - The size of the packet
+    /// * `subpacket_ids` - The IDs of the packets to be retransmitted
+    pub fn retransmit(
+        &self, 
+        frame_id: u8, 
+        real_packet_size: u32, 
+        subpacket_ids: Vec<u16>
+    ) -> Result<usize, std::io::Error> {
+        let mut buf = [0u8; MTU];
+
+        // Send multiple retransmit packets if there are too many subpacket IDs
+        let body_len = write_retransmit_body(
+            frame_id, real_packet_size, subpacket_ids, &mut buf[HEADER..],);
+        write_header(
+            EPacketType::Retransmit, 
+            0, 
+            body_len as u32, 
+            frame_id, 
+            &mut buf);
+
+        if let Some(socket) = &self.socket {
+            return Ok(socket.send(&buf[0..HEADER + body_len])?);
+        }
+
+        debug!("Socket Not Initialized");
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "Socket Not Initialized",
+        ))
+    }
+
     pub fn disconnect(&mut self) {
         if !self.socket_connected() {
             return;
