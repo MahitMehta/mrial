@@ -3,11 +3,9 @@ use chacha20poly1305::{aead::KeyInit, ChaCha20Poly1305};
 use kanal::{AsyncReceiver, Sender};
 use log::{debug, error};
 use mrial_fs::{storage::StorageMultiType, Users};
-use opus::packet::parse;
 use rand::thread_rng;
 use rsa::{pkcs1::EncodeRsaPublicKey, RsaPrivateKey, RsaPublicKey};
-use serde_json::de;
-use std::{collections::HashMap, fmt, net::SocketAddr, sync::Arc, time::SystemTime};
+use std::{collections::HashMap, fmt, net::SocketAddr, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
 use tokio::{net::UdpSocket, runtime::Handle, sync::RwLock, task::JoinHandle};
 
 use mrial_proto::{
@@ -142,7 +140,7 @@ impl Broadcaster for AppVideoBroadcaster {
                 parse_real_packet_size(bytes),
                 parse_packets_remaining(bytes),
             ),
-            (bytes.to_vec(), SystemTime::now().elapsed().unwrap().as_secs()),
+            (bytes.to_vec(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
         );
     }
 }
@@ -347,12 +345,13 @@ impl AppConnection {
     pub async fn drain_subpacket_cache(&self) {
         let mut cache = self.subpacket_cache.write().await;
 
-        let now = SystemTime::now().elapsed().unwrap().as_secs();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         
         let cache_size = cache.len();
+        debug!("Subpacket Cache Size: {}", cache_size);
 
         cache.retain(|_, (_, timestamp)| {
-            now - *timestamp < SUBPACKET_CACHE_LIFETIME
+            (now - *timestamp) < SUBPACKET_CACHE_LIFETIME
         });
 
         debug!("Drained {} Subpackets", cache_size - cache.len());
@@ -365,9 +364,11 @@ impl AppConnection {
         real_packet_size: u32,
         subpacket_ids: Vec<u16>) {
 
-        let clients = self.clients.read().await;
+        let mut clients = self.clients.write().await;
 
-        if let Some(client) = clients.get(&src.to_string()) {
+        if let Some(client) = clients.get_mut(&src.to_string()) {
+            client.last_ping = SystemTime::now();
+
             for subpacket_id in subpacket_ids {
                 if let Some((subpacket, _)) = self
                     .subpacket_cache
@@ -375,12 +376,14 @@ impl AppConnection {
                     .await
                     .get(&subpacket_key(frame_id, real_packet_size, subpacket_id))
                 {
+                    debug!("Cache found for Frame: {} Size: {} Subpacket ID: {}", frame_id, real_packet_size, subpacket_id);
                     if let Err(e) = self.socket.send_to(subpacket, client.src).await {
-                        debug!("Failed to Retransmit Frame to Client: {}", e);
                         self.remove_client(client.src).await;
                     }
+                } else {
+                    error!("Cache not found for Frame: {} Size: {} Subpacket ID: {}", frame_id, real_packet_size, subpacket_id);
                 }
-            }
+            } 
         }
     }
 

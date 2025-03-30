@@ -384,7 +384,7 @@ impl EventsTask {
 
         match packet_type {
             EPacketType::Retransmit => {
-                let (frame_id, real_packet_size, subpacket_ids) = parse_retransmit_body(buf);
+                let (frame_id, real_packet_size, subpacket_ids) = parse_retransmit_body(&buf[HEADER..size]);
                 self.conn.app_retransmit_frame(src, frame_id, real_packet_size, subpacket_ids).await;
             }
             EPacketType::ShakeAE => {
