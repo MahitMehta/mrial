@@ -471,7 +471,7 @@ fn main() {
                     let packet_type = parse_packet_type(&buf);
 
                     match packet_type {
-                        EPacketType::NAL | EPacketType::XOR => {
+                        EPacketType::NAL | EPacketType::RNAL => {
                             video.packet(&buf, &client, number_of_bytes)
                         }
                         EPacketType::AudioPCM | EPacketType::AudioOpus => {

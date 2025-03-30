@@ -9,6 +9,7 @@ use std::{
 use ffmpeg_next::frame;
 use kanal::{unbounded, Receiver, Sender};
 
+use log::debug;
 use mrial_proto::*;
 
 use super::slint_generatedMainWindow::BarialState;
@@ -372,8 +373,19 @@ impl VideoThread {
                 }
             });       
 
-        if state == EAssemblerState::Waiting {
-            return;
+
+        match state {
+            EAssemblerState::Waiting => {
+                return
+            }
+            EAssemblerState::Queue(queue) => {
+                debug!("Queue Loop: {}", queue.len());
+                // this is "no bueno"
+                for nalu in queue {
+                    self.packet(&nalu, client, nalu.len());
+                }
+            }
+            _ => {}
         }
 
         if self.clock.elapsed().as_secs() > CLIENT_PING_FREQUENCY {

@@ -1,7 +1,7 @@
 use chacha20poly1305::{aead::Aead, AeadCore, ChaCha20Poly1305, Error};
-use log::debug;
+use log::{debug, warn};
 use rand::rngs::ThreadRng;
-use std::{collections::{HashSet, VecDeque}, mem};
+use std::{collections::{HashMap, HashSet, VecDeque}, mem, time::{SystemTime, UNIX_EPOCH}};
 
 use crate::SE_NONCE;
 
@@ -47,6 +47,7 @@ pub enum EPacketType {
     Alive = 12,
     XOR = 13,
     Retransmit = 14,
+    RNAL = 15, // Retransmitted NAL
     // TODO: Add Server Pings in addition to Client Pings
     InternalEOL = 30,
     Unknown = 31,
@@ -394,7 +395,10 @@ impl PacketConstructor {
 pub struct NALPacketConstructor {
     frame: Vec<u8>,
     current_frame_id: i16,
+    last_processed_frame_id: i16,
+    current_real_packet_size: u32,
     total_packets: usize,
+    retransmit_requests: HashMap<u16, u128>,
     remaining_subpacket_ids: HashSet<usize>,
     previous_subpacket_number: i16,
     packet_queue: VecDeque<Vec<u8>>,
@@ -408,8 +412,11 @@ impl NALPacketConstructor {
         Self {
             frame,
             current_frame_id: -1,
+            last_processed_frame_id: -1,
+            current_real_packet_size: 0,
             total_packets: 0,
             previous_subpacket_number: -1,
+            retransmit_requests: HashMap::new(),
             remaining_subpacket_ids: HashSet::new(),
             packet_queue: VecDeque::new(),
             waiting: false
@@ -420,9 +427,11 @@ impl NALPacketConstructor {
     fn reset_for_next_frame(&mut self) {
         self.waiting = false;
         self.current_frame_id = -1;
+        self.current_real_packet_size = 0;
         self.total_packets = 0;
         self.previous_subpacket_number = -1;
         self.remaining_subpacket_ids.clear();
+        self.retransmit_requests.clear();
     }
 
     #[inline]
@@ -436,12 +445,24 @@ impl NALPacketConstructor {
             F: Fn(Vec<u8>) -> (),
             T: Fn(u8, u32, Vec<u16>) -> () 
     {
+        let packet_type = parse_packet_type(fragment);
         let frame_id = parse_frame_id(fragment) as i16;
+
+        if packet_type == EPacketType::RNAL && self.current_frame_id != frame_id {
+            debug!("Skipping useless Retransmitted Frame ({})", frame_id);
+            return EAssemblerState::Assembling;
+        }
+
         let remaing_packets = parse_packets_remaining(fragment);
         let real_packet_size = parse_real_packet_size(fragment);
 
         if self.current_frame_id == -1 {
+            if self.last_processed_frame_id >= 0 && (frame_id as u8).wrapping_sub(self.last_processed_frame_id as u8) > 1 {
+                warn!("Lost Frame: {} -> {}", self.last_processed_frame_id, frame_id);
+            }
+
             self.current_frame_id = frame_id;
+            self.current_real_packet_size = real_packet_size;
 
             self.total_packets = (real_packet_size as usize + PAYLOAD - 1) / PAYLOAD;
 
@@ -460,11 +481,15 @@ impl NALPacketConstructor {
             if nal_variant == ENalVariant::KeyFrame as u8 {
                 debug!("Recovering from Key Frame");
                 debug!("Freeing {} Packets", self.packet_queue.len());
+
+                debug!("Failed to retrieve: {:?}", self.remaining_subpacket_ids);
+
                 self.packet_queue.clear();
 
                 self.waiting = false;
 
                 self.current_frame_id = frame_id;
+                self.current_real_packet_size = real_packet_size;
                 self.total_packets = (real_packet_size as usize + PAYLOAD - 1) / PAYLOAD;
 
                 self.remaining_subpacket_ids.clear();
@@ -472,6 +497,7 @@ impl NALPacketConstructor {
                     self.remaining_subpacket_ids.insert(i);
                 }
                 self.previous_subpacket_number = -1;
+                self.retransmit_requests.clear();
 
                 self.frame.resize(real_packet_size as usize, 0u8);
             } else {
@@ -480,6 +506,38 @@ impl NALPacketConstructor {
                 // store them in a seperate data structure (Retransmission Packet Pool)
                 self.packet_queue.push_back(fragment[..number_of_bytes].to_vec());
 
+                //#[cfg(feature = "stat")]
+               // debug!("Waiting for: {:?} subpackets", self.remaining_subpacket_ids);
+
+                // At this point, we are mainly waiting for subpackets towards the end of the frame
+                // that are missing 
+                
+                let mut potentionally_missing_packets= Vec::new();
+                // let mut should_request = Vec::new();
+                let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+                for subpacket_id in &self.remaining_subpacket_ids {
+                    if let Some(previous_timestamp) = self.retransmit_requests.get(&(*subpacket_id as u16)) {
+                        // request retransmission only if the previous request was more than 32ms ago
+                        if (timestamp - previous_timestamp) < 32 {
+                            continue
+                        } 
+                    }
+
+                    self.retransmit_requests.insert(*subpacket_id as u16, timestamp);
+                    potentionally_missing_packets.push(*subpacket_id as u16);
+                }
+
+                if potentionally_missing_packets.len() > 0 {
+                    #[cfg(feature = "stat")]
+                    debug!("Requesting Retransmission (While Queuing) of: {:?}", potentionally_missing_packets);
+                    retransmit(
+                        self.current_frame_id as u8,
+                        self.current_real_packet_size,
+                        potentionally_missing_packets
+                    );
+                }
+
+                self.waiting = true;
                 return EAssemblerState::Waiting;
             }
         }
@@ -499,27 +557,76 @@ impl NALPacketConstructor {
 
         // Should only ask for restramissions during initial assembly 
         // if assembler is waiting for restramissions, then request again once 
-        if !self.waiting && self.previous_subpacket_number != (remaing_packets + 1) as i16
+        if !self.waiting && remaing_packets.abs_diff(self.previous_subpacket_number as u16) > 1
             && self.previous_subpacket_number > 0
         {
             let mut potentionally_missing_packets= Vec::new();
+            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
 
-            for i in (remaing_packets+1)..(self.previous_subpacket_number as u16) {
-                potentionally_missing_packets.push(i);
+            if remaing_packets < self.previous_subpacket_number as u16 {
+                for i in (remaing_packets+1)..(self.previous_subpacket_number as u16) {
+                    if self.remaining_subpacket_ids.contains(&(i as usize)) {
+                        if let Some(previous_timestamp) = self.retransmit_requests.get(&i) {
+                            // request retransmission only if the previous request was more than 32ms ago
+                            if (timestamp - previous_timestamp) < 32 {
+                                continue
+                            } 
+                        }
+    
+                        self.retransmit_requests.insert(i, timestamp);
+                        potentionally_missing_packets.push(i);
+                    }
+                }
+            } else {
+                for i in (self.previous_subpacket_number as u16 + 1)..remaing_packets {
+                    if self.remaining_subpacket_ids.contains(&(i as usize)) {
+                        if self.retransmit_requests.contains_key(&i) {
+                            continue;
+                        }
+
+                        self.retransmit_requests.insert(i, timestamp);
+                        potentionally_missing_packets.push(i);
+                    }
+                }
             }
-            
-            #[cfg(feature = "stat")]
-            debug!("Requesting retransmission of packets: {:?}", potentionally_missing_packets);
 
-            retransmit(frame_id as u8, real_packet_size, potentionally_missing_packets);
+            if potentionally_missing_packets.len() != 0 {
+                // #[cfg(feature = "stat")]
+                // debug!("Requesting retransmission of packets: {:?}", potentionally_missing_packets);
+    
+                retransmit(frame_id as u8, real_packet_size, potentionally_missing_packets);        
+            } 
         }
 
+        // TODO
+        // if two packets are swapped in order, keep the previous subpacket number
         self.previous_subpacket_number = remaing_packets as i16;
+        // if remaing_packets < self.previous_subpacket_number as u16 {
+            
+        // }
         
         if remaing_packets == 0 || self.remaining_subpacket_ids.len() == 0 {
             if self.remaining_subpacket_ids.len() != 0 {
-                if self.waiting {
-                    // ask for retransmission again
+                // retransmit unrequested packets
+                let mut potentionally_missing_packets= Vec::new();
+                let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+                for subpacket_id in &self.remaining_subpacket_ids {
+                    if self.retransmit_requests.contains_key(&(*subpacket_id as u16)) {
+                        continue; 
+                    }
+
+                    self.retransmit_requests.insert(*subpacket_id as u16, timestamp);
+                    potentionally_missing_packets.push(*subpacket_id as u16);
+                }
+
+                if potentionally_missing_packets.len() > 0 {
+                    #[cfg(feature = "stat")]
+                    debug!("Requesting Retransmission (While EOF) of: {:?}", potentionally_missing_packets);
+                    retransmit(
+                        self.current_frame_id as u8,
+                        self.current_real_packet_size,
+                        potentionally_missing_packets
+                    );
                 }
 
                 #[cfg(feature = "stat")]
@@ -531,15 +638,19 @@ impl NALPacketConstructor {
             let mut assembled_packet = Vec::with_capacity(MAX_FRAME_SIZE);
             mem::swap(&mut self.frame, &mut assembled_packet);
 
+            if self.waiting {
+                debug!("Assembled after Waiting: {}", self.current_frame_id);
+            }
+
             self.reset_for_next_frame();
 
+            self.last_processed_frame_id = frame_id;
             assembled(assembled_packet);
 
             if self.packet_queue.len() > 0 {
-                // let mut packet_queue = VecDeque::new();
-                // mem::swap(&mut self.packet_queue, &mut packet_queue);
-                // return EAssemblerState::Queue(packet_queue);
-                todo!("Handle packet queue");
+                let mut packet_queue = VecDeque::new();
+                mem::swap(&mut self.packet_queue, &mut packet_queue);
+                return EAssemblerState::Queue(packet_queue);
             }
 
             return EAssemblerState::Finished;
