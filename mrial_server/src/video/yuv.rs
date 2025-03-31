@@ -1,17 +1,6 @@
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use libyuv_sys::ARGBToI444;
 
-pub enum EColorSpace {
-    YUV444 = 12,
-    YUV420 = 2,
-}
-
-impl Into<usize> for EColorSpace {
-    fn into(self) -> usize {
-        self as usize
-    }
-}
-
 pub struct YUVBuffer {
     yuv: Vec<u8>,
     width: usize,

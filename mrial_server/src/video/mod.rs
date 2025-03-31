@@ -5,7 +5,7 @@ pub mod yuv;
 use display::DisplayMeta;
 use kanal::{unbounded, unbounded_async, AsyncReceiver, AsyncSender, Receiver};
 use log::{debug, error, warn};
-use mrial_proto::{ENalVariant, EPacketType};
+use mrial_proto::{video::EColorSpace, ENalVariant, EPacketType};
 use scrap::{Capturer, Display};
 use session::{SessionSettingTask, Setting};
 use std::{
@@ -26,8 +26,6 @@ use crate::{
     conn::{BroadcastTaskError, ConnectionManager, ServerMeta},
     events::{EventsTask, EventsTaskAction},
 };
-
-use self::yuv::EColorSpace;
 
 #[derive(PartialEq, Debug)]
 pub enum VideoServerAction {

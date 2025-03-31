@@ -10,7 +10,7 @@ use chacha20poly1305::{aead::KeyInit, ChaCha20Poly1305};
 use kanal::Sender;
 use log::{debug, info};
 use mrial_fs::Server;
-use mrial_proto::*;
+use mrial_proto::{video::EColorSpace, *};
 use rsa::{pkcs1::DecodeRsaPublicKey, RsaPublicKey};
 
 use crate::{ClientState, ConnectionAction};
@@ -31,6 +31,7 @@ impl Default for ClientMetaData {
             heights: vec![],
             muted: false,
             opus: true,
+            colorspace: EColorSpace::YUV444,
             server: Server::default(),
         }
     }
@@ -44,6 +45,7 @@ pub struct ClientMetaData {
     pub heights: Vec<u16>,
     pub muted: bool,
     pub opus: bool,
+    pub colorspace: EColorSpace,
     pub server: Server,
 }
 
@@ -274,7 +276,9 @@ impl Client {
                                 width: meta.width as u16,
                                 height: meta.height as u16,
                                 muted: meta.muted,
-                                opus: meta.opus
+                                opus: meta.opus,
+                                csp: meta.colorspace,
+                                version: env!("CARGO_PKG_VERSION").to_string()
                             },
                             Err(_e) => {
                                 debug!("Failed to Read Client Meta Data");
@@ -297,7 +301,7 @@ impl Client {
                                 username: self.meta.read().unwrap().server.username.clone(),
                                 pass: self.meta.read().unwrap().server.pass.clone(),
                                 sym_key: key_base64,
-                                client_state,
+                                state: client_state,
                             },
                         );
 

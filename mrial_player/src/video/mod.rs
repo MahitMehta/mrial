@@ -378,6 +378,7 @@ impl VideoThread {
                 return
             }
             EAssemblerState::Queue(queue) => {
+                #[cfg(feature = "stat")]
                 debug!("Video Queue Size: {}", queue.len());
                 for nalu in queue {
                     self.packet(&nalu, client, nalu.len());

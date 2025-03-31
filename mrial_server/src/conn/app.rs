@@ -473,8 +473,7 @@ impl AppConnection {
                         widths,
                         heights,
                         width: 0,
-                        height: 0,
-                        header: Some(Vec::new()),
+                        height: 0
                     },
                 },
             ) {
@@ -501,7 +500,7 @@ impl AppConnection {
             //     Err(_) => None,
             // };
 
-            return Ok(payload.client_state);
+            return Ok(payload.state);
         }
 
         return Err(AppConnectionError::Unexpected(

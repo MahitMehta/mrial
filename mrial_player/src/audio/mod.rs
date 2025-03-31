@@ -123,6 +123,7 @@ impl AudioClientThread {
                 return;
             }
 
+            #[cfg(feature = "stat")]
             if sink.len() == 0 {
                 debug!("Sink Buffer at {}", sink.len());
             }

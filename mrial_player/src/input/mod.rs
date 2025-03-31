@@ -1,6 +1,7 @@
 use input::{Key, KeyEvent};
 use kanal::{unbounded, Receiver, Sender};
 use log::debug;
+use mrial_proto::video::EColorSpace;
 use slint::SharedString;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -353,13 +354,19 @@ impl Input {
                     let (width, height) = (items[0], items[1]);
 
                     let mut buf = [0; MTU];
-
                     client_clone.set_meta_via_state(&state);
+  
                     let client_state = ClientStatePayload {
+                        version: env!("CARGO_PKG_VERSION").to_string(),
                         width,
                         height,
                         muted: state.muted,
                         opus: state.opus,
+                        csp: match state.colorspace.as_str() {
+                            "limited" => EColorSpace::YUV420,
+                            "full"  => EColorSpace::YUV444,
+                            _ => EColorSpace::YUV444,
+                        },
                     };
 
                     if let Ok(sym_key) = sym_key.read() {

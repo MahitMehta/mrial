@@ -3,12 +3,16 @@ use rand::rngs::ThreadRng;
 use rsa::{Pkcs1v15Encrypt, RsaPrivateKey, RsaPublicKey};
 use serde::{Deserialize, Serialize};
 
+use crate::video::EColorSpace;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientStatePayload {
+    pub version: String,
     pub width: u16,
     pub height: u16,
     pub muted: bool,
     pub opus: bool,
+    pub csp: EColorSpace
 }
 
 impl JSONPayloadSE for ClientStatePayload {}
@@ -18,8 +22,7 @@ pub struct ServerStatePayload {
     pub widths: Vec<u16>,
     pub heights: Vec<u16>,
     pub width: u16,
-    pub height: u16,
-    pub header: Option<Vec<u8>>,
+    pub height: u16
 }
 
 impl JSONPayloadSE for ServerStatePayload {}
@@ -33,7 +36,7 @@ impl JSONPayloadUE for ServerShookUE {}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientShakeAE {
-    pub client_state: ClientStatePayload,
+    pub state: ClientStatePayload,
     pub username: String,
     pub pass: String,
     pub sym_key: String,
@@ -127,6 +130,8 @@ pub trait JSONPayloadAE: serde::Serialize + serde::de::DeserializeOwned {
         payload: &Self,
     ) -> usize {
         let serialized_payload = serde_json::to_string(&payload).unwrap();
+
+        // TODO: Allow larger payloads (current max is 256 bytes)
         let encrypted_payload = pub_key
             .encrypt(rng, Pkcs1v15Encrypt, serialized_payload.as_bytes())
             .unwrap();
