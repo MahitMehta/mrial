@@ -5,6 +5,7 @@ pub struct DisplayMeta {}
 
 impl DisplayMeta {
     #[cfg(target_os = "linux")]
+    #[allow(dead_code)]
     pub fn get_current_resolution() -> Result<(usize, usize), XrandrError> {
         let mut handle = XHandle::open().unwrap();
         let mon1 = &handle.monitors()?[0];
@@ -16,7 +17,7 @@ impl DisplayMeta {
     pub fn get_display_resolutions() -> Result<(Vec<u16>, Vec<u16>), xrandr::XrandrError> {
         let mut handle = XHandle::open().unwrap();
         // let mon1 = &handle.monitors()?[0];
-    
+
         let mut widths: Vec<u16> = Vec::new();
         let mut heights: Vec<u16> = Vec::new();
 
@@ -62,7 +63,10 @@ impl DisplayMeta {
     }
 
     #[cfg(target_os = "macos")]
-    pub fn update_display_resolution(width: usize, height: usize) -> Result<bool, std::io::Error> {
+    pub fn update_display_resolution(
+        _width: usize,
+        _height: usize,
+    ) -> Result<bool, std::io::Error> {
         Ok(false)
     }
 }

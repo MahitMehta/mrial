@@ -5,6 +5,19 @@ use storage::{StorageMulti, StorageMultiType};
 
 pub mod storage;
 
+impl Default for Server {
+    fn default() -> Self {
+        Server {
+            name: String::new(),
+            address: String::new(),
+            port: 0,
+            os: String::new(),
+            username: String::new(),
+            pass: String::new(),
+        }
+    }
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct Server {
     pub name: String,
@@ -81,13 +94,14 @@ impl Users {
     }
 }
 
+#[cfg(target_os = "linux")]
 const ROOT_DATA_DIR: &'static str = "/var/lib/mrial_server";
 
 impl StorageMultiType<User, String> for Users {
     #[cfg(not(target_os = "linux"))]
     fn new() -> Self {
         Users {
-            users: StorageMulti::new( "users.json".to_string()),
+            users: StorageMulti::new("users.json".to_string()),
         }
     }
 
@@ -97,10 +111,7 @@ impl StorageMultiType<User, String> for Users {
         let file_dir = PathBuf::from(ROOT_DATA_DIR);
 
         Users {
-            users: StorageMulti::new_with_custom_dir(
-                "users.json".to_string(), 
-                file_dir
-            ),
+            users: StorageMulti::new_with_custom_dir("users.json".to_string(), file_dir),
         }
     }
 

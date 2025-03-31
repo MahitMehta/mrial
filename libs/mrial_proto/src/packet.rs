@@ -1,8 +1,25 @@
-use chacha20poly1305::{aead::Aead, ChaCha20Poly1305};
-use log::{debug, trace};
-use std::collections::HashMap;
+use chacha20poly1305::{aead::Aead, AeadCore, ChaCha20Poly1305, Error};
+use log::{debug, trace, warn};
+use rand::rngs::ThreadRng;
+use std::{collections::{HashMap, HashSet, VecDeque}, mem, time::{SystemTime, UNIX_EPOCH}};
 
 use crate::SE_NONCE;
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum ENalVariant {
+    KeyFrame = 0,
+    NonKeyFrame = 1,
+}
+
+impl From<u8> for ENalVariant {
+    fn from(v: u8) -> Self {
+        match v {
+            0 => ENalVariant::KeyFrame,
+            1 => ENalVariant::NonKeyFrame,
+            _ => ENalVariant::NonKeyFrame,
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum EPacketType {
@@ -10,27 +27,30 @@ pub enum EPacketType {
     ShakeUE = 0,
     /// Header (Unecrypted) + JSON Containing Public Key (Unencrypted)
     ShookUE = 1,
-    /// Header (Unecrypted) + Byte stream (Encrypted)
-    NAL = 2,
-    InputState = 3,
-    /// Header (Unecrypted) + Byte stream (Encrypted)
-    Audio = 4,
-    /// Header (Unecrypted)
-    Disconnect = 5,
-    /// Header (Unecrypted)
-    PING = 6,
-    ClientState = 7,
-    ServerState = 8,
     /// Header (Unecrypted) + JSON Containing Generated Symmetric Key
     /// Using Public Key + Credential Hash (Asymmetrically Encrypted)
-    ShakeAE = 9,
-    // Header (Unecrypted) + JSON Containing Server State (Symmetrically Encrypted)
-    ShookSE = 10,
-    Alive = 11,
-    XOR = 12,
+    ShakeAE = 2,
+    // Header (Unecrypted) + JSON Containing Server state (Symmetrically Encrypted)
+    ShookSE = 3,
+    /// Header (Unecrypted) + Byte stream (Encrypted)
+    NAL = 4,
+    /// Header (Unecrypted) + Byte stream (Encrypted)
+    AudioPCM = 5,
+    AudioOpus = 6,
+    InputState = 7,
+    ClientState = 8,
+    ServerState = 9,
+    /// Header (Unecrypted)
+    Disconnect = 10,
+    /// Header (Unecrypted)
+    Ping = 11,
+    Alive = 12,
+    XOR = 13,
+    Retransmit = 14,
+    RNAL = 15, // Retransmitted NAL
     // TODO: Add Server Pings in addition to Client Pings
-    InternalEOL = 13,
-    Unknown = 255
+    InternalEOL = 30,
+    Unknown = 31,
 }
 
 impl From<u8> for EPacketType {
@@ -38,54 +58,65 @@ impl From<u8> for EPacketType {
         match v {
             0 => EPacketType::ShakeUE,
             1 => EPacketType::ShookUE,
-            2 => EPacketType::NAL,
-            3 => EPacketType::InputState,
-            4 => EPacketType::Audio,
-            5 => EPacketType::Disconnect,
-            6 => EPacketType::PING,
-            7 => EPacketType::ClientState,
-            8 => EPacketType::ServerState,
-            9 => EPacketType::ShakeAE,
-            10 => EPacketType::ShookSE,
-            11 => EPacketType::Alive,
-            12 => EPacketType::XOR,
-            13 => EPacketType::InternalEOL,
+            2 => EPacketType::ShakeAE,
+            3 => EPacketType::ShookSE,
+            4 => EPacketType::NAL,
+            5 => EPacketType::AudioPCM,
+            6 => EPacketType::AudioOpus,
+            7 => EPacketType::InputState,
+            8 => EPacketType::ClientState,
+            9 => EPacketType::ServerState,
+            10 => EPacketType::Disconnect,
+            11 => EPacketType::Ping,
+            12 => EPacketType::Alive,
+            13 => EPacketType::XOR,
+            14 => EPacketType::Retransmit,
+            15 => EPacketType::RNAL,
+            30 => EPacketType::InternalEOL,
             _ => EPacketType::Unknown,
         }
     }
 }
 
-pub const MTU: usize = 1032;
+pub const MTU: usize = 1200;
+
+/// ## Header Schema
+/// 1. Packet Type Variant Details + Packet Type = 3 bits + 5 bits = 1 byte
+/// 2. Packets Remaining = 2 byte
+// TODO: reduce to 3 bytes
+/// 3. Real Packet Byte Size = 4 bytes, size of the entire frame (excludes size of headers)
+/// 4. Frame ID = 1 Byte
 pub const HEADER: usize = 8;
+
 pub const PAYLOAD: usize = MTU - HEADER;
 
-// Header Schema
-// Packet Type = 1 byte
-// Packets Remaining = 2 byte
-// Real Packet Byte Size = 4 bytes // TODO: reduce to 3 bytes
-// Packet ID = 1 Byte
 
-// Payload Schema
-// variables sized unencrypted bytes (MAX = MTU - HEADER)
-
+/// Note: Resets the packet variant bits to 0
 #[inline]
 pub fn write_static_header(
     packet_type: EPacketType,
     real_packet_size: u32,
-    packet_id: u8,
+    frame_id: u8,
     buf: &mut [u8],
 ) {
     buf[0] = packet_type as u8;
     buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
-    buf[7] = packet_id;
+    buf[7] = frame_id;
+}
+
+#[inline] 
+pub fn write_packet_type_variant(packet_type_variant: u8, buf: &mut [u8]) {
+    buf[0] &= 0b00011111; // reset the first 3 bits
+    buf[0] |= (packet_type_variant << 5) & 0b11100000; // first 3 bits
 }
 
 #[inline]
-pub fn write_dynamic_header(real_packet_size: u32, packet_id: u8, buf: &mut [u8]) {
+pub fn write_dynamic_header(real_packet_size: u32, frame_id: u8, buf: &mut [u8]) {
     buf[3..7].copy_from_slice(&real_packet_size.to_be_bytes());
-    buf[7] = packet_id;
+    buf[7] = frame_id;
 }
 
+/// Note: Resets the packet variant bits to 0
 #[inline]
 pub fn write_packet_type(packet_type: EPacketType, buf: &mut [u8]) {
     buf[0] = packet_type as u8;
@@ -101,11 +132,76 @@ pub fn write_header(
     packet_type: EPacketType,
     packets_remaining: u16,
     real_packet_size: u32,
-    packet_id: u8,
+    frame_id: u8,
     buf: &mut [u8],
 ) {
-    write_static_header(packet_type, real_packet_size, packet_id, buf);
+    write_static_header(packet_type, real_packet_size, frame_id, buf);
     write_packets_remaining(packets_remaining, buf);
+}
+
+#[inline]
+/// Writes the retransmit body.
+/// The first 4 bytes are reserved for the real packet size.
+/// The next 2 bytes are reserved for the frame ID + padding.
+/// The rest of the bytes are reserved for the subpacket IDs.
+/// ## Arguments
+/// * `frame_id` - The frame ID.
+/// * `real_packet_size` - The real packet size.
+/// * `subpacket_ids` - The subpacket IDs.
+/// * `buf` - The buffer to write to.
+/// ## Returns
+/// The number of bytes written.
+pub fn write_retransmit_body(
+    frame_id: u8,
+    real_packet_size: u32,
+    subpacket_ids: Vec<u16>,
+    buf: &mut [u8],
+) -> usize {
+    // 2 = 1 byte for frame ID + 1 byte for padding (alignment of following u16s)
+    let header_len = mem::size_of::<u32>() + 2;
+    let body_len = subpacket_ids.len() * mem::size_of::<u16>() + header_len;
+
+    assert!(buf.len() >= body_len);
+
+    buf[0..mem::size_of::<u32>()].copy_from_slice(&real_packet_size.to_be_bytes());
+    buf[mem::size_of::<u32>()] = frame_id;
+
+    let mut offset = header_len;
+
+    for packet in subpacket_ids {
+        buf[offset..offset + mem::size_of::<u16>()].copy_from_slice(&packet.to_be_bytes());
+        offset += mem::size_of::<u16>();
+    }
+
+    body_len
+}
+
+#[inline]
+/// Parses the retransmit body.
+/// ## Arguments
+/// * `buf` - The buffer to parse.
+/// ## Returns
+/// * `frame_id` - The frame ID.
+/// * `real_packet_size` - The real packet size.
+/// * `subpacket_ids` - The subpacket IDs.
+pub fn parse_retransmit_body(buf: &[u8]) -> (u8, u32, Vec<u16>) {
+    let real_packet_size_bytes: [u8; 4] = buf[0..4].try_into().unwrap();
+    let real_packet_size = u32::from_be_bytes(real_packet_size_bytes);
+
+    let frame_id = buf[4];
+    let header_len = mem::size_of::<u32>() + 2;
+
+    let subpacket_count = (buf.len() - header_len) / mem::size_of::<u16>();
+    let mut subpacket_ids = Vec::with_capacity(subpacket_count);
+
+    for i in 0..subpacket_count {
+        let start = header_len + i * mem::size_of::<u16>();
+        let end = start + mem::size_of::<u16>();
+        let subpacket_id_bytes: [u8; 2] = buf[start..end].try_into().unwrap();
+        subpacket_ids.push(u16::from_be_bytes(subpacket_id_bytes));
+    }
+
+    (frame_id, real_packet_size, subpacket_ids)
 }
 
 #[inline]
@@ -122,11 +218,16 @@ pub fn parse_real_packet_size(buf: &[u8]) -> u32 {
 
 #[inline]
 pub fn parse_packet_type(buf: &[u8]) -> EPacketType {
-    EPacketType::from(buf[0])
+    EPacketType::from(buf[0] & 0x1F)
 }
 
 #[inline]
-pub fn parse_packet_id(buf: &[u8]) -> u8 {
+pub fn parse_packet_type_variant(buf: &[u8]) -> u8 {
+    (buf[0] & 0b11100000) >> 5
+}
+
+#[inline]
+pub fn parse_frame_id(buf: &[u8]) -> u8 {
     buf[7]
 }
 
@@ -135,9 +236,24 @@ pub fn parse_header(buf: &[u8]) -> (EPacketType, u16, u32, u8) {
     let packet_type = parse_packet_type(buf);
     let packets_remaining = parse_packets_remaining(buf);
     let real_packet_size = parse_real_packet_size(buf);
-    let packet_id = parse_packet_id(buf);
+    let frame_id = parse_frame_id(buf);
 
-    (packet_type, packets_remaining, real_packet_size, packet_id)
+    (packet_type, packets_remaining, real_packet_size, frame_id)
+}
+
+#[inline]
+pub fn encrypt_frame(sym_key: &ChaCha20Poly1305, frame: &[u8]) -> Result<Vec<u8>, Error> {
+    let nonce = ChaCha20Poly1305::generate_nonce(ThreadRng::default());
+
+    match sym_key.encrypt(&nonce, frame) {
+        Ok(mut ciphertext) => {
+            ciphertext.extend_from_slice(&nonce);
+            return Ok(ciphertext);
+        }
+        Err(e) => {
+            return Err(e);
+        }
+    }
 }
 
 #[inline]
@@ -166,420 +282,375 @@ pub fn calculate_frame_size(packet: &Vec<Vec<u8>>) -> usize {
     (packet.len() - 1) * PAYLOAD + packet.last().unwrap().len() - HEADER
 }
 
-pub struct PacketConstructor {
-    packets: Vec<Vec<u8>>,
-    previous_subpacket_number: i16,
-    order_mismatch: bool,
-    xor_packets: HashMap<u8, Vec<Vec<u8>>>,
-    cached_packets: HashMap<u8, Vec<Vec<u8>>>,
-    previous_packet_id: i16,
+// TODO: 2 packet loss modes (high redundancy and low redundancy)
+// based on packet loss rate, high redundancy will retransmit packets when they are out of order
+// even if they are not lost just in case they are lost too
 
-    #[cfg(feature = "stat")]
-    recieved_packets: u8,
-    #[cfg(feature = "stat")]
-    potential_packets: u8,
-    #[cfg(feature = "stat")]
-    latest_packet_id: i16,
-    #[cfg(feature = "stat")]
-    received_subpackets: f64,
-    #[cfg(feature = "stat")]
-    potential_subpackets: f64,
-    #[cfg(feature = "stat")]
-    recovered_frames: u16,
+// create a packet id using (frame id + subpacket number + real packet size)
+
+const MAX_NAL_FRAME_SIZE: usize = 1024 * 512;
+const MAX_FRAME_SIZE: usize = 1024 * 32;
+
+#[derive(PartialEq)]
+pub enum EAssemblerState {
+    Assembling,
+    Waiting,
+    Finished,
+    Queue(VecDeque<Vec<u8>>),
+}
+
+/// Unreliable, but fast packet constructor.
+/// Drops any frames that dont't arrive completely or are missing.
+/// Additionally, drops frames that are out of order.
+pub struct PacketConstructor {
+    frame: Vec<u8>,
+    current_frame_id: i16,
+    total_packets: usize,
+    remaining_subpacket_ids: HashSet<usize>,
 }
 
 impl PacketConstructor {
     pub fn new() -> Self {
+        let frame = Vec::with_capacity(MAX_FRAME_SIZE);
+
         Self {
-            packets: Vec::new(),
+            frame,
+            current_frame_id: -1,
+            total_packets: 0,
+            remaining_subpacket_ids: HashSet::new(),
+        }
+    }
+
+    #[inline]
+    fn reset_for_next_frame(&mut self) {
+        self.current_frame_id = -1;
+        self.total_packets = 0;
+        self.remaining_subpacket_ids.clear();
+    }
+
+    #[inline]
+    pub fn assemble_packet<F>(
+        &mut self, 
+        fragment: &[u8], number_of_bytes: usize,
+        assembled: &F) -> EAssemblerState
+        where 
+            F: Fn(Vec<u8>) -> ()  
+    {
+        let frame_id = parse_frame_id(fragment) as i16;
+        let remaing_packets = parse_packets_remaining(fragment);
+        let real_packet_size = parse_real_packet_size(fragment);
+
+        if self.current_frame_id == -1 {
+            self.current_frame_id = frame_id;
+
+            self.total_packets = (real_packet_size as usize + PAYLOAD - 1) / PAYLOAD;
+
+            self.remaining_subpacket_ids.clear();
+            for i in 0..self.total_packets {
+                self.remaining_subpacket_ids.insert(i);
+            }
+
+            self.frame.resize(real_packet_size as usize, 0u8);
+        } else if self.current_frame_id != frame_id {
+            // Frame ID mismatch
+            #[cfg(feature = "stat")]
+            debug!("Skipping {:?} Frame ({})", parse_packet_type(fragment), frame_id);
+
+            self.current_frame_id = frame_id;
+            self.total_packets = (real_packet_size as usize + PAYLOAD - 1) / PAYLOAD;
+
+            self.remaining_subpacket_ids.clear();
+            for i in 0..self.total_packets {
+                self.remaining_subpacket_ids.insert(i);
+            }
+            self.frame.resize(real_packet_size as usize, 0u8);
+        }
+
+        let data = &fragment[HEADER..number_of_bytes];
+        let packet_index = self.total_packets - 1 - remaing_packets as usize;
+
+        let start = packet_index * PAYLOAD;
+        let end = start + number_of_bytes - HEADER;
+        self.frame[start..end]
+            .copy_from_slice(data);
+        self.remaining_subpacket_ids.remove(&(remaing_packets as usize));
+
+        if remaing_packets == 0 || self.remaining_subpacket_ids.len() == 0 {
+            if self.remaining_subpacket_ids.len() != 0 {
+                return EAssemblerState::Waiting;
+            }
+
+            let mut assembled_packet = Vec::with_capacity(MAX_FRAME_SIZE);
+            mem::swap(&mut self.frame, &mut assembled_packet);
+
+            self.reset_for_next_frame();
+            assembled(assembled_packet);
+
+            return EAssemblerState::Finished;
+        }
+
+        EAssemblerState::Assembling
+    }
+}
+
+ // TODO: optimal delay for retransmission in ms based on packet loss rate, internet network delay, etc.
+const NAL_RETRANSMISSION_DELAY: u128 = 32;
+
+pub struct NALPacketConstructor {
+    frame: Vec<u8>,
+    current_frame_id: i16,
+    last_processed_frame_id: i16,
+    current_real_packet_size: u32,
+    total_packets: usize,
+    retransmit_requests: HashMap<u16, u128>,
+    remaining_subpacket_ids: HashSet<usize>,
+    previous_subpacket_number: i16,
+    packet_queue: VecDeque<Vec<u8>>,
+    waiting: bool
+}
+
+impl NALPacketConstructor {
+    pub fn new() -> Self {
+        let frame = Vec::with_capacity(MAX_NAL_FRAME_SIZE);
+
+        Self {
+            frame,
+            current_frame_id: -1,
+            last_processed_frame_id: -1,
+            current_real_packet_size: 0,
+            total_packets: 0,
             previous_subpacket_number: -1,
-            order_mismatch: false,
-            cached_packets: HashMap::new(),
-            previous_packet_id: -1,
-            xor_packets: HashMap::new(),
-
-            #[cfg(feature = "stat")]
-            recieved_packets: 0,
-            #[cfg(feature = "stat")]
-            potential_packets: 0,
-            #[cfg(feature = "stat")]
-            latest_packet_id: -1,
-            #[cfg(feature = "stat")]
-            received_subpackets: 0.0,
-            #[cfg(feature = "stat")]
-            potential_subpackets: 0.0,
-            #[cfg(feature = "stat")]
-            recovered_frames: 0,
+            retransmit_requests: HashMap::new(),
+            remaining_subpacket_ids: HashSet::new(),
+            packet_queue: VecDeque::new(),
+            waiting: false
         }
     }
 
-    // TODO: Actually make this method functional.
-    // Cache previously dropped/out of order messages and reassemble them
     #[inline]
-    fn reconstruct_when_deficient(&mut self) -> bool {
-        let last_packet_id = parse_packet_id(self.packets.last().unwrap());
-        if false {// let Some(_cached_packets) = self.cached_packets.get(&last_packet_id) {
-            debug!("TODO: Append Found Cached Packets");
-        } else {
-            if let Some(xor_packets) = self.xor_packets.get(&last_packet_id) {
-                if xor_packets.len() > 0 { 
-                    debug!("Attempting Recovery from XOR");
+    fn reset_for_next_frame(&mut self) {
+        self.waiting = false;
+        self.current_frame_id = -1;
+        self.current_real_packet_size = 0;
+        self.total_packets = 0;
+        self.previous_subpacket_number = -1;
+        self.remaining_subpacket_ids.clear();
+        self.retransmit_requests.clear();
+    }
 
-                    // packets could have multiple frames
-                    let subpackets = subpacket_count(parse_real_packet_size(self.packets.last().unwrap()));
-                    let parity_packet_count = (subpackets as f32 / 3.0).ceil() as u16;
+    #[inline]
+    pub fn assemble_packet<F, T>(
+        &mut self, 
+        fragment: &[u8], number_of_bytes: usize,
+        assembled: &F,
+        retransmit: &T
+    ) -> EAssemblerState
+        where 
+            F: Fn(Vec<u8>) -> (),
+            T: Fn(u8, u32, Vec<u16>) -> () 
+    {
+        let packet_type = parse_packet_type(fragment);
+        let frame_id = parse_frame_id(fragment) as i16;
 
-                    for i in 0..self.packets.len() - 1 {
-                        let curr_packet = &self.packets[i];
-                        let next_packet = &self.packets[i + 1];
+        if packet_type == EPacketType::RNAL && self.current_frame_id != frame_id {
+            trace!("Skipping useless Retransmitted Frame ({})", frame_id);
+            return EAssemblerState::Assembling;
+        }
 
-                        let curr_remaining_packets = parse_packets_remaining(curr_packet);
-                        let next_remaining_packets = parse_packets_remaining(next_packet);
+        let remaing_packets = parse_packets_remaining(fragment);
+        let real_packet_size = parse_real_packet_size(fragment);
 
-                        if curr_remaining_packets - next_remaining_packets  != 1 {
-                            trace!("{} {}", curr_remaining_packets, next_remaining_packets);
-                            let missing_subpacket_id = curr_remaining_packets - 1;
-                            let xor_packet = xor_packets.iter().find(|packet| {
-                                let missing_packet_index = subpackets - missing_subpacket_id;
-                                let xor_remaining_packets = subpackets - (missing_packet_index % parity_packet_count);
-                                parse_packets_remaining(&packet) == xor_remaining_packets
-                            });
-                            if let Some(xor_packet) = xor_packet {
-                                trace!("Found XOR Packet: {}", parse_packets_remaining(xor_packet));
+        if self.current_frame_id == -1 {
+            if self.last_processed_frame_id >= 0 && (frame_id as u8).wrapping_sub(self.last_processed_frame_id as u8) > 1 {
+                warn!("Lost Frame: {} -> {}", self.last_processed_frame_id, frame_id);
+            }
 
-                                let complement_packets: Vec<&Vec<u8>> = self.packets.iter().filter(|packet| {
-                                    let subpacket_index = subpackets - parse_packets_remaining(packet);
-                                    let xor_remaining_packets = subpackets - (subpacket_index % parity_packet_count);
-                                    xor_remaining_packets == parse_packets_remaining(xor_packet)
-                                }).collect();
+            self.current_frame_id = frame_id;
+            self.current_real_packet_size = real_packet_size;
 
-                                if complement_packets.len() == 2 {
-                                    trace!("Found Complement Packets");
+            self.total_packets = (real_packet_size as usize + PAYLOAD - 1) / PAYLOAD;
 
-                                    let mut recovered_packet = xor_packet.clone();
-                                    if recovered_packet.len() != complement_packets[0].len() || 
-                                        recovered_packet.len() != complement_packets[1].len() {
-                                        trace!("Packet Size Mismatch");
-                                        continue;
-                                    }
-                                    for i in 0..recovered_packet.len() {
+            self.remaining_subpacket_ids.clear();
+            for i in 0..self.total_packets {
+                self.remaining_subpacket_ids.insert(i);
+            }
+
+            self.frame.resize(real_packet_size as usize, 0u8);
+        } else if self.current_frame_id != frame_id {     
+            let nal_variant = parse_packet_type_variant(fragment);
+
+            // If the frame id belongs to a key frame, clear queue and start a new frame
+            if nal_variant == ENalVariant::KeyFrame as u8 {
+                #[cfg(feature = "stat")]
+                trace!("Freeing {} Queue Packets after Keyframe", self.packet_queue.len());
+
+                self.packet_queue.clear();
+
+                self.waiting = false;
+
+                self.current_frame_id = frame_id;
+                self.current_real_packet_size = real_packet_size;
+                self.total_packets = (real_packet_size as usize + PAYLOAD - 1) / PAYLOAD;
+
+                self.remaining_subpacket_ids.clear();
+                for i in 0..self.total_packets {
+                    self.remaining_subpacket_ids.insert(i);
+                }
+                self.previous_subpacket_number = -1;
+                self.retransmit_requests.clear();
+
+                self.frame.resize(real_packet_size as usize, 0u8);
+            } else {
+                // TODO: Request retransmissions of missing packets within the queue also!
+                // so that when we recover the current frame, future frames are also recovered
+                // store them in a seperate data structure (Retransmission Packet Pool)
+               
+                self.packet_queue.push_back(fragment[..number_of_bytes].to_vec());
+
+                // At this point, we are mainly waiting for subpackets towards the end of the frame
+                // that are missing 
+                
+                let mut potentionally_missing_packets= Vec::new();
+                // let mut should_request = Vec::new();
+                let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+                for subpacket_id in &self.remaining_subpacket_ids {
+                    if let Some(previous_timestamp) = self.retransmit_requests.get(&(*subpacket_id as u16)) {
+                        // request retransmission only if the previous request was more than NAL_RETRANSMISSION_DELAY (ms) ago
+                        if (timestamp - previous_timestamp) < NAL_RETRANSMISSION_DELAY {
+                            continue
+                        } 
+                    }
+
+                    self.retransmit_requests.insert(*subpacket_id as u16, timestamp);
+                    potentionally_missing_packets.push(*subpacket_id as u16);
+                }
+
+                if potentionally_missing_packets.len() > 0 {
+                    #[cfg(feature = "stat")]
+                    trace!("Requesting Retransmission (While Queuing) of: {:?}", potentionally_missing_packets);
+                    retransmit(
+                        self.current_frame_id as u8,
+                        self.current_real_packet_size,
+                        potentionally_missing_packets
+                    );
+                }
+
+                self.waiting = true;
+                return EAssemblerState::Waiting;
+            }
+        }
+
+        // !this code will likely crash if frame id repeats before retransmission / receiving all subpackets
+
+        let data = &fragment[HEADER..number_of_bytes];
+        let packet_index = self.total_packets - 1 - remaing_packets as usize;
+
+        let start = packet_index * PAYLOAD;
+        let end = start + number_of_bytes - HEADER;
         
-                                        recovered_packet[i] ^= complement_packets[0][i];
-                                        recovered_packet[i] ^= complement_packets[1][i];
-                                    }
+        // dangerous `end` index
+        self.frame[start..end]
+            .copy_from_slice(data);
+        self.remaining_subpacket_ids.remove(&(remaing_packets as usize));
 
-                                    write_packets_remaining(missing_subpacket_id, &mut recovered_packet);
-                                    self.packets.insert(i + 1, recovered_packet);
-                                }
-                            }
-                        }
-                    }
-
-                    if self.packets.len() as u16 == subpackets {
-                        trace!("Recovered Frame");
-
-                        #[cfg(feature = "stat")]
-                        self.increment_recovered_frames();
-
-                        return true;
-                    }
-                }
-            }
-
-            debug!("Cached Packet Units for Potential Future Reconstruction");
-            // TODO: implement a way of clearing all packets that have an id in incoming cached packets
-
-            for packet in &self.packets {
-                PacketConstructor::cache_packet(
-                    &mut self.cached_packets,
-                    packet,
-                    parse_packet_id(packet),
-                );
-            }
-        }
-
-        self.order_mismatch = false;
-        self.packets.clear();
-        return false;
-    }
-
-    #[inline]
-    fn get_cached_packet_size(cached_packets_id: &Vec<Vec<u8>>) -> usize {
-        let mut cached_packet_size = 0;
-        for packet in cached_packets_id {
-            cached_packet_size += packet.len() - HEADER;
-        }
-        cached_packet_size
-    }
-
-    #[inline]
-    fn reconstruct_when_surplus(
-        cached_packets: &mut HashMap<u8, Vec<Vec<u8>>>,
-        packet_unit: &Vec<u8>,
-        current_packet_id: u8,
-    ) {
-        if !cached_packets.contains_key(&current_packet_id) {
-            // ### debug ###
-            {
-                trace!(
-                    "No Cache for Previous Packet ID (Frame: {current_packet_id}) so dropped Packet Unit: {:?}", 
-                    parse_packets_remaining(packet_unit)
-                );
-            }
-            return;
-        }
-
-        let real_packet_size = parse_real_packet_size(packet_unit);
-        let cache_packet_size =
-            PacketConstructor::get_cached_packet_size(&cached_packets[&current_packet_id]);
-        let potential_packet_size = cache_packet_size + (packet_unit.len() - HEADER);
-
-        if potential_packet_size == real_packet_size as usize {
-            debug!("Will Reconstruct Packet");
-        } else {
-            trace!(
-                "Caching, Packet Built: {}%",
-                (cache_packet_size as f64 / real_packet_size as f64) * 100.0
-            );
-        }
-    }
-
-    #[inline]
-    fn cache_packet(
-        cached_packets: &mut HashMap<u8, Vec<Vec<u8>>>,
-        packet_unit: &Vec<u8>,
-        current_packet_id: u8,
-    ) {
-        if cached_packets.contains_key(&current_packet_id) {
-            cached_packets
-                .get_mut(&current_packet_id)
-                .unwrap()
-                .push(packet_unit.clone());
-        } else {
-            cached_packets.insert(current_packet_id, vec![packet_unit.clone()]);
-        }
-    }
-
-    // TODO: Find Method to Clear Cached Packets
-    #[inline]
-    fn filter_packet(&mut self) {
-        debug!("Filtering Packets");
-
-        let last_packet_id = parse_packet_id(self.packets.last().unwrap());
-        self.packets.retain(|packet_unit| {
-            let current_packet_id = parse_packet_id(&packet_unit);
-            if current_packet_id != last_packet_id {
-                if current_packet_id < last_packet_id {
-                    PacketConstructor::reconstruct_when_surplus(
-                        &mut self.cached_packets,
-                        packet_unit,
-                        current_packet_id,
-                    );
-                } else {
-                    debug!(
-                        "Caching Packet Unit {:?} with Packet ID {}",
-                        parse_packets_remaining(packet_unit),
-                        current_packet_id
-                    );
-
-                    PacketConstructor::cache_packet(
-                        &mut self.cached_packets,
-                        packet_unit,
-                        current_packet_id,
-                    );
-                }
-                return false;
-            }
-
-            true
-        });
-    }
-
-    #[cfg(feature = "stat")]
-    fn print_packet_order(&mut self) {
-        debug!("Packet Type: {:?}", EPacketType::from(self.packets[0][0]));
-        let mut packet_order = String::new();
-        let mut xor_packet_order = String::new();
-        for packet in &self.packets {
-            if self.latest_packet_id != parse_packet_id(packet) as i16 {
-                self.potential_subpackets += subpacket_count(parse_real_packet_size(packet)) as f64;
-                self.latest_packet_id = parse_packet_id(packet) as i16;
-            }
-            packet_order.push_str(&format!(
-                "{}-{}, ",
-                parse_packet_id(&packet),
-                parse_packets_remaining(&packet)
-            ));
-        }
-        if let Some(xor_packet) = self.xor_packets.get(&parse_packet_id(self.packets.last().unwrap())) {
-            for packet in xor_packet {
-                xor_packet_order.push_str(&format!(
-                    "{}-{}, ",
-                    parse_packet_id(&packet),
-                    parse_packets_remaining(&packet)
-                ));
-            }
-        }
-
-        debug!(
-            "Subpackets: {} (Packet ID:{})",
-            subpacket_count(parse_real_packet_size(self.packets.last().unwrap())),
-            parse_packet_id(self.packets.last().unwrap())
-        );
-        debug!("Packet Order: {}", packet_order);
-        debug!("XOR Packet Order: {}", xor_packet_order);
-    }
-
-    #[inline]
-    fn handle_order_mismatch(&mut self, real_packet_size: usize) -> bool {
-        // TODO: Is this neccessary?
-        self.packets.sort_by(|a, b| {
-            let a_id = parse_packet_id(&a);
-            let b_id = parse_packet_id(&b);
-
-            if a_id != b_id {
-                let forward_diff = b_id.wrapping_sub(a_id);
-                let backward_diff = a_id.wrapping_sub(b_id);
-                return forward_diff.cmp(&backward_diff);
-            }
-
-            let a_size = parse_packets_remaining(&a);
-            let b_size = parse_packets_remaining(&b);
-            b_size.cmp(&a_size)
-        });
-
-        #[cfg(feature = "stat")]
-        self.print_packet_order();
-
-        let frame_size = calculate_frame_size(&self.packets);
-        if real_packet_size > frame_size {
-            return self.reconstruct_when_deficient();
-        } else if real_packet_size < frame_size {
-            self.filter_packet();
-
-            if cfg!(feature = "stat") {
-                let updated_frame_size = calculate_frame_size(&self.packets);
-                debug!(
-                    "Packet Size After Fix: {} vs {}",
-                    updated_frame_size, real_packet_size
-                );
-            }
-        }
-
-        self.order_mismatch = false;
-
-        true
-    }
-
-    #[cfg(feature = "stat")]
-    pub fn calculate_yield(&mut self, current_packet_id: u8) {
-        use log::info;
-
-        if self.latest_packet_id != parse_packet_id(&self.packets[0]) as i16 {
-            self.potential_subpackets +=
-                subpacket_count(parse_real_packet_size(&self.packets[0])) as f64;
-            self.latest_packet_id = parse_packet_id(&self.packets[0]) as i16;
-        }
-
-        self.recieved_packets += 1;
-        if self.previous_packet_id != -1 {
-            self.potential_packets += current_packet_id.wrapping_sub(self.previous_packet_id as u8);
-        } else {
-            self.potential_packets += 1;
-        }
-
-        if self.potential_packets >= 100 {
-            info!(
-                "Packet Yield: {}% ({}/{})",
-                self.received_subpackets / self.potential_subpackets * 100.0,
-                self.received_subpackets,
-                self.potential_subpackets
-            );
-            info!("Frame Yield: {}% ({} Recovered Frames)", self.recieved_packets, self.recovered_frames);
-
-            self.recieved_packets = 0;
-            self.potential_packets = 0;
-            self.recovered_frames = 0; 
-
-            self.received_subpackets = 0.0;
-            self.potential_subpackets = 0.0;
-        }
-    }
-
-    #[cfg(feature = "stat")]
-    pub fn increment_recovered_frames(&mut self) {
-        self.recovered_frames += 1;
-    }
-
-    #[cfg(feature = "stat")]
-    pub fn increment_subpacket_count(&mut self) {
-        self.received_subpackets += 1.0;
-    }
-
-    #[inline]
-    pub fn assemble_packet(&mut self, buf: &[u8], number_of_bytes: usize) -> Option<Vec<u8>> {
-        if parse_packet_type(buf) == EPacketType::XOR {
-            if !self.xor_packets.contains_key(&parse_packet_id(buf)) {
-                self.xor_packets
-                    .insert(parse_packet_id(buf), vec![buf[..number_of_bytes].to_vec()]);
-            } else if let Some(xor_packets) = self.xor_packets.get_mut(&parse_packet_id(buf)) {
-                xor_packets.push(buf[..number_of_bytes].to_vec());
-            }
-
-            return None;
-        }
-
-        let packets_remaining = parse_packets_remaining(buf);
-        let real_packet_size = parse_real_packet_size(buf);
-        let packet_id = parse_packet_id(buf);
-
-        if self.previous_subpacket_number != (packets_remaining + 1) as i16
+        // Should only ask for restramissions during initial assembly 
+        // if assembler is waiting for restramissions, then request again once 
+        if !self.waiting && remaing_packets.abs_diff(self.previous_subpacket_number as u16) > 1
             && self.previous_subpacket_number > 0
         {
-            trace!(
-                "Packet Order Mixup: {} -> {}",
-                self.previous_subpacket_number,
-                packets_remaining
-            );
+            let mut potentionally_missing_packets= Vec::new();
+            let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
 
-            self.order_mismatch = true;
-        }
-        self.previous_subpacket_number = packets_remaining as i16;
-
-        self.packets.push(buf[..number_of_bytes].to_vec());
-        #[cfg(feature = "stat")]
-        self.increment_subpacket_count();
-
-        if packets_remaining != 0 {
-            return None;
-        }
-
-        if self.order_mismatch && !self.handle_order_mismatch(real_packet_size.try_into().unwrap())
-        {
-            return None;
-        }
-
-        let mut assembled_packet = Vec::new();
-        for packet in &self.packets {
-            assembled_packet.extend_from_slice(&packet[HEADER..]);
-        }
-
-        #[cfg(feature = "stat")]
-        self.calculate_yield(packet_id);
-
-        let packets_diff = packet_id.wrapping_sub(self.previous_packet_id as u8);
-        for i in 1..=packets_diff {
-            let calculated_packet_id = if self.previous_packet_id == -1 {
-                packet_id
+            if remaing_packets < self.previous_subpacket_number as u16 {
+                for i in (remaing_packets+1)..(self.previous_subpacket_number as u16) {
+                    if self.remaining_subpacket_ids.contains(&(i as usize)) {
+                        if let Some(previous_timestamp) = self.retransmit_requests.get(&i) {
+                            // request retransmission only if the previous request was more than 32ms ago
+                            if (timestamp - previous_timestamp) < NAL_RETRANSMISSION_DELAY {
+                                continue
+                            } 
+                        }
+    
+                        self.retransmit_requests.insert(i, timestamp);
+                        potentionally_missing_packets.push(i);
+                    }
+                }
             } else {
-                (self.previous_packet_id as u8) + i
-            };
-            if let Some(xor_packets) = self.xor_packets.get_mut(&calculated_packet_id) {
-                xor_packets.clear();
+                for i in (self.previous_subpacket_number as u16 + 1)..remaing_packets {
+                    if self.remaining_subpacket_ids.contains(&(i as usize)) {
+                        if self.retransmit_requests.contains_key(&i) {
+                            continue;
+                        }
+
+                        self.retransmit_requests.insert(i, timestamp);
+                        potentionally_missing_packets.push(i);
+                    }
+                }
             }
+
+            if potentionally_missing_packets.len() != 0 {
+                #[cfg(feature = "stat")]
+                trace!("Requesting retransmission of packets: {:?}", potentionally_missing_packets);
+    
+                retransmit(frame_id as u8, real_packet_size, potentionally_missing_packets);        
+            } 
         }
-        self.previous_packet_id = packet_id as i16;
-        self.packets.clear();
-        Some(assembled_packet)
+
+        // TODO: Should we keep the greater subpacket number?
+        self.previous_subpacket_number = remaing_packets as i16;
+        
+        if remaing_packets == 0 || self.remaining_subpacket_ids.len() == 0 {
+            if self.remaining_subpacket_ids.len() != 0 {
+                // retransmit unrequested packets
+                let mut potentionally_missing_packets= Vec::new();
+                let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
+                for subpacket_id in &self.remaining_subpacket_ids {
+                    if self.retransmit_requests.contains_key(&(*subpacket_id as u16)) {
+                        continue; 
+                    }
+
+                    self.retransmit_requests.insert(*subpacket_id as u16, timestamp);
+                    potentionally_missing_packets.push(*subpacket_id as u16);
+                }
+
+                if potentionally_missing_packets.len() > 0 {
+                    #[cfg(feature = "stat")]
+                    trace!("Requesting Retransmission (While EOF) of: {:?}", potentionally_missing_packets);
+                    retransmit(
+                        self.current_frame_id as u8,
+                        self.current_real_packet_size,
+                        potentionally_missing_packets
+                    );
+                }
+
+                #[cfg(feature = "stat")]
+                trace!("Missing {:?} packets: {:?}", self.remaining_subpacket_ids.len(), self.remaining_subpacket_ids);
+                self.waiting = true;
+                return EAssemblerState::Waiting;
+            }
+
+            let mut assembled_packet = Vec::with_capacity(MAX_FRAME_SIZE);
+            mem::swap(&mut self.frame, &mut assembled_packet);
+
+            #[cfg(feature = "stat")]
+            if self.waiting {
+                trace!("Assembled after Waiting: {}", self.current_frame_id);
+            }
+
+            self.reset_for_next_frame();
+
+            self.last_processed_frame_id = frame_id;
+            assembled(assembled_packet);
+
+            if self.packet_queue.len() > 0 {
+                let mut packet_queue = VecDeque::new();
+                mem::swap(&mut self.packet_queue, &mut packet_queue);
+                return EAssemblerState::Queue(packet_queue);
+            }
+
+            return EAssemblerState::Finished;
+        }
+
+        EAssemblerState::Assembling
     }
 }

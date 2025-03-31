@@ -9,6 +9,7 @@ use std::{
 use ffmpeg_next::frame;
 use kanal::{unbounded, Receiver, Sender};
 
+use log::debug;
 use mrial_proto::*;
 
 use super::slint_generatedMainWindow::BarialState;
@@ -20,7 +21,7 @@ use crate::client::Client;
 
 pub struct VideoThread {
     pub channel: (Sender<Vec<u8>>, Receiver<Vec<u8>>),
-    packet_constructor: PacketConstructor,
+    packet_constructor: NALPacketConstructor,
     clock: std::time::Instant,
     ping_buf: [u8; HEADER],
     file: Option<File>,
@@ -31,7 +32,7 @@ impl VideoThread {
         let mut ping_buf = [0u8; HEADER];
 
         write_header(
-            crate::EPacketType::PING,
+            crate::EPacketType::Ping,
             0,
             HEADER.try_into().unwrap(),
             0,
@@ -39,7 +40,7 @@ impl VideoThread {
         );
 
         VideoThread {
-            packet_constructor: PacketConstructor::new(),
+            packet_constructor: NALPacketConstructor::new(),
             clock: std::time::Instant::now(),
             channel: unbounded(),
             ping_buf,
@@ -53,10 +54,12 @@ impl VideoThread {
         height: u32,
     ) -> Result<slint::SharedPixelBuffer<slint::Rgb8Pixel>, Error> {
         // TODO: Handle error accordingly
+        // TODO: consider removing this check, or somehow optimizing it
         if width * height * 3 != rgb.len() as u32 {
             return Err(Error::new(ErrorKind::InvalidData, "Invalid RGB buffer"));
         }
 
+        // TODO: Cache this and overwrite the buffer instead of creating a new one each time
         let mut pixel_buffer = slint::SharedPixelBuffer::<slint::Rgb8Pixel>::new(width, height);
         pixel_buffer.make_mut_bytes().copy_from_slice(rgb);
 
@@ -202,11 +205,14 @@ impl VideoThread {
             let mut fps_clock = std::time::Instant::now();
             let mut frame_count = 0u8;
             let mut fps = 0u8;
+            let mut frame_interval = 0u128;
 
             let mut previous_width = 0;
             let mut previous_height = 0;
 
             let mut rgb_buffer = Option::<RGBBuffer>::None;
+
+            let mut last: Option<std::time::Instant> = None;
 
             loop {
                 let buf = match receiver.recv() {
@@ -216,6 +222,25 @@ impl VideoThread {
                         break;
                     }
                 };
+                let skip = match last {
+                    Some(last) => {
+                        if last.elapsed().as_millis() > frame_interval && receiver.len() > 0 {
+                            debug!(
+                                "Skip Frame Requested | Interval: {} | Elapsed: {} | Queue: {}",
+                                frame_interval,
+                                last.elapsed().as_millis(),
+                                receiver.len()
+                            );
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    None => false,
+                };
+
+                last = Some(std::time::Instant::now());
+
                 let pt: ffmpeg_next::Packet = ffmpeg_next::packet::Packet::copy(&buf);
 
                 match ffmpeg_decoder.send_packet(&pt) {
@@ -238,7 +263,7 @@ impl VideoThread {
                         meta_clone.write().unwrap().width = ffmpeg_decoder.width() as usize;
                         meta_clone.write().unwrap().height = ffmpeg_decoder.height() as usize;
 
-                        rgb_buffer = Some(RGBBuffer::with_444_for_rgb8(
+                        rgb_buffer = Some(RGBBuffer::new(
                             ffmpeg_decoder.width() as usize,
                             ffmpeg_decoder.height() as usize,
                         ));
@@ -262,6 +287,8 @@ impl VideoThread {
                                     .set_resolution_index(resolution_index.try_into().unwrap());
                             }
                         });
+                    } else if skip {
+                        continue;
                     }
 
                     if let Some(rgb) = &mut rgb_buffer {
@@ -270,14 +297,27 @@ impl VideoThread {
                             fps_clock = std::time::Instant::now();
                             trace!("FPS: {}", frame_count);
                             fps = frame_count;
+
+                            if fps > 0 {
+                                frame_interval = (1000.0 / fps as f32).ceil() as u128;
+                            }
+
                             frame_count = 0;
                         }
 
-                        rgb.read_444_for_rgb8(
-                            yuv_frame.data(0),
-                            yuv_frame.data(1),
-                            yuv_frame.data(2),
-                        );
+                        if yuv_frame.data(0).len() == yuv_frame.data(1).len() {
+                            rgb.read_444_for_rgb8(
+                                yuv_frame.data(0),
+                                yuv_frame.data(1),
+                                yuv_frame.data(2),
+                            );
+                        } else {
+                            rgb.read_420_for_rgb8(
+                                yuv_frame.data(0),
+                                yuv_frame.data(1),
+                                yuv_frame.data(2),
+                            );
+                        }
 
                         let rgb_slice: &[u8] = rgb.as_slice();
 
@@ -318,25 +358,39 @@ impl VideoThread {
 
     #[inline]
     pub fn packet(&mut self, buf: &[u8], client: &Client, number_of_bytes: usize) {
-        let encrypted_nalu = match self
-            .packet_constructor
-            .assemble_packet(buf, number_of_bytes)
-        {
-            Some(encrypted_nalu) => encrypted_nalu,
-            None => return,
-        };
+        let state = self.packet_constructor.assemble_packet(
+            buf,
+            number_of_bytes,
+            &|encrypted_nalu: Vec<u8>| {
+                let sym_key = client.get_sym_key();
+                let sym_key = sym_key.read().unwrap();
 
-        let sym_key = client.get_sym_key();
-        let sym_key = sym_key.read().unwrap();
+                let nalu = match decrypt_frame(sym_key.as_ref().unwrap(), &encrypted_nalu) {
+                    Some(nalu) => nalu,
+                    None => return,
+                };
 
-        let nalu = match decrypt_frame(sym_key.as_ref().unwrap(), &encrypted_nalu) {
-            Some(nalu) => nalu,
-            None => return,
-        };
+                self.channel.0.send(nalu).unwrap();
+            },
+            &|frame_id, real_packet_size, subpacket_ids| {
+                if let Err(e) = client.retransmit(frame_id, real_packet_size, subpacket_ids) {
+                    log::error!("Error Requesting Retransmission: {}", e);
+                }
+            },
+        );
 
-        self.channel.0.send(nalu).unwrap();
+        match state {
+            EAssemblerState::Waiting => return,
+            EAssemblerState::Queue(queue) => {
+                #[cfg(feature = "stat")]
+                debug!("Video Queue Size: {}", queue.len());
+                for nalu in queue {
+                    self.packet(&nalu, client, nalu.len());
+                }
+            }
+            _ => {}
+        }
 
-        // TODO: Possibly remove this computation from the main thread
         if self.clock.elapsed().as_secs() > CLIENT_PING_FREQUENCY {
             self.clock = std::time::Instant::now();
             client.send(&self.ping_buf).unwrap();

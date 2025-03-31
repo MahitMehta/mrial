@@ -1,9 +1,22 @@
 # Changelog
 All notable changes to this project are documented in this file.
 
-## 0.1.19 - TBD
+## 0.3.0 - TBD
 
-- Cursor on client should match the host's cursor type
+- Web Support - (WIP)
+
+## 0.2.1 - TBD
+
+- Cursor on client should match the host's cursor type - (WIP)
+
+## 0.2.0 - TBD
+
+- Major Proto Upgrade (Supports Retransmissions) and highly optimized
+- Opus Audio compression
+- Version between server and client must be the same 
+- YUV Selection (420 or 444)
+- Outlined backend for eventual web support 
+- Reconnection UI
 
 ## 0.1.18 - 2024-02-17
 

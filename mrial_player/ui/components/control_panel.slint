@@ -13,7 +13,9 @@ import { MrialVolumeControl } from "../components/volume_control.slint";
 
 struct ClientState {
     resolution: string,
-    muted: bool
+    muted: bool,
+    opus: bool,
+    colorspace: string
 }
 
 export global ControlPanelFunctions {
@@ -24,6 +26,8 @@ export global ControlPanelAdapter {
     in-out property <[IMrialDropdownItem]> resolutions: [];
     in-out property <int> resolution_index: 0;
     in-out property <bool> muted: false;
+    in-out property <bool> opus: false;
+    in-out property <string> colorspace: "full";
 }
 
 export component ControlPanel inherits TouchArea {
@@ -66,7 +70,8 @@ export component ControlPanel inherits TouchArea {
                             
                             ControlPanelFunctions.state_update({
                                 resolution: ControlPanelAdapter.resolutions[ControlPanelAdapter.resolution_index].value,
-                                muted: ControlPanelAdapter.muted
+                                muted: ControlPanelAdapter.muted,
+                                opus: ControlPanelAdapter.opus
                             });
                         }
                         volume_changed(value) => {
@@ -90,7 +95,8 @@ export component ControlPanel inherits TouchArea {
 
                             ControlPanelFunctions.state_update({
                                 resolution: ControlPanelAdapter.resolutions[ControlPanelAdapter.resolution_index].value,
-                                muted: ControlPanelAdapter.muted
+                                muted: ControlPanelAdapter.muted,
+                                opus: ControlPanelAdapter.opus
                             });
                             root.selected_dropdown = "";
                         }
@@ -126,6 +132,7 @@ export component ControlPanel inherits TouchArea {
                     }
                     MrialDropdown {
                         label: "Audio";
+                        current-index: ControlPanelAdapter.opus ? 1 : 0;
                         items: [
                             {
                                 label: "Original",
@@ -145,9 +152,47 @@ export component ControlPanel inherits TouchArea {
                             }; 
                         }
                         selected => {
+                            ControlPanelFunctions.state_update({
+                                resolution: ControlPanelAdapter.resolutions[ControlPanelAdapter.resolution_index].value,
+                                muted: ControlPanelAdapter.muted,
+                                opus: self.items[self.current_index].value == "opus"
+                            });
+
+
                             root.selected_dropdown = "";
                         }
+                    }
+                    MrialDropdown {
+                        label: "Colorspace";
                         current-index: 0;
+                        items: [
+                            {
+                                label: "Full",
+                                value: "full"
+                            },
+                            {
+                                label: "Limited",
+                                value: "limited"
+                            }
+                        ];
+                        open: root.selected_dropdown == self.label;
+                        clicked => { 
+                            if root.selected_dropdown == self.label {
+                                root.selected_dropdown = "";
+                            } else {
+                                root.selected_dropdown = self.label;
+                            }; 
+                        }
+                        selected => {
+                            ControlPanelFunctions.state_update({
+                                resolution: ControlPanelAdapter.resolutions[ControlPanelAdapter.resolution_index].value,
+                                muted: ControlPanelAdapter.muted,
+                                opus: ControlPanelAdapter.opus,
+                                colorspace: self.items[self.current_index].value
+                            });
+
+                            root.selected_dropdown = "";
+                        }
                     }
                 }
             }

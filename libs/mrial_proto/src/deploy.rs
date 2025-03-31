@@ -1,24 +1,16 @@
-use chacha20poly1305::{aead::Aead, AeadCore, ChaCha20Poly1305};
-use rand::rngs::ThreadRng;
-
 use crate::{
-    subpacket_count, 
-    write_dynamic_header,
-    write_packet_type, 
-    write_packets_remaining, 
-    EPacketType, 
-    HEADER, 
-    MTU, 
-    PAYLOAD
+    subpacket_count, write_dynamic_header, write_packet_type, write_packet_type_variant, write_packets_remaining, EPacketType, HEADER, MTU, PAYLOAD
 };
 
+pub trait Broadcaster {
+    fn broadcast(&self, bytes: &[u8]) -> impl std::future::Future<Output = ()> + Send;
+}
+
 pub struct PacketDeployer {
+    frame_id: u8,
     xor: bool,
     xor_buf: [u8; MTU],
     buf: [u8; MTU],
-    packet_id: u8,
-    rng: ThreadRng,
-    sym_key: Option<ChaCha20Poly1305>,
 }
 
 impl PacketDeployer {
@@ -31,56 +23,30 @@ impl PacketDeployer {
 
         Self {
             xor,
+            frame_id: 1,
             xor_buf,
             buf,
-            packet_id: 1,
-            rng: rand::thread_rng(),
-            sym_key: None,
         }
     }
 
-    pub fn set_sym_key(&mut self, sym_key: ChaCha20Poly1305) {
-        self.sym_key = Some(sym_key);
-    }
+    #[inline] 
+    pub async fn slice_and_send_variant<T: Broadcaster>(
+        &mut self, bytes: &[u8], packet_type_variant: u8, broadcaster: &T) {
 
-    pub fn has_sym_key(&self) -> bool {
-        self.sym_key.is_some()
+        write_packet_type_variant(packet_type_variant, &mut self.buf);
+        self.slice_and_send(bytes, broadcaster).await;
     }
 
     #[inline]
-    pub fn prepare<'a>(&mut self, frame: &[u8], broadcast: Box<dyn Fn(&[u8]) + 'a>) {
-        let bytes = match self.encrypted_frame(frame) {
-            Some(ciphertext) => ciphertext,
-            None => return,
-        };
-
+    pub async fn slice_and_send<T: Broadcaster>(&mut self, bytes: &[u8], broadcaster: &T) {
         let real_packet_size = bytes.len() as u32;
         let subpackets = subpacket_count(real_packet_size);
 
-        write_dynamic_header(real_packet_size, self.packet_id, &mut self.buf);
-        write_dynamic_header(real_packet_size, self.packet_id, &mut self.xor_buf);
+        write_dynamic_header(real_packet_size, self.frame_id, &mut self.buf);
+        write_dynamic_header(real_packet_size, self.frame_id, &mut self.xor_buf);
 
-        if subpackets > 2 {
-            let parity_packet_count = (subpackets as f32 / 3.0).ceil() as usize; // 4
-
-            for i in 0..parity_packet_count {
-            // for i in (parity_packet_count / 2)..parity_packet_count {
-                let packet_one = i + parity_packet_count * 0;
-                let packet_two = i +  parity_packet_count * 1;
-                let packet_three = i + parity_packet_count * 2; 
-
-                write_packets_remaining(subpackets - i as u16 - 1, &mut self.xor_buf);
-
-                for n in 0..PAYLOAD {
-                    let byte_one = bytes.get(packet_one * PAYLOAD + n).unwrap_or(&0);
-                    let byte_two = bytes.get(packet_two * PAYLOAD + n).unwrap_or(&0);
-                    let byte_three = bytes.get(packet_three * PAYLOAD + n).unwrap_or(&0);
-
-                    self.xor_buf[HEADER + n] = byte_one ^ byte_two ^ byte_three;
-                }
-
-                broadcast(&self.xor_buf);
-            }
+        if self.xor && subpackets > 2 {
+            PacketDeployer::broadcast_xor(subpackets, &bytes, &mut self.xor_buf, broadcaster).await;
         }
 
         for i in 0..subpackets {
@@ -92,24 +58,42 @@ impl PacketDeployer {
             } else {
                 bytes.len() - start
             };
-            self.buf[HEADER..addition + HEADER]
-                .copy_from_slice(&bytes[start..addition + start]);
+            self.buf[HEADER..addition + HEADER].copy_from_slice(&bytes[start..addition + start]);
 
-            broadcast(&self.buf[0..addition + HEADER]);
+            broadcaster.broadcast(&self.buf[0..addition + HEADER]).await;
         }
 
-        self.packet_id += 1;
+        self.frame_id += 1;
     }
 
-    fn encrypted_frame(&mut self, frame: &[u8]) -> Option<Vec<u8>> {
-        if let Some(sym_key) = &self.sym_key {
-            let nonce = ChaCha20Poly1305::generate_nonce(&mut self.rng);
-            let mut ciphertext = sym_key.encrypt(&nonce, frame).unwrap();
-            ciphertext.extend_from_slice(&nonce);
+    // TODO: The broadcast XOR function needs to be rewritten for improved performance and flexibility
 
-            return Some(ciphertext);
+    #[inline]
+    async fn broadcast_xor<T: Broadcaster>(
+        subpackets: u16,
+        bytes: &[u8],
+        deployment_xor_buf: &mut [u8],
+        broadcaster: &T,
+    ) {
+        let parity_packet_count = (subpackets as f32 / 3.0).ceil() as usize; // 4
+
+        for i in 0..parity_packet_count {
+            // for i in (parity_packet_count / 2)..parity_packet_count {
+            let packet_one = i + parity_packet_count * 0;
+            let packet_two = i + parity_packet_count * 1;
+            let packet_three = i + parity_packet_count * 2;
+
+            write_packets_remaining(subpackets - i as u16 - 1, deployment_xor_buf);
+
+            for n in 0..PAYLOAD {
+                let byte_one = bytes.get(packet_one * PAYLOAD + n).unwrap_or(&0);
+                let byte_two = bytes.get(packet_two * PAYLOAD + n).unwrap_or(&0);
+                let byte_three = bytes.get(packet_three * PAYLOAD + n).unwrap_or(&0);
+
+                deployment_xor_buf[HEADER + n] = byte_one ^ byte_two ^ byte_three;
+            }
+
+            broadcaster.broadcast(&deployment_xor_buf).await;
         }
-
-        None
     }
 }

@@ -1,6 +1,7 @@
 use input::{Key, KeyEvent};
 use kanal::{unbounded, Receiver, Sender};
 use log::debug;
+use mrial_proto::video::EColorSpace;
 use slint::SharedString;
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
@@ -43,12 +44,23 @@ impl Input {
                     inner_client.disconnect();
                     break;
                 }
-                let next_input = receiver.recv().unwrap();
+
+                let next_input = match receiver.recv() {
+                    Ok(input) => input,
+                    Err(_) => {
+                        debug!("Error receiving input");
+                        break;
+                    }
+                };
+                
                 if parse_packet_type(&next_input) == EPacketType::InternalEOL {
                     inner_client.disconnect();
                     break;
                 }
-                inner_client.send(&next_input).unwrap();
+                
+                if let Err(e) = inner_client.send(&next_input) {
+                    debug!("Error sending input: {:?}", e);
+                }
             }
             *connected_clone.lock().unwrap() = false;
         });
@@ -100,26 +112,23 @@ impl Input {
         app_weak: slint::Weak<super::slint_generatedMainWindow::MainWindow>,
         client: Client,
     ) {
-        // TODO: don't store, make access to these values dynamic
-        let meta = client.get_meta_clone();
-
         let mut buf = [0; packet::HEADER + input::PAYLOAD];
         proto::write_header(
             EPacketType::InputState,
             0,
-            (packet::HEADER + input::PAYLOAD) as u32,
+            input::PAYLOAD as u32,
             0,
             &mut buf,
         );
 
         let sender = self.channel.0.clone();
         let connected = Arc::clone(&self.connected);
-        let meta_clone = meta.clone();
 
         let _ = slint::invoke_from_event_loop(move || {
             let click_sender = sender.clone();
             let click_connected = connected.clone();
             let app_weak_clone = app_weak.clone();
+            let meta = client.get_meta_clone();
 
             app_weak
                 .unwrap()
@@ -130,7 +139,7 @@ impl Input {
                     }
 
                     let (x_offset, y_offset, win_width, win_height) =
-                        Input::video_offset(&meta_clone, &app_weak_clone);
+                        Input::video_offset(&meta, &app_weak_clone);
                     if y < y_offset
                         || y > win_height - y_offset
                         || x < x_offset
@@ -154,8 +163,8 @@ impl Input {
 
             let mouse_move_sender = sender.clone();
             let mouse_move_connected = connected.clone();
-            let meta_clone = meta.clone();
             let app_weak_clone = app_weak.clone();
+            let meta = client.get_meta_clone();
 
             app_weak
                 .unwrap()
@@ -166,7 +175,7 @@ impl Input {
                     }
 
                     let (x_offset, y_offset, win_width, win_height) =
-                        Input::video_offset(&meta_clone, &app_weak_clone);
+                        Input::video_offset(&meta, &app_weak_clone);
                     if y < y_offset
                         || y > win_height - y_offset
                         || x < x_offset
@@ -338,6 +347,7 @@ impl Input {
             let client_state_sender: Sender<Vec<u8>> = sender.clone();
             let client_state_sender_connected = connected.clone();
             let sym_key = client.get_sym_key();
+            let mut client_clone = client.clone();
 
             app_weak
                 .unwrap()
@@ -355,35 +365,48 @@ impl Input {
                     let (width, height) = (items[0], items[1]);
 
                     let mut buf = [0; MTU];
+                    client_clone.set_meta_via_state(&state);
 
                     let client_state = ClientStatePayload {
                         width,
                         height,
                         muted: state.muted,
+                        opus: state.opus,
+                        csp: match state.colorspace.as_str() {
+                            "limited" => EColorSpace::YUV420,
+                            "full" => EColorSpace::YUV444,
+                            _ => EColorSpace::YUV444,
+                        },
                     };
-                    let sym_key = sym_key.read().unwrap();
-                    let mut sym_key = sym_key.clone().unwrap();
-                    let rng = &mut rand::thread_rng();
-                    debug!("Client State: {:?}", client_state);
 
-                    let size = ClientStatePayload::write_payload(
-                        &mut buf[HEADER..],
-                        rng,
-                        &mut sym_key,
-                        &client_state,
-                    );
+                    if let Ok(sym_key) = sym_key.read() {
+                        let sym_key = sym_key.clone();
+                        debug!("Client State: {:?}", client_state);
 
-                    write_header(
-                        EPacketType::ClientState,
-                        0,
-                        size.try_into().unwrap(),
-                        0,
-                        &mut buf[0..HEADER + size],
-                    );
+                        let size = match ClientStatePayload::write_payload(
+                            &mut buf[HEADER..],
+                            sym_key,
+                            &client_state,
+                        ) {
+                            Ok(size) => size,
+                            Err(e) => {
+                                debug!("Error writing client state payload: {:?}", e);
+                                return;
+                            }
+                        };
 
-                    client_state_sender
-                        .send(buf[0..HEADER + size].to_vec())
-                        .unwrap();
+                        write_header(
+                            EPacketType::ClientState,
+                            0,
+                            size as u32,
+                            0,
+                            &mut buf[0..HEADER + size],
+                        );
+
+                        client_state_sender
+                            .send(buf[0..HEADER + size].to_vec())
+                            .unwrap();
+                    }
                 })
         });
     }

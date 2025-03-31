@@ -1,9 +1,9 @@
-use crate::conn::Connection;
+use super::{AudioServerTask, IAudioStream};
 
-use super::{AudioServerThread, IAudioController};
+impl IAudioStream for AudioServerTask {
+    async fn stream(&self) -> Result<(), Box<dyn std::error::Error>> {
+        log::warn!("Audio streaming is not supported on Windows.");
 
-impl IAudioController for AudioServerThread {
-    fn run(&self, conn: Connection) {
-        println!("AudioServerThread Unimplemented on MacOS");
+        Ok(())
     }
 }

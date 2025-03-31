@@ -1,99 +1,115 @@
 pub mod display;
-pub mod yuv;
 pub mod session;
+pub mod yuv;
 
-use deploy::PacketDeployer;
 use display::DisplayMeta;
-use futures::{executor::ThreadPool, future::RemoteHandle, task::SpawnExt};
-use kanal::{unbounded, Receiver, Sender};
-use log::debug;
-use mrial_proto::*;
+use kanal::{unbounded, unbounded_async, AsyncReceiver, AsyncSender, Receiver};
+use log::{debug, error, warn};
+use mrial_proto::{video::EColorSpace, ENalVariant, EPacketType};
 use scrap::{Capturer, Display};
-use session::{SessionSettingThread, Setting};
+use session::{SessionSettingTask, Setting};
 use std::{
-    collections::VecDeque, fs::File, io::{ErrorKind::WouldBlock, Write}, sync::RwLockReadGuard, thread, time::{Duration, Instant}
+    fs::File,
+    io::{ErrorKind::WouldBlock, Write},
+    sync::Arc,
+    time::Duration,
+};
+use tokio::{
+    sync::Mutex,
+    time::{sleep, Instant},
 };
 use x264::{Encoder, Param, Picture};
 use yuv::YUVBuffer;
 
 use crate::{
-    conn::{Connection, ServerMetaData},
-    events::{EventsThread, EventsThreadAction},
+    audio::{AudioServerAction, AudioServerTask},
+    conn::{BroadcastTaskError, ConnectionManager, ServerMeta},
+    events::{EventsTask, EventsTaskAction},
 };
 
-use self::yuv::EColorSpace;
-
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum VideoServerAction {
     Inactive,
     ConfigUpdate,
-    NewUserSession,
     RestartStream,
-    SymKey,
     RestartSession,
+    #[cfg(target_os = "linux")]
+    NewUserSession,
 }
 
-pub struct VideoServerThread {
-    pool: ThreadPool,
-    yuv_handles: VecDeque<RemoteHandle<YUVBuffer>>,
+pub struct VideoServerTask {
     file: Option<File>,
     row_len: usize,
+
+    csp: EColorSpace,
     par: Param,
     pic: Picture,
     capturer: Option<Capturer>,
     encoder: Encoder,
-    deployer: PacketDeployer,
-    conn: Connection,
-    setting: Setting,
-    setting_thread: Option<thread::JoinHandle<()>>,
+    headers: Arc<Mutex<Option<Vec<u8>>>>,
 
-    events_sender: Sender<EventsThreadAction>,
-    events_receiver: Receiver<EventsThreadAction>,
-    events_thread: Option<thread::JoinHandle<()>>,
+    conn: ConnectionManager,
+
+    setting: Setting,
+    setting_thread: Option<tokio::task::JoinHandle<()>>,
+
+    events_sender: AsyncSender<EventsTaskAction>,
+    events_receiver: AsyncReceiver<EventsTaskAction>,
+    events_thread: Option<tokio::task::JoinHandle<()>>,
+
+    audio_sender: AsyncSender<AudioServerAction>,
+    audio_receiver: Receiver<AudioServerAction>,
+    audio_thread: Option<tokio::task::JoinHandle<()>>,
 }
 
-impl VideoServerThread {
-    pub fn new(conn: Connection) -> Result<Self, Box<dyn std::error::Error>> {
-        let mut setting = Setting::Unknown;
-
+impl VideoServerTask {
+    pub async fn new(conn: ConnectionManager) -> Result<Self, Box<dyn std::error::Error>> {
+        #[cfg(not(target_os = "linux"))]
+        let setting = Setting::Unknown;
         #[cfg(target_os = "linux")]
-        {
-            setting = session::config_xenv()?;;
-        }
-      
+        let setting = session::config_xenv()?;
+
         let display: Display = Display::primary()?;
         let capturer = Capturer::new(display)?;
-    
-        conn.set_dimensions(capturer.width(), capturer.height());
 
-        let pool = ThreadPool::builder().pool_size(1).create()?;
-        let yuv_handles = VecDeque::new();
+        conn.set_dimensions(capturer.width(), capturer.height())
+            .await;
 
         let row_len = 4 * capturer.width() * capturer.height();
 
-        let mut par: Param = VideoServerThread::get_parameters(conn.get_meta());
-        let encoder = x264::Encoder::open(&mut par)?;
+        let serde_meta = conn.get_meta().await;
+        let mut par: Param = VideoServerTask::get_parameters(&serde_meta);
+        let mut encoder = x264::Encoder::open(&mut par)?;
+        let header = encoder.get_headers()?.as_bytes().to_vec();
+
         let pic = Picture::from_param(&par)?;
 
-        let (events_sender, events_receiver) = unbounded::<EventsThreadAction>();
+        let (events_sender, events_receiver) = unbounded_async::<EventsTaskAction>();
+        let (audio_sender, audio_receiver) = unbounded::<AudioServerAction>();
 
         Ok(Self {
-            events_receiver,
-            events_sender,
-            events_thread: None,
-            
-            setting_thread: None,
-            pool,
-            yuv_handles,
             row_len,
             file: None,
+
+            csp: serde_meta.csp,
             par,
             pic,
             capturer: Some(capturer),
             encoder,
+            headers: Arc::new(Mutex::new(Some(header))),
+
+            conn,
+
+            events_receiver,
+            events_sender,
+            events_thread: None,
+
+            setting_thread: None,
             setting,
-            deployer: PacketDeployer::new(EPacketType::NAL, false),
-            conn
+
+            audio_thread: None,
+            audio_sender: audio_sender.clone_async(),
+            audio_receiver,
         })
     }
 
@@ -105,11 +121,12 @@ impl VideoServerThread {
         }
     }
 
-    fn get_parameters(meta: RwLockReadGuard<'_, ServerMetaData>) -> Param {
+    fn get_parameters(server_meta: &ServerMeta) -> Param {
         let mut par = Param::default_preset("ultrafast", "zerolatency").unwrap();
 
-        par = par.set_csp(EColorSpace::YUV444.into());
-        par = par.set_dimension(meta.height, meta.width);
+        par = par.set_csp(server_meta.csp.into());
+        par = par.set_dimension(server_meta.height, server_meta.width);
+
         if cfg!(target_os = "windows") {
             par = par.set_fullrange(1);
         }
@@ -118,7 +135,12 @@ impl VideoServerThread {
         par = par.param_parse("annexb", "1").unwrap();
         par = par.param_parse("bframes", "0").unwrap();
         par = par.param_parse("crf", "20").unwrap();
-        par = par.apply_profile("high444").unwrap();
+
+        if server_meta.csp != EColorSpace::YUV444 {
+            par = par.apply_profile("high").unwrap();
+        } else {
+            par = par.apply_profile("high444").unwrap();
+        }
 
         par
     }
@@ -130,43 +152,96 @@ impl VideoServerThread {
         }
     }
 
-    fn restart_stream(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let display = Display::primary()?;
+    async fn handle_app_broadcast(&self, buf: &[u8]) {
+        // TODO: Find out why I-Frames are 7 instead of 5 and
+        // TODO: make sure the 4th byte is always represents the NAL header
+        
+        let packet_type_variant = match buf[4] & 0x1F {
+            7 => ENalVariant::KeyFrame as u8,
+            _ => ENalVariant::NonKeyFrame as u8,
+        };
+        
+        if let Err(e) = self
+            .conn
+            .app_encrypted_broadcast(EPacketType::NAL, packet_type_variant, buf)
+            .await
+        {
+            match e {
+                BroadcastTaskError::TaskNotRunning => {
+                    error!("App Broadcast Task Not Running");
 
+                    debug!("Restarting App Broadcast Task");
+                    self.conn.get_app().start_broadcast_async_task();
+                }
+                BroadcastTaskError::TransferFailed(msg) => {
+                    error!("App Broadcast Send Error: {msg}");
+                }
+                BroadcastTaskError::EncryptionFailed(msg) => {
+                    error!("App Broadcast Encryption Error: {msg}");
+                }
+            }
+        }
+    }
+
+    fn handle_web_broadcast(&self, buf: &[u8]) {
+        if let Err(e) = self.conn.web_encrypted_broadcast(EPacketType::NAL, buf) {
+            match e {
+                BroadcastTaskError::TaskNotRunning => {
+                    error!("Web Broadcast Task Not Running");
+
+                    debug!("Restarting Web Broadcast Task");
+                    self.conn.get_web().start_broadcast_async_task();
+                }
+                BroadcastTaskError::TransferFailed(msg) => {
+                    error!("Web Broadcast Send Error: {msg}");
+                }
+                _ => {}
+            }
+        }
+    }
+
+    async fn restart_stream(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let display = Display::primary()?;
         let capturer: Capturer = Capturer::new(display)?;
- 
+
+        let server_meta = self.conn.get_meta().await;
+
         self.row_len = 4 * capturer.width() * capturer.height();
         self.conn
-            .set_dimensions(capturer.width(), capturer.height());
-        self.par = VideoServerThread::get_parameters(self.conn.get_meta());
+            .set_dimensions(capturer.width(), capturer.height())
+            .await;
+        self.csp = server_meta.csp;
+        self.par = VideoServerTask::get_parameters(&server_meta);
         self.encoder = x264::Encoder::open(&mut self.par)?;
 
-        if self.deployer.has_sym_key() {
-            let headers = self.encoder.get_headers()?;
-            let header_bytes = headers.as_bytes();
-            self.deployer.prepare(
-                &header_bytes,
-                Box::new(|subpacket| {
-                    self.conn.broadcast(&subpacket);
-                }),
-            );
+        let headers = self.encoder.get_headers()?;
+        let header_bytes = headers.as_bytes();
+
+        // Update the headers
+        let mut header_ref = self.headers.lock().await;
+        *header_ref = Some(header_bytes.to_vec());
+
+        if self.conn.has_app_clients().await {
+            self.handle_app_broadcast(&header_bytes).await;
+        }
+
+        if self.conn.has_web_clients().await {
+            self.handle_web_broadcast(&header_bytes);
         }
 
         self.pic = Picture::from_param(&self.par)?;
-
-        self.yuv_handles.clear();
         self.capturer = Some(capturer);
 
         Ok(())
     }
 
-    fn handle_server_action(
-        &mut self, 
-        server_action: Option<VideoServerAction>,
-        video_server_ch_sender: &kanal::Sender<VideoServerAction>
-    ) {
+    async fn handle_server_action(
+        &mut self,
+        server_action: VideoServerAction,
+        video_server_ch_sender: &AsyncSender<VideoServerAction>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         match server_action {
-            Some(VideoServerAction::RestartSession) => {
+            VideoServerAction::RestartSession => {
                 #[cfg(target_os = "linux")]
                 match session::config_xenv() {
                     Ok(Setting::PostLogin) => {
@@ -178,108 +253,173 @@ impl VideoServerThread {
                     _ => {}
                 }
 
-                video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
-                self.events_sender.send(EventsThreadAction::ReconnectInputModules).unwrap();
-            }
-            Some(VideoServerAction::NewUserSession) => {
-                #[cfg(target_os = "linux")]
-                match session::config_xenv() {
-                    Ok(Setting::PostLogin) => {
-                        self.setting = Setting::PostLogin;
-                        video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
-                    }
-                    _ => {}
+                if let Err(e) = video_server_ch_sender
+                    .send(VideoServerAction::RestartStream)
+                    .await
+                {
+                    error!("Error sending RestartStream action: {}", e);
+                }
+
+                if let Err(e) = self
+                    .events_sender
+                    .send(EventsTaskAction::RestartInputTread)
+                    .await
+                {
+                    warn!("Error sending ReconnectInputModules action: {}", e);
                 }
             }
-            Some(VideoServerAction::Inactive) => {
-                self.encoder = x264::Encoder::open(&mut self.par).unwrap();
-            }
-            Some(VideoServerAction::SymKey) => {
-                if let Some(sym_key) = self.conn.get_sym_key() {
-                    self.deployer.set_sym_key(sym_key.clone());
+            #[cfg(target_os = "linux")]
+            VideoServerAction::NewUserSession => match session::config_xenv() {
+                Ok(Setting::PostLogin) => {
+                    self.setting = Setting::PostLogin;
+                    video_server_ch_sender
+                        .send(VideoServerAction::RestartStream)
+                        .await?;
                 }
+                _ => {}
+            },
+            VideoServerAction::Inactive => {
+                self.encoder = x264::Encoder::open(&mut self.par)?;
             }
-            Some(VideoServerAction::RestartStream) => {
+            VideoServerAction::RestartStream => {
                 self.drop_capturer();
-                match self.restart_stream() {
+                match self.restart_stream().await {
                     Ok(_) => {
                         debug!("Restarted Stream Successfully");
                     }
                     Err(e) => {
                         debug!("Error Restarting Stream: {}", e);
-                        video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
+                        sleep(Duration::from_millis(100)).await;
+                        video_server_ch_sender
+                            .send(VideoServerAction::RestartStream)
+                            .await?;
                     }
                 }
             }
-            Some(VideoServerAction::ConfigUpdate) => {
-                let requested_width = self.conn.get_meta().width;
-                let requested_height = self.conn.get_meta().height;
+            VideoServerAction::ConfigUpdate => {
+                let meta = self.conn.get_meta().await;
 
-                if let Err(e) = DisplayMeta::update_display_resolution(requested_width, requested_height) {
+                let requested_width = meta.width;
+                let requested_height = meta.height;
+
+                if let Err(e) =
+                    DisplayMeta::update_display_resolution(requested_width, requested_height)
+                {
                     debug!("Error updating display resolution: {}", e);
                 }
 
-                video_server_ch_sender.send(VideoServerAction::RestartStream).unwrap();
-            }
-            None => {
-                return;
+                video_server_ch_sender
+                    .send(VideoServerAction::RestartStream)
+                    .await?;
             }
         }
+
+        Ok(())
     }
 
-    fn start_session_thread(&mut self, ch_sender: Sender<VideoServerAction>) -> bool {
+    fn start_session_thread(
+        &mut self,
+        ch_sender: AsyncSender<VideoServerAction>,
+    ) -> Result<(), ()> {
         let has_setting_thread = match &self.setting_thread {
             Some(handle) => !handle.is_finished(),
             None => false,
         };
 
-        if has_setting_thread { return false; }
+        if has_setting_thread {
+            return Err(());
+        }
 
-        self.setting_thread = Some(SessionSettingThread::run(
-            ch_sender, 
-            self.setting
-        ));
-        true
+        self.setting_thread = Some(SessionSettingTask::run(ch_sender, self.setting));
+
+        Ok(())
+    }
+
+    fn start_audio_thread(&mut self) -> Result<(), ()> {
+        let has_audio_thread = match &self.audio_thread {
+            Some(handle) => !handle.is_finished(),
+            None => false,
+        };
+
+        if has_audio_thread {
+            return Err(());
+        }
+
+        let conn = self.conn.clone();
+
+        self.audio_thread = Some(AudioServerTask::run(conn, self.audio_receiver.clone()));
+
+        Ok(())
     }
 
     fn start_events_thread(
-        &mut self, 
-        headers: Vec<u8>, 
-        ch_sender: Sender<VideoServerAction>) -> bool {
+        &mut self,
+        headers: Arc<Mutex<Option<Vec<u8>>>>,
+        ch_sender: AsyncSender<VideoServerAction>,
+    ) -> Result<(), ()> {
         let has_events_thread = match &self.events_thread {
             Some(handle) => !handle.is_finished(),
             None => false,
         };
 
-        if has_events_thread { return false; }
+        if has_events_thread {
+            return Err(());
+        }
 
-        self.events_thread = Some(EventsThread::run(
-            &self.conn, 
+        let conn = self.conn.clone();
+
+        self.events_thread = Some(EventsTask::run(
+            conn,
             headers,
-            ch_sender, 
-            self.events_receiver.clone()
+            self.events_receiver.clone(),
+            ch_sender,
+            self.audio_sender.clone(),
         ));
 
-        true
+        Ok(())
     }
 
     #[inline]
-    pub async fn run(&mut self) {
-        let (ch_sender, ch_receiver) = unbounded::<VideoServerAction>();
+    async fn frame_delay(&self, duration: Duration) {
+        let start = Instant::now();
+        let accuracy = Duration::new(0, 1_000_000);
+        if duration > accuracy {
+            tokio::time::sleep(duration - accuracy).await;
+        }
+        // spin the rest of the duration
+        while start.elapsed() < duration {
+            std::hint::spin_loop();
+        }
+    }
+
+    #[inline]
+    pub async fn run(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let (ch_sender, ch_receiver) = unbounded_async::<VideoServerAction>();
 
         let mut frames = 0u8;
         let mut fps_time = Instant::now();
 
-        // Send update to client to update headers
-        let headers = self.encoder.get_headers().unwrap();
+        if let Err(_) = self.start_events_thread(self.headers.clone(), ch_sender.clone()) {
+            error!("Error starting events thread.");
+        }
 
-        self.start_events_thread(headers.as_bytes().to_vec(), ch_sender.clone());
-        self.start_session_thread(ch_sender.clone());   
+        if let Err(_) = self.start_audio_thread() {
+            error!("Error starting audio thread.");
+        }
+
+        if let Err(_) = self.start_session_thread(ch_sender.clone()) {
+            error!("Error starting session thread.");
+        }
+
+        self.conn.get_app().start_broadcast_async_task();
+        self.conn.get_web().start_broadcast_async_task();
 
         loop {
             while ch_receiver.len() > 0 {
-                if let Ok(server_action) = ch_receiver.try_recv_realtime() {
-                    self.handle_server_action(server_action, &ch_sender);
+                if let Ok(Some(server_action)) = ch_receiver.try_recv_realtime() {
+                    if let Err(e) = self.handle_server_action(server_action, &ch_sender).await {
+                        error!("Error handling server action: {}", e);
+                    };
                 }
             }
 
@@ -290,9 +430,14 @@ impl VideoServerThread {
                 }
             };
 
-            if !self.conn.has_clients() {
-                self.conn.filter_clients();
-                std::thread::sleep(Duration::from_millis(250));
+            let (has_app_clients, has_web_clients) = tokio::join! {
+                self.conn.has_app_clients(),
+                self.conn.has_web_clients(),
+            };
+
+            if !has_app_clients && !has_web_clients {
+                self.conn.filter_clients().await;
+                sleep(Duration::from_millis(250)).await;
                 continue;
             }
 
@@ -302,73 +447,89 @@ impl VideoServerThread {
 
             match capturer.frame() {
                 Ok(frame) => {
-                    let bgra_frame = frame.chunks(self.row_len).next().unwrap().to_vec();
+                    let argb_frame = frame.chunks(self.row_len).next().unwrap().to_vec();
 
-                    if (width * height * 4) != bgra_frame.len() {
-                        debug!("Frame size: {} Expected: {}", bgra_frame.len(), width * height * 4);
+                    if (width * height * 4) != argb_frame.len() {
+                        debug!(
+                            "Frame size: {} Expected: {}",
+                            argb_frame.len(),
+                            width * height * 4
+                        );
                     }
 
-                    if bgra_frame.len() < (width * height * 4) {
+                    if argb_frame.len() < (width * height * 4) {
                         debug!("Frame size less than expected");
                         continue;
                     }
 
-                    let cvt_rgb_yuv = async move {
-                        // TODO: figure out why this is neccessary
-                        let yuv = YUVBuffer::with_bgra_for_444(
-                            width,
-                            height,
-                            &bgra_frame[0..width * height * 4],
+                    match self.csp {
+                        EColorSpace::YUV420 => {
+                            let yuv = YUVBuffer::with_argb_for_i420(
+                                width,
+                                height,
+                                &argb_frame[0..width * height * 4],
+                            );
+        
+                            let y_plane = self.pic.as_mut_slice(0).unwrap();
+                            y_plane.copy_from_slice(yuv.y());
+                            let u_plane = self.pic.as_mut_slice(1).unwrap();
+                            u_plane.copy_from_slice(yuv.u_420());
+                            let v_plane = self.pic.as_mut_slice(2).unwrap();
+                            v_plane.copy_from_slice(yuv.v_420());
+                        }
+                        EColorSpace::YUV444 => {
+                            let yuv = YUVBuffer::with_argb_for_444(
+                                width,
+                                height,
+                                &argb_frame[0..width * height * 4],
+                            );
+        
+                            let y_plane = self.pic.as_mut_slice(0).unwrap();
+                            y_plane.copy_from_slice(yuv.y());
+                            let u_plane = self.pic.as_mut_slice(1).unwrap();
+                            u_plane.copy_from_slice(yuv.u_444());
+                            let v_plane = self.pic.as_mut_slice(2).unwrap();
+                            v_plane.copy_from_slice(yuv.v_444());
+                        }
+                    } 
+
+                    // TODO: Is this important?
+                    // self.pic.set_timestamp(self.frame_count);
+
+                    if let Ok(Some((nal, _, _))) = self.encoder.encode(&self.pic) {
+                        if has_app_clients {
+                            self.handle_app_broadcast(&nal.as_bytes()).await;
+                        }
+
+                        if has_web_clients {
+                            self.handle_web_broadcast(&nal.as_bytes());
+                        }
+
+                        frames += 1;
+                    }
+
+                    if fps_time.elapsed().as_secs() >= 1 && frames > 0 {
+                        self.conn.filter_clients().await;
+                        debug!(
+                            "FPS: {}",
+                            frames as f32 / fps_time.elapsed().as_secs() as f32
                         );
-                        yuv
-                    };
-                    self.yuv_handles
-                        .push_back(self.pool.spawn_with_handle(cvt_rgb_yuv).unwrap());
+                        frames = 0;
+                        fps_time = Instant::now();
 
-                    // set to 1 to increase FPS at the cost of latency, or 0  for the opposite effect
-                    if self.yuv_handles.len() > 0 {
-                        let yuv = self.yuv_handles.pop_front().unwrap().await;
+                        self.conn.app_drain_subpacket_cache().await;
+                    }
 
-                        let y_plane = self.pic.as_mut_slice(0).unwrap();
-                        y_plane.copy_from_slice(yuv.y());
-                        let u_plane = self.pic.as_mut_slice(1).unwrap();
-                        u_plane.copy_from_slice(yuv.u_444());
-                        let v_plane = self.pic.as_mut_slice(2).unwrap();
-                        v_plane.copy_from_slice(yuv.v_444());
-
-                        // TODO: Is this important?
-                        //self.pic.set_timestamp(self.frame_count);
-
-                        if let Some((nal, _, _)) = self.encoder.encode(&self.pic).unwrap() {
-                            self.deployer.prepare(
-                                &nal.as_bytes(),
-                                Box::new(|subpacket| {
-                                    self.conn.broadcast(&subpacket);
-                                }),
-                            );
-                            frames += 1;
-                        }
-
-                        if fps_time.elapsed().as_secs() >= 1 && frames > 0 {
-                            self.conn.filter_clients();
-                            debug!(
-                                "FPS: {}",
-                                frames as f32 / fps_time.elapsed().as_secs() as f32
-                            );
-                            frames = 0;
-                            fps_time = Instant::now();
-                        }
-
-                        if sleep.elapsed().as_millis() > 0 && sleep.elapsed().as_millis() < 17 {
-                            let delay = 17 - sleep.elapsed().as_millis();
-                            spin_sleep::sleep(Duration::from_millis(delay as u64));
-                        }
+                    let current_elapsed = sleep.elapsed().as_micros();
+                    if current_elapsed > 0 && current_elapsed < 16667 {
+                        let requested_delay = 16667 - current_elapsed;
+                        self.frame_delay(Duration::from_micros(requested_delay as u64))
+                            .await;
                     }
                 }
                 Err(ref e) if e.kind() == WouldBlock => {}
                 Err(e) => {
-                    println!("Error: {}", e);
-                    debug!("Error Capturing Frame")
+                    error!("Error Capturing Frame: {}", e);
                 }
             }
         }

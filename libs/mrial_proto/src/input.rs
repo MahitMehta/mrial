@@ -135,7 +135,7 @@ pub fn write_click(buf: &mut [u8], x: f32, y: f32, width: f32, height: f32, righ
 
     if right {
         let mask = 1 << 7;
-        buf[4] = (buf[4] & !mask) | (1 << 7);
+        buf[4] |= mask;
     }
 }
 
@@ -150,16 +150,19 @@ pub fn click_requested(buf: &[u8]) -> bool {
 }
 
 #[inline]
-pub fn parse_click(buf: &mut [u8], width: usize, height: usize) -> (i32, i32, bool) {
+pub fn parse_click(buf: &[u8], width: usize, height: usize) -> (i32, i32, bool) {
     let mut right_click = false;
 
-    if buf[4] >> 7 == 1 {
+    let mut x_percent_bytes = [0u8; 2];
+    x_percent_bytes.copy_from_slice(&buf[4..6]);
+
+    if x_percent_bytes[0] >> 7 == 1 {
         right_click = true;
         let mask = 1 << 7;
-        buf[4] = (buf[4] & !mask) | (0 << 7);
+        x_percent_bytes[0] = x_percent_bytes[0] & !mask
     }
 
-    let x_percent = u16::from_be_bytes(buf[4..6].try_into().unwrap()) - 1;
+    let x_percent = u16::from_be_bytes(x_percent_bytes) - 1;
     let y_percent = u16::from_be_bytes(buf[6..8].try_into().unwrap()) - 1;
 
     let x = (x_percent as f32 / 10000.0 * width as f32).round() as i32;
@@ -190,7 +193,7 @@ pub fn write_mouse_move(buf: &mut [u8], x: f32, y: f32, width: f32, height: f32,
 }
 
 #[inline]
-pub fn parse_mouse_move(buf: &mut [u8], width: f32, height: f32) -> (i32, i32, bool) {
+pub fn parse_mouse_move(buf: &[u8], width: f32, height: f32) -> (i32, i32, bool) {
     let x_percent = u16::from_be_bytes(buf[10..12].try_into().unwrap()) - 1;
     let y_percent = u16::from_be_bytes(buf[12..14].try_into().unwrap()) - 1;
 

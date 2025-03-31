@@ -16,6 +16,7 @@ export global VideoFunctions {
 
 export global VideoState {
     in property <bool> connected: false;
+    in property <string> error_message: "";
 }
 
 export component VideoScreen inherits Screen {
@@ -33,6 +34,8 @@ export component VideoScreen inherits Screen {
         image := Image {
             image-rendering: ImageRendering.pixelated;
             padding: 0;
+            // opacity: VideoState.connected ? 1 : 0.75;
+            // animate opacity { duration: 150ms; }
             video_ta := TouchArea {
                 clicked => {
                     if (video_ta.mouse-x > control_panel_button.x && 
@@ -91,15 +94,37 @@ export component VideoScreen inherits Screen {
                     VideoFunctions.mouse_move(video_ta.mouse-x, video_ta.mouse-y, self.pressed);
                 }
             }
+            overlay := Rectangle {
+                width: 100%;
+                height: 100%;
+                background: VideoState.connected ? rgba(0, 0, 0, 0) : rgba(0, 0, 0, 0.35);
+                animate background { duration: 250ms; }
+            }
             status_bar := Barial {
                 x: 0; 
                 y: 0; 
                 visible: control-panel.visible;
             }
+            Rectangle {
+                x: parent.width / 2 - self.width / 2;
+                y: parent.height / 2 - self.height / 2;  
+                visible: !VideoState.error_message.is-empty;
+                HorizontalLayout {
+                    alignment: LayoutAlignment.center;
+                    VerticalLayout {
+                        alignment: LayoutAlignment.center;
+                        Text {
+                            text: VideoState.error_message;
+                            font-size: 15px;
+                            color: orange; 
+                        }
+                    }
+                }
+            }
             status := Rectangle {
                 x: parent.width / 2 - self.width / 2;
                 y: parent.height / 2 - self.height / 2;  
-                visible: !VideoState.connected;
+                visible: !VideoState.connected && VideoState.error_message.is-empty;
                 HorizontalLayout {
                     width: 300px;
                     height: 32px;

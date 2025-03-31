@@ -1,5 +1,10 @@
 use std::{
-    error::Error, fs::{self, File, OpenOptions}, io::{BufReader, ErrorKind, Write}, path::PathBuf, process::Command, sync::{Arc, Mutex}
+    error::Error,
+    fs::{self, File, OpenOptions},
+    io::{BufReader, ErrorKind, Write},
+    path::PathBuf,
+    process::Command,
+    sync::{Arc, Mutex},
 };
 
 use log::debug;
@@ -8,7 +13,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 pub struct StorageMulti<T> {
     state: Arc<Mutex<Option<Vec<T>>>>,
     file_name: String,
-    file_dir: PathBuf
+    file_dir: PathBuf,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -43,7 +48,7 @@ impl<T: Serialize + DeserializeOwned + Clone> StorageMulti<T> {
         StorageMulti {
             state: Arc::new(Mutex::new(None)),
             file_name,
-            file_dir
+            file_dir,
         }
     }
 
@@ -145,7 +150,10 @@ impl<T: Serialize + DeserializeOwned + Clone> StorageMulti<T> {
             })?;
 
         if status.success() {
-            debug!("Saved Data to Disk with Elevated Permissions @ {:?}", file_path);
+            debug!(
+                "Saved Data to Disk with Elevated Permissions @ {:?}",
+                file_path
+            );
             Ok(())
         } else {
             Err("Failed to Save Data to Disk".into())
@@ -161,16 +169,17 @@ impl<T: Serialize + DeserializeOwned + Clone> StorageMulti<T> {
             .write(true)
             .create(true)
             .truncate(true)
-            .open(&file_path) {
-                Ok(file) => file,
-                Err(ref e) if e.kind() == ErrorKind::PermissionDenied => {
-                    return self.save_with_elevated_permissions();
-                }
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }; 
-      
+            .open(&file_path)
+        {
+            Ok(file) => file,
+            Err(ref e) if e.kind() == ErrorKind::PermissionDenied => {
+                return self.save_with_elevated_permissions();
+            }
+            Err(e) => {
+                return Err(e.into());
+            }
+        };
+
         let value: StorageMultiWrapper<T> = StorageMultiWrapper {
             data: self.state.lock().unwrap().clone().unwrap(),
         };
@@ -178,7 +187,7 @@ impl<T: Serialize + DeserializeOwned + Clone> StorageMulti<T> {
         let json = serde_json::to_string(&value)?;
         file.write_all(json.as_bytes())?;
         debug!("Saved Data to Disk @ {:?}", file_path);
-        
+
         Ok(())
     }
 }

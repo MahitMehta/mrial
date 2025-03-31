@@ -1,346 +1,201 @@
-use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
-use chacha20poly1305::{aead::KeyInit, ChaCha20Poly1305};
-use log::debug;
-use mrial_fs::{storage::StorageMultiType, Users};
-use rsa::{pkcs1::EncodeRsaPublicKey, RsaPrivateKey, RsaPublicKey};
-use std::{
-    collections::HashMap,
-    net::{SocketAddr, UdpSocket},
-    sync::{Arc, RwLock},
-    time::SystemTime,
-};
+use std::{fmt, net::SocketAddr, sync::Arc};
 
-use mrial_proto::{
-    packet::*, ClientShakeAE, ClientStatePayload, JSONPayloadAE, JSONPayloadSE, JSONPayloadUE,
-    ServerShookSE, ServerShookUE, ServerStatePayload, SERVER_PING_TOLERANCE,
-};
+use app::AppConnection;
+use bytes::Bytes;
+use kanal::AsyncReceiver;
+use mrial_proto::{video::EColorSpace, EPacketType};
+use tokio::sync::RwLock;
+use web::WebConnection;
 
-#[cfg(target_os = "linux")]
-use crate::video::display::DisplayMeta;
+pub mod app;
+pub mod web;
 
-const SERVER_DEFAULT_PORT: u16 = 8554;
+pub type PacketTypeVariant = u8;
 
-pub struct Client {
-    last_ping: SystemTime,
-    src: SocketAddr,
-    muted: bool,
-    connected: bool,
-    priv_key: RsaPrivateKey,
-    sym_key: Option<ChaCha20Poly1305>,
+#[derive(Debug)]
+pub enum BroadcastTaskError {
+    TransferFailed(String),
+    EncryptionFailed(String),
+    TaskNotRunning,
 }
 
-impl Client {
-    pub fn new(src: SocketAddr, priv_key: RsaPrivateKey) -> Self {
-        Self {
-            src,
-            priv_key,
-            muted: false,
-            connected: false,
-            last_ping: SystemTime::now(),
-            sym_key: None,
+impl fmt::Display for BroadcastTaskError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            BroadcastTaskError::TaskNotRunning => write!(f, "Broadcast Task is not running"),
+            BroadcastTaskError::EncryptionFailed(msg) => write!(f, "Encryption Failed: {}", msg),
+            BroadcastTaskError::TransferFailed(msg) => write!(f, "Transfer Failed: {}", msg),
         }
-    }
-
-    pub fn set_muted(&mut self, muted: bool) {
-        self.muted = muted;
-    }
-
-    /// Client is connected with an encrypted tunnel and is authenticated
-    pub fn is_connected(&self) -> bool {
-        self.connected
-    }
-
-    pub fn is_alive(&self) -> bool {
-        let alive = self.last_ping.elapsed().unwrap().as_secs() < SERVER_PING_TOLERANCE;
-
-        if !alive {
-            debug!("Client: {} is Dead", self.src);
-        }
-
-        alive
     }
 }
 
-pub struct ServerMetaData {
+impl std::error::Error for BroadcastTaskError {}
+
+pub trait Client {
+    fn is_alive(&self) -> bool;
+}
+
+#[derive(Debug, Clone)]
+pub struct ServerMeta {
     pub width: usize,
     pub height: usize,
+    pub opus: bool,
+    pub csp: EColorSpace
 }
 
-pub struct Connection {
-    clients: Arc<RwLock<HashMap<String, Client>>>,
-    meta: Arc<RwLock<ServerMetaData>>,
-    socket: UdpSocket,
-    users: Users,
-}
-
-impl Connection {
-    pub fn new() -> Self {
-        let server_address = SocketAddr::from(([0, 0, 0, 0], SERVER_DEFAULT_PORT));
-        let socket = UdpSocket::bind(server_address).expect(&format!(
-            "Failed to Bind UDP Socket at Port:{}",
-            SERVER_DEFAULT_PORT
-        ));
-        let users = Users::new();
-
+impl Default for ServerMeta {
+    fn default() -> Self {
         Self {
-            users,
-            clients: Arc::new(RwLock::new(HashMap::new())),
-            meta: Arc::new(RwLock::new(ServerMetaData {
-                width: 0,
-                height: 0,
-            })),
-            socket: socket.try_clone().unwrap(),
+            width: 0,
+            height: 0,
+            opus: true,
+            csp: EColorSpace::default(),
+        }
+    }
+}
+pub struct ConnectionManager {
+    web: WebConnection,
+    app: AppConnection,
+    meta: Arc<RwLock<ServerMeta>>,
+}
+
+impl ConnectionManager {
+    pub async fn new() -> Self {
+        Self {
+            web: WebConnection::new(),
+            app: AppConnection::new().await,
+            meta: Arc::new(RwLock::new(ServerMeta::default())),
         }
     }
 
-    pub fn get_meta(&self) -> std::sync::RwLockReadGuard<'_, ServerMetaData> {
-        self.meta.read().unwrap()
+    pub fn get_web(&self) -> WebConnection {
+        self.web.clone()
     }
 
-    pub fn set_dimensions(&self, width: usize, height: usize) {
-        self.meta.write().unwrap().width = width;
-        self.meta.write().unwrap().height = height;
-    }
-
-    pub fn send_alive(&self, src: SocketAddr) {
-        let mut buf = [0u8; HEADER];
-        write_header(
-            EPacketType::Alive,
-            0,
-            HEADER.try_into().unwrap(),
-            0,
-            &mut buf,
-        );
-        self.socket.send_to(&buf, src).unwrap();
+    pub fn get_app(&self) -> AppConnection {
+        self.app.clone()
     }
 
     #[inline]
-    pub fn received_ping(&self, src: SocketAddr) {
-        let src_str: String = src.to_string();
-        if self.clients.read().unwrap().contains_key(&src_str) {
-            let current = SystemTime::now();
-
-            self.clients
-                .write()
-                .unwrap()
-                .get_mut(&src_str)
-                .unwrap()
-                .last_ping = current;
-        }
+    pub async fn is_opus(&self) -> bool {
+        let meta = self.meta.read().await;
+        meta.opus
     }
 
-    pub fn mute_client(&self, src: SocketAddr, muted: bool) {
-        let src_str = src.to_string();
-
-        if let Some(client) = self.clients.write().unwrap().get_mut(&src_str) {
-            client.set_muted(muted)
-        }
+    pub async fn get_meta(&self) -> ServerMeta {
+        let meta = self.meta.read().await;
+        meta.clone()
     }
 
-    #[inline]
-    pub fn filter_clients(&self) {
-        let mut clients = self.clients.write().unwrap();
-        clients.retain(|_, client| client.is_alive());
-    }
+    pub async fn set_meta(&self, meta: ServerMeta) -> bool {
+        let mut stream_restart_flag = false;
 
-    #[inline]
-    pub fn has_clients(&self) -> bool {
-        self.clients
-            .read()
-            .unwrap()
-            .values()
-            .find(|client| client.is_connected())
-            .is_some()
-    }
+        let mut current_meta = self.meta.write().await;
 
-    pub fn remove_client(&self, src: SocketAddr) {
-        let src_str: String = src.to_string();
-        self.clients.write().unwrap().remove(&src_str);
-    }
-
-    fn get_client_priv_key(&self, src_str: &String) -> Option<RsaPrivateKey> {
-        if let Some(client) = self.clients.read().unwrap().get(src_str) {
-            return Some(client.priv_key.clone());
-        }
-
-        return None;
-    }
-
-    pub fn get_sym_key(&self) -> Option<ChaCha20Poly1305> {
-        if let Some(client) = self
-            .clients
-            .read()
-            .unwrap()
-            .values()
-            .find(|client| client.is_connected() && client.sym_key.is_some())
+        if current_meta.width != meta.width
+            || current_meta.height != meta.height
+            || current_meta.csp != meta.csp
         {
-            return client.sym_key.clone();
+            stream_restart_flag = true;
         }
 
-        None
+        current_meta.width = meta.width;
+        current_meta.height = meta.height;
+        current_meta.opus = meta.opus;
+        current_meta.csp = meta.csp;
+
+        stream_restart_flag
     }
 
-    pub fn connect_client(
-        &mut self,
+    pub async fn set_dimensions(&self, width: usize, height: usize) {
+        let mut meta = self.meta.write().await;
+
+        meta.width = width;
+        meta.height = height;
+    }
+
+    #[inline]
+    pub async fn has_web_clients(&self) -> bool {
+        self.web.has_clients().await
+    }
+
+    #[inline]
+    pub async fn has_app_clients(&self) -> bool {
+        self.app.has_clients().await
+    }
+
+    #[inline]
+    pub fn web_receiver(&self) -> AsyncReceiver<Bytes> {
+        self.web.receiver()
+    }
+
+    #[inline]
+    pub fn web_encrypted_broadcast(
+        &self,
+        packet_type: EPacketType,
+        buf: &[u8],
+    ) -> Result<(), BroadcastTaskError> {
+        self.web.broadcast_frame(packet_type, buf)
+    }
+
+    #[inline]
+    pub async fn app_retransmit_frame(
+        &self,
         src: SocketAddr,
-        encypyted_payload: &[u8],
-        _headers: &[u8],
-    ) -> Option<ClientStatePayload> {
-        let src_str = src.to_string();
-
-        if let Some(priv_key) = self.get_client_priv_key(&src_str) {
-            let payload = match ClientShakeAE::from_payload(encypyted_payload, priv_key) {
-                Ok(payload) => payload,
-                Err(_) => {
-                    debug!("Failed to Decrypt Client Shake AE Payload");
-                    return None;
-                }
-            };
-
-            debug!("Client Shake AE by User: {:?}", payload.username);
-            match self.users.load() {
-                Ok(_) => {
-                    if self
-                        .users
-                        .find_user_by_credentials(&payload.username, &payload.pass)
-                        .is_none()
-                    {
-                        debug!("User Not Found, Failed to Authenticate");
-                        return None;
-                    }
-                }
-                Err(_) => {
-                    debug!("Failed to Reload Users, Failed to Authenticate");
-                    return None;
-                }
-            }
-            debug!("User Found, Authenticated");
-
-            if let Some(client) = self.clients.write().unwrap().get_mut(&src_str) {
-                let sym_key_vec = STANDARD_NO_PAD.decode(&payload.sym_key).unwrap();
-                let sym_key = ChaCha20Poly1305::new_from_slice(&sym_key_vec).unwrap();
-
-                client.connected = true;
-                client.sym_key = Some(sym_key.clone());
-
-                let mut buf = [0u8; MTU];
-                write_header(
-                    EPacketType::ShookSE,
-                    0,
-                    HEADER.try_into().unwrap(),
-                    0,
-                    &mut buf,
-                );
-
-                let mut widths = vec![0u16; 0];
-                let mut heights = vec![0u16; 0];
-
-                // TODO: Windows implementation needed
-                #[cfg(target_os = "linux")]
-                if let Ok((w, h)) = DisplayMeta::get_display_resolutions() {
-                    widths = w;
-                    heights = h;
-                }
-
-                let mut rng = rand::thread_rng();
-                let payload_len = ServerShookSE::write_payload(
-                    &mut buf[HEADER..],
-                    &mut rng,
-                    &mut client.sym_key.clone().unwrap(),
-                    &ServerShookSE {
-                        server_state: ServerStatePayload {
-                            widths,
-                            heights,
-                            width: 0,
-                            height: 0,
-                        },
-                    },
-                );
-                self.socket
-                    .send_to(&buf[..HEADER + payload_len], &src)
-                    .unwrap();
-
-                // TODO: Send NAL Header
-                // let mut buf = [0u8; MTU];
-                // write_header(EPacketType::NAL, 0, HEADER.try_into().unwrap(), 0, &mut buf);
-                // buf[HEADER..HEADER + headers.len()].copy_from_slice(headers);
-                // self.socket
-                //     .send_to(&buf[0..HEADER + headers.len()], src)
-                //     .unwrap();
-
-                return Some(payload.client_state);
-            }
-        }
-
-        None
+        frame_id: u8,
+        real_packet_size: u32,
+        subpacket_ids: Vec<u16>,
+    ) {
+        self.app.retransmit_frame(src, frame_id, real_packet_size, subpacket_ids).await
     }
-
-    pub fn initialize_client(&self, src: SocketAddr) {
-        let src_str = src.to_string();
-        debug!("Initial Shake UE With Client: {}", src_str);
-
-        let mut rng = rand::thread_rng();
-        let bits = 2048;
-        let priv_key = RsaPrivateKey::new(&mut rng, bits)
-            .expect("Failed to Generate RSA Key Pair");
-        let pub_key = RsaPublicKey::from(&priv_key);
-        let pub_key_str = pub_key.to_pkcs1_pem(rsa::pkcs1::LineEnding::LF).unwrap();
-
-        self.clients
-            .write()
-            .unwrap()
-            .insert(src_str.clone(), Client::new(src, priv_key));
-
-        let mut buf = [0u8; MTU];
-        write_header(
-            EPacketType::ShookUE,
-            0,
-            HEADER.try_into().unwrap(),
-            0,
-            &mut buf,
-        );
-
-        let mut amt = HEADER;
-
-        amt += ServerShookUE::write_payload(
-            &mut buf[HEADER..],
-            &ServerShookUE {
-                pub_key: pub_key_str,
-            },
-        );
-
-        self.socket.send_to(&buf[..amt], src).unwrap();
-        debug!("Sent Shook UE Packet to Client: {}", src_str);
+    
+    pub async fn app_drain_subpacket_cache(&self) {
+        self.app.drain_subpacket_cache().await
     }
 
     #[inline]
-    pub fn broadcast(&self, buf: &[u8]) {
-        for client in self.clients.read().unwrap().values() {
-            self.socket.send_to(buf, client.src).unwrap();
-        }
+    pub async fn app_encrypted_broadcast(
+        &self,
+        packet_type: EPacketType,
+        packet_type_variant: PacketTypeVariant,
+        buf: &[u8],
+    ) -> Result<(), BroadcastTaskError> {
+        self.app.broadcast_encrypted_frame(packet_type, packet_type_variant, buf).await
     }
 
     #[inline]
-    pub fn broadcast_audio(&self, buf: &[u8]) {
-        for client in self.clients.read().unwrap().values() {
-            if client.muted {
-                continue;
-            }
-            self.socket.send_to(buf, client.src).unwrap();
-        }
+    pub async fn app_recv_from(
+        &self,
+        buf: &mut [u8],
+    ) -> Result<(usize, SocketAddr), std::io::Error> {
+        self.app.recv_from(buf).await
     }
 
     #[inline]
-    pub fn recv_from(&self, buf: &mut [u8]) -> Result<(usize, SocketAddr), std::io::Error> {
-        self.socket.recv_from(buf)
+    pub async fn filter_clients(&self) {
+        tokio::join! {
+            self.web.filter_clients(),
+            self.app.filter_clients(),
+        };
     }
 
-    pub fn clone(&self) -> Self {
+    #[inline]
+    pub async fn has_clients(&self) -> bool {
+        let (has_web_clients, has_app_clients) = tokio::join! {
+            self.has_web_clients(),
+            self.has_app_clients(),
+        };
+
+        has_web_clients || has_app_clients
+    }
+}
+
+impl Clone for ConnectionManager {
+    fn clone(&self) -> Self {
         Self {
-            clients: self.clients.clone(),
+            web: self.web.clone(),
+            app: self.app.clone(),
             meta: self.meta.clone(),
-            users: self.users.clone(),
-            socket: self.socket.try_clone().unwrap(),
         }
     }
 }
