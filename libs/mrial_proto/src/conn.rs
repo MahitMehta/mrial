@@ -7,7 +7,6 @@ use crate::video::EColorSpace;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientStatePayload {
-    pub version: String,
     pub width: u16,
     pub height: u16,
     pub muted: bool,
@@ -22,7 +21,8 @@ pub struct ServerStatePayload {
     pub widths: Vec<u16>,
     pub heights: Vec<u16>,
     pub width: u16,
-    pub height: u16
+    pub height: u16,
+    pub version: String,
 }
 
 impl JSONPayloadSE for ServerStatePayload {}

@@ -357,7 +357,6 @@ impl Input {
                     client_clone.set_meta_via_state(&state);
   
                     let client_state = ClientStatePayload {
-                        version: env!("CARGO_PKG_VERSION").to_string(),
                         width,
                         height,
                         muted: state.muted,

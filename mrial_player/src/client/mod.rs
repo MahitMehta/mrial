@@ -277,8 +277,7 @@ impl Client {
                                 height: meta.height as u16,
                                 muted: meta.muted,
                                 opus: meta.opus,
-                                csp: meta.colorspace,
-                                version: env!("CARGO_PKG_VERSION").to_string()
+                                csp: meta.colorspace
                             },
                             Err(_e) => {
                                 debug!("Failed to Read Client Meta Data");
