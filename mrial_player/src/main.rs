@@ -78,7 +78,7 @@ fn main() {
 
     let mut clipboard_ctx = ClipboardContext::new().unwrap();
 
-    let (width, height) = app
+    let (_width, _height) = app
         .window()
         .with_winit_window(|winit_window| {
             let monitor = winit_window.primary_monitor().unwrap();
@@ -471,7 +471,7 @@ fn main() {
                     let packet_type = parse_packet_type(&buf);
 
                     match packet_type {
-                        EPacketType::NAL | EPacketType::RNAL => {
+                        EPacketType::RNAL | EPacketType::NAL => {
                             video.packet(&buf, &client, number_of_bytes)
                         }
                         EPacketType::AudioPCM | EPacketType::AudioOpus => {

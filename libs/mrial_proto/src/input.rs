@@ -135,7 +135,7 @@ pub fn write_click(buf: &mut [u8], x: f32, y: f32, width: f32, height: f32, righ
 
     if right {
         let mask = 1 << 7;
-        buf[4] = buf[4] & !mask
+        buf[4] |= mask;
     }
 }
 

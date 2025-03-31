@@ -226,7 +226,7 @@ impl VideoThread {
                     Some(last) => {
                         if last.elapsed().as_millis() > frame_interval && receiver.len() > 0 {
                             debug!(
-                                "Skipping Frame | Interval: {} | Elapsed: {} | Queue: {}",
+                                "Skip Frame Requested | Interval: {} | Elapsed: {} | Queue: {}",
                                 frame_interval,
                                 last.elapsed().as_millis(),
                                 receiver.len()
@@ -288,7 +288,6 @@ impl VideoThread {
                             }
                         });
                     } else if skip {
-                        debug!("Skipping Frame");
                         continue;
                     }
 
@@ -379,8 +378,7 @@ impl VideoThread {
                 return
             }
             EAssemblerState::Queue(queue) => {
-                debug!("Queue Loop: {}", queue.len());
-                // this is "no bueno"
+                debug!("Video Queue Size: {}", queue.len());
                 for nalu in queue {
                     self.packet(&nalu, client, nalu.len());
                 }

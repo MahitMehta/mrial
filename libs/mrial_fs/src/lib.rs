@@ -94,6 +94,7 @@ impl Users {
     }
 }
 
+#[cfg(target_os = "linux")]
 const ROOT_DATA_DIR: &'static str = "/var/lib/mrial_server";
 
 impl StorageMultiType<User, String> for Users {
