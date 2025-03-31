@@ -80,11 +80,12 @@ impl From<u8> for EPacketType {
 
 pub const MTU: usize = 1200;
 
-// Header Schema
-// Packet Type Variant Details + Packet Type = 3 bits + 5 bits = 1 byte
-// Packets Remaining = 2 byte
-// Real Packet Byte Size = 4 bytes // TODO: reduce to 3 bytes
-// Frame ID = 1 Byte
+/// ## Header Schema
+/// 1. Packet Type Variant Details + Packet Type = 3 bits + 5 bits = 1 byte
+/// 2. Packets Remaining = 2 byte
+// TODO: reduce to 3 bytes
+/// 3. Real Packet Byte Size = 4 bytes, size of the entire frame (excludes size of headers)
+/// 4. Frame ID = 1 Byte
 pub const HEADER: usize = 8;
 
 pub const PAYLOAD: usize = MTU - HEADER;

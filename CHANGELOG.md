@@ -13,9 +13,10 @@ All notable changes to this project are documented in this file.
 
 - Major Proto Upgrade (Supports Retransmissions) and highly optimized
 - Opus Audio compression
-- Version between server and client must be the same - (WIP)
-- YUV Selection (420 or 444) - (WIP)
+- Version between server and client must be the same 
+- YUV Selection (420 or 444)
 - Outlined backend for eventual web support 
+- Reconnection UI
 
 ## 0.1.18 - 2024-02-17
 
