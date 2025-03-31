@@ -134,13 +134,18 @@ impl Broadcaster for AppVideoBroadcaster {
 
         // TODO: benchmark how long cache insertion takes, optimize if needed
         let mut subpacket_cache = self.subpacket_cache.write().await;
+        let mut rnal = bytes.to_vec();
+       
+        rnal[0] &= 0b11100000; // clear the last 5 bits
+        rnal[0] |= EPacketType::RNAL as u8; // set the type to RNAL
+
         subpacket_cache.insert(
             subpacket_key(
                 parse_frame_id(bytes),
                 parse_real_packet_size(bytes),
                 parse_packets_remaining(bytes),
             ),
-            (bytes.to_vec(), SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
+            (rnal, SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()),
         );
     }
 }
@@ -376,8 +381,7 @@ impl AppConnection {
                     .await
                     .get(&subpacket_key(frame_id, real_packet_size, subpacket_id))
                 {
-                    debug!("Cache found for Frame: {} Size: {} Subpacket ID: {}", frame_id, real_packet_size, subpacket_id);
-                    if let Err(e) = self.socket.send_to(subpacket, client.src).await {
+                    if let Err(_) = self.socket.send_to(subpacket, client.src).await {
                         self.remove_client(client.src).await;
                     }
                 } else {

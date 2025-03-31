@@ -5,6 +5,7 @@ pub struct DisplayMeta {}
 
 impl DisplayMeta {
     #[cfg(target_os = "linux")]
+    #[allow(dead_code)]
     pub fn get_current_resolution() -> Result<(usize, usize), XrandrError> {
         let mut handle = XHandle::open().unwrap();
         let mon1 = &handle.monitors()?[0];
