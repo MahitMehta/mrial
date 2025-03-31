@@ -41,6 +41,7 @@ pub struct VideoServerTask {
     file: Option<File>,
     row_len: usize,
 
+    csp: EColorSpace,
     par: Param,
     pic: Picture,
     capturer: Option<Capturer>,
@@ -76,7 +77,8 @@ impl VideoServerTask {
 
         let row_len = 4 * capturer.width() * capturer.height();
 
-        let mut par: Param = VideoServerTask::get_parameters(conn.get_meta().await);
+        let serde_meta = conn.get_meta().await;
+        let mut par: Param = VideoServerTask::get_parameters(&serde_meta);
         let mut encoder = x264::Encoder::open(&mut par)?;
         let header = encoder.get_headers()?.as_bytes().to_vec();
 
@@ -89,6 +91,7 @@ impl VideoServerTask {
             row_len,
             file: None,
 
+            csp: serde_meta.csp,
             par,
             pic,
             capturer: Some(capturer),
@@ -118,11 +121,10 @@ impl VideoServerTask {
         }
     }
 
-    fn get_parameters(server_meta: ServerMeta) -> Param {
+    fn get_parameters(server_meta: &ServerMeta) -> Param {
         let mut par = Param::default_preset("ultrafast", "zerolatency").unwrap();
 
-        // par = par.set_csp(EColorSpace::YUV444.into());
-        par = par.set_csp(EColorSpace::YUV420.into());
+        par = par.set_csp(server_meta.csp.into());
         par = par.set_dimension(server_meta.height, server_meta.width);
 
         if cfg!(target_os = "windows") {
@@ -133,8 +135,12 @@ impl VideoServerTask {
         par = par.param_parse("annexb", "1").unwrap();
         par = par.param_parse("bframes", "0").unwrap();
         par = par.param_parse("crf", "20").unwrap();
-        par = par.apply_profile("high").unwrap();
-        // par = par.apply_profile("high444").unwrap();
+
+        if server_meta.csp != EColorSpace::YUV444 {
+            par = par.apply_profile("high").unwrap();
+        } else {
+            par = par.apply_profile("high444").unwrap();
+        }
 
         par
     }
@@ -198,11 +204,14 @@ impl VideoServerTask {
         let display = Display::primary()?;
         let capturer: Capturer = Capturer::new(display)?;
 
+        let server_meta = self.conn.get_meta().await;
+
         self.row_len = 4 * capturer.width() * capturer.height();
         self.conn
             .set_dimensions(capturer.width(), capturer.height())
             .await;
-        self.par = VideoServerTask::get_parameters(self.conn.get_meta().await);
+        self.csp = server_meta.csp;
+        self.par = VideoServerTask::get_parameters(&server_meta);
         self.encoder = x264::Encoder::open(&mut self.par)?;
 
         let headers = self.encoder.get_headers()?;
@@ -453,18 +462,36 @@ impl VideoServerTask {
                         continue;
                     }
 
-                    let yuv = YUVBuffer::with_argb_for_i420(
-                        width,
-                        height,
-                        &argb_frame[0..width * height * 4],
-                    );
-
-                    let y_plane = self.pic.as_mut_slice(0).unwrap();
-                    y_plane.copy_from_slice(yuv.y());
-                    let u_plane = self.pic.as_mut_slice(1).unwrap();
-                    u_plane.copy_from_slice(yuv.u_420());
-                    let v_plane = self.pic.as_mut_slice(2).unwrap();
-                    v_plane.copy_from_slice(yuv.v_420());
+                    match self.csp {
+                        EColorSpace::YUV420 => {
+                            let yuv = YUVBuffer::with_argb_for_i420(
+                                width,
+                                height,
+                                &argb_frame[0..width * height * 4],
+                            );
+        
+                            let y_plane = self.pic.as_mut_slice(0).unwrap();
+                            y_plane.copy_from_slice(yuv.y());
+                            let u_plane = self.pic.as_mut_slice(1).unwrap();
+                            u_plane.copy_from_slice(yuv.u_420());
+                            let v_plane = self.pic.as_mut_slice(2).unwrap();
+                            v_plane.copy_from_slice(yuv.v_420());
+                        }
+                        EColorSpace::YUV444 => {
+                            let yuv = YUVBuffer::with_argb_for_444(
+                                width,
+                                height,
+                                &argb_frame[0..width * height * 4],
+                            );
+        
+                            let y_plane = self.pic.as_mut_slice(0).unwrap();
+                            y_plane.copy_from_slice(yuv.y());
+                            let u_plane = self.pic.as_mut_slice(1).unwrap();
+                            u_plane.copy_from_slice(yuv.u_444());
+                            let v_plane = self.pic.as_mut_slice(2).unwrap();
+                            v_plane.copy_from_slice(yuv.v_444());
+                        }
+                    } 
 
                     // TODO: Is this important?
                     // self.pic.set_timestamp(self.frame_count);

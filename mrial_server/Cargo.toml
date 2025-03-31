@@ -32,6 +32,9 @@ bytes = "1.10.0"
 signal = "0.7.0"
 opus = "0.3.0"
  
+[features]
+stat = []
+
 [target."cfg(target_os = \"linux\")".dependencies] 
 libyuv-sys = { path = "../libs/libyuv-sys" }
 pipewire = { path = "../libs/pipewire-rs/pipewire", features = ["v0_3_44"] }

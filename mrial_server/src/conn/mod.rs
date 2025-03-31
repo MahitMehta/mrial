@@ -3,7 +3,7 @@ use std::{fmt, net::SocketAddr, sync::Arc};
 use app::AppConnection;
 use bytes::Bytes;
 use kanal::AsyncReceiver;
-use mrial_proto::EPacketType;
+use mrial_proto::{video::EColorSpace, EPacketType};
 use tokio::sync::RwLock;
 use web::WebConnection;
 
@@ -39,7 +39,8 @@ pub trait Client {
 pub struct ServerMeta {
     pub width: usize,
     pub height: usize,
-    pub opus: bool
+    pub opus: bool,
+    pub csp: EColorSpace
 }
 
 impl Default for ServerMeta {
@@ -47,11 +48,11 @@ impl Default for ServerMeta {
         Self {
             width: 0,
             height: 0,
-            opus: true
+            opus: true,
+            csp: EColorSpace::default(),
         }
     }
 }
-
 pub struct ConnectionManager {
     web: WebConnection,
     app: AppConnection,
@@ -93,6 +94,7 @@ impl ConnectionManager {
 
         if current_meta.width != meta.width
             || current_meta.height != meta.height
+            || current_meta.csp != meta.csp
         {
             stream_restart_flag = true;
         }
@@ -100,6 +102,7 @@ impl ConnectionManager {
         current_meta.width = meta.width;
         current_meta.height = meta.height;
         current_meta.opus = meta.opus;
+        current_meta.csp = meta.csp;
 
         stream_restart_flag
     }

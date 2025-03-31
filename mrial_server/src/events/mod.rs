@@ -407,6 +407,7 @@ impl EventsTask {
                         width: meta.width as usize,
                         height: meta.height as usize,
                         opus: meta.opus,
+                        csp: meta.csp
                     })
                     .await;
 
@@ -450,6 +451,7 @@ impl EventsTask {
                         width: meta.width as usize,
                         height: meta.height as usize,
                         opus: meta.opus,
+                        csp: meta.csp
                     })
                     .await;
 
@@ -478,6 +480,7 @@ impl EventsTask {
                 self.conn.get_app().received_ping(src).await;
             }
             EPacketType::Disconnect => {
+                debug!("Disconnecting client: {}", src);
                 self.conn.get_app().remove_client(src).await;
 
                 if self.conn.has_clients().await {
