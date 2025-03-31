@@ -352,13 +352,17 @@ impl AppConnection {
 
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         
-        let cache_size = cache.len();
-        debug!("Subpacket Cache Size: {}", cache_size);
+        #[cfg(feature = "stat")] 
+        {
+            let cache_size = cache.len();
+            debug!("Subpacket Cache Size: {}", cache_size);
+        }
 
         cache.retain(|_, (_, timestamp)| {
             (now - *timestamp) < SUBPACKET_CACHE_LIFETIME
         });
 
+        #[cfg(feature = "stat")]
         debug!("Drained {} Subpackets", cache_size - cache.len());
     }
 
@@ -408,7 +412,8 @@ impl AppConnection {
 
         let payload = match ClientShakeAE::from_payload(encypyted_payload, priv_key) {
             Ok(payload) => payload,
-            Err(_) => {
+            Err(e) => {
+                println!("Failed to Decrypt Client Shake AE Payload: {}", e);
                 return Err(AppConnectionError::ShakeAEDecryptionFailed);
             }
         };
@@ -442,7 +447,7 @@ impl AppConnection {
             write_header(
                 EPacketType::ShookSE,
                 0,
-                HEADER.try_into().unwrap(),
+                0,
                 0,
                 &mut buf,
             );
@@ -473,7 +478,8 @@ impl AppConnection {
                         widths,
                         heights,
                         width: 0,
-                        height: 0
+                        height: 0,
+                        version: env!("CARGO_PKG_VERSION").to_string(),
                     },
                 },
             ) {

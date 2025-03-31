@@ -717,31 +717,11 @@ dependencies = [
 
 [[package]]
 name = "bindgen"
-version = "0.68.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "726e4313eb6ec35d2730258ad4e15b547ee75d6afaa1361a922e78e59b7d8078"
-dependencies = [
- "annotate-snippets",
- "bitflags 2.9.0",
- "cexpr",
- "clang-sys",
- "lazy_static",
- "lazycell",
- "peeking_take_while",
- "proc-macro2",
- "quote",
- "regex",
- "rustc-hash 1.1.0",
- "shlex",
- "syn 2.0.100",
-]
-
-[[package]]
-name = "bindgen"
 version = "0.69.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "271383c67ccabffb7381723dea0672a673f292304fcb45c01cc648c7a8d58088"
 dependencies = [
+ "annotate-snippets",
  "bitflags 2.9.0",
  "cexpr",
  "clang-sys",
@@ -3746,7 +3726,7 @@ dependencies = [
 
 [[package]]
 name = "libspa"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "bitflags 2.9.0",
  "cc",
@@ -3754,16 +3734,16 @@ dependencies = [
  "cookie-factory",
  "libc",
  "libspa-sys",
- "nix 0.26.4",
+ "nix 0.29.0",
  "nom",
  "system-deps",
 ]
 
 [[package]]
 name = "libspa-sys"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
- "bindgen 0.68.1",
+ "bindgen 0.69.5",
  "cc",
  "system-deps",
 ]
@@ -5070,14 +5050,14 @@ dependencies = [
 
 [[package]]
 name = "pipewire"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
  "anyhow",
  "bitflags 2.9.0",
  "libc",
  "libspa",
  "libspa-sys",
- "nix 0.26.4",
+ "nix 0.29.0",
  "once_cell",
  "pipewire-sys",
  "thiserror 1.0.69",
@@ -5085,9 +5065,9 @@ dependencies = [
 
 [[package]]
 name = "pipewire-sys"
-version = "0.7.2"
+version = "0.8.0"
 dependencies = [
- "bindgen 0.68.1",
+ "bindgen 0.69.5",
  "libspa-sys",
  "system-deps",
 ]
@@ -5852,6 +5832,8 @@ dependencies = [
  "block",
  "cfg-if 0.1.10",
  "libc",
+ "log",
+ "pretty_env_logger",
  "winapi 0.2.8",
 ]
 
