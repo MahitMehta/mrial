@@ -5,10 +5,11 @@ mod video;
 
 use audio::{AudioClientThread, AudioPacket};
 use cli_clipboard::{ClipboardContext, ClipboardProvider};
-use client::{Client, ClientMetaData, ConnectionState};
+use client::{Client, ClientMetaData, ConnectionState, HandshakeError};
 use input::Input;
 use mrial_fs::Server;
 use mrial_fs::{storage::StorageMultiType, Servers, User, Users};
+use mrial_proto::video::EColorSpace;
 use mrial_proto::*;
 use video::VideoThread;
 
@@ -18,7 +19,7 @@ use std::{rc::Rc, thread};
 
 use i_slint_backend_winit::WinitWindowAccessor;
 use kanal::unbounded;
-use log::{debug, info};
+use log::{debug, error, info};
 use slint::{ComponentHandle, SharedString, VecModel};
 
 slint::include_modules!();
@@ -67,6 +68,30 @@ fn populate_servers(servers: Vec<Server>, app_weak: &slint::Weak<MainWindow>) {
         .set_servers(slint_servers.into());
 }
 
+fn attempt_connection(client: &mut Client, app_weak: &slint::Weak<MainWindow>) {
+    if let Err(e) = client.connect() {
+        error!("{}", &e);
+        match e {
+            HandshakeError::VersionMismatch(client_v, server_v) => {
+                client.disconnect();
+                let app_weak_clone: slint::Weak<MainWindow> = app_weak.clone();
+                let _ = app_weak.upgrade_in_event_loop(move |_| {
+                    app_weak_clone
+                        .unwrap()
+                        .global::<VideoState>()
+                        .set_error_message(
+                            SharedString::from(format!(
+                                "Version Mismatch: {} (client) vs {} (server)",
+                                client_v, server_v
+                            )),
+                        );
+                });
+            }
+            _ => {}
+        }
+    }
+}
+
 fn main() {
     pretty_env_logger::init_timed();
 
@@ -99,10 +124,7 @@ fn main() {
 
     let conn_channel = unbounded::<ConnectionAction>();
     let conn_sender = conn_channel.0.clone();
-    let mut client = Client::new(
-        ClientMetaData::default(),
-        conn_channel.0.clone(),
-    );
+    let mut client = Client::new(ClientMetaData::default(), conn_channel.0.clone());
 
     let conn_sender_clone = conn_sender.clone();
     app.window().on_close_requested(move || {
@@ -217,6 +239,10 @@ fn main() {
                     .unwrap()
                     .global::<VideoState>()
                     .set_connected(false);
+                app_weak_clone
+                    .unwrap()
+                    .global::<VideoState>()
+                    .set_error_message(SharedString::from(""));
                 *server_id_clone.lock().unwrap() = name.to_string();
                 conn_sender_clone.send(ConnectionAction::Connect).unwrap();
             });
@@ -338,6 +364,7 @@ fn main() {
                         let heights = meta_lock.heights.clone();
                         let username = meta_lock.server.username.clone();
                         let opus = meta_lock.opus;
+                        let csp = meta_lock.colorspace;
                         let muted = meta_lock.muted;
 
                         let server_name = meta_lock.server.name.clone();
@@ -351,6 +378,21 @@ fn main() {
                                     value: SharedString::from(format!("{}x{}", w, h)),
                                 });
                             });
+
+                            match csp {
+                                EColorSpace::YUV444 => {
+                                    app_weak_clone
+                                        .unwrap()
+                                        .global::<ControlPanelAdapter>()
+                                        .set_colorspace(SharedString::from("full"));
+                                }
+                                EColorSpace::YUV420 => {
+                                    app_weak_clone
+                                        .unwrap()
+                                        .global::<ControlPanelAdapter>()
+                                        .set_colorspace(SharedString::from("limited"));
+                                }
+                            }
 
                             app_weak_clone
                                 .unwrap()
@@ -399,7 +441,7 @@ fn main() {
                         continue;
                     }
                     Some(ConnectionAction::Handshake) => {
-                        client.connect();
+                        attempt_connection(&mut client, &app_weak);
 
                         match client.connection_state() {
                             ConnectionState::Connected => {
@@ -409,8 +451,12 @@ fn main() {
                                     app_weak_clone
                                         .unwrap()
                                         .global::<VideoState>()
+                                        .set_error_message(SharedString::from(""));
+                                    app_weak_clone
+                                        .unwrap()
+                                        .global::<VideoState>()
                                         .set_connected(true);
-                                });
+                                    });
                             }
                             ConnectionState::Connecting => {
                                 thread::sleep(Duration::from_millis(1000));
@@ -422,9 +468,16 @@ fn main() {
                         }
                     }
                     Some(ConnectionAction::Reconnect) => {
-                        client.connect();
-                        if !client.connected() {
-                            continue;
+                        attempt_connection(&mut client, &app_weak);
+
+                        if client.connected() {
+                            let app_weak_clone= app_weak.clone();
+                            let _ = app_weak.upgrade_in_event_loop(move |_| {
+                                app_weak_clone
+                                    .unwrap()
+                                    .global::<VideoState>()
+                                    .set_connected(true);
+                            });
                         }
                     }
                     Some(ConnectionAction::CloseApplication) => {
@@ -484,8 +537,18 @@ fn main() {
                     }
                 }
                 Err(_e) => {
+                    client.set_state(ConnectionState::Disconnected);
                     debug!("Lost Connection, Reconnecting...");
-                    if client.connected() {
+
+                    let app_weak_clone = app_weak.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        app_weak_clone
+                            .unwrap()
+                            .global::<VideoState>()
+                            .set_connected(false);
+                        });
+
+                    if client.socket_connected() {
                         conn_channel.0.send(ConnectionAction::Reconnect).unwrap();
                     }
                 }

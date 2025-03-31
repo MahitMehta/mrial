@@ -305,11 +305,19 @@ impl VideoThread {
                             frame_count = 0;
                         }
 
-                        rgb.read_420_for_rgb8(
-                            yuv_frame.data(0),
-                            yuv_frame.data(1),
-                            yuv_frame.data(2),
-                        );
+                        if yuv_frame.data(0).len() == yuv_frame.data(1).len() {
+                            rgb.read_444_for_rgb8(
+                                yuv_frame.data(0),
+                                yuv_frame.data(1),
+                                yuv_frame.data(2),
+                            );
+                        } else {
+                            rgb.read_420_for_rgb8(
+                                yuv_frame.data(0),
+                                yuv_frame.data(1),
+                                yuv_frame.data(2),
+                            );
+                        }
 
                         let rgb_slice: &[u8] = rgb.as_slice();
 
@@ -350,33 +358,29 @@ impl VideoThread {
 
     #[inline]
     pub fn packet(&mut self, buf: &[u8], client: &Client, number_of_bytes: usize) {
-        let state =self
-            .packet_constructor
-            .assemble_packet(buf, number_of_bytes, &|encrypted_nalu: Vec<u8>| {
+        let state = self.packet_constructor.assemble_packet(
+            buf,
+            number_of_bytes,
+            &|encrypted_nalu: Vec<u8>| {
                 let sym_key = client.get_sym_key();
                 let sym_key = sym_key.read().unwrap();
-        
+
                 let nalu = match decrypt_frame(sym_key.as_ref().unwrap(), &encrypted_nalu) {
                     Some(nalu) => nalu,
                     None => return,
                 };
-        
+
                 self.channel.0.send(nalu).unwrap();
-            }, &|frame_id, real_packet_size, subpacket_ids| {
-                if let Err(e) = client.retransmit(
-                    frame_id,
-                    real_packet_size,
-                    subpacket_ids,
-                ) {
+            },
+            &|frame_id, real_packet_size, subpacket_ids| {
+                if let Err(e) = client.retransmit(frame_id, real_packet_size, subpacket_ids) {
                     log::error!("Error Requesting Retransmission: {}", e);
                 }
-            });       
-
+            },
+        );
 
         match state {
-            EAssemblerState::Waiting => {
-                return
-            }
+            EAssemblerState::Waiting => return,
             EAssemblerState::Queue(queue) => {
                 #[cfg(feature = "stat")]
                 debug!("Video Queue Size: {}", queue.len());

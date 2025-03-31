@@ -44,12 +44,23 @@ impl Input {
                     inner_client.disconnect();
                     break;
                 }
-                let next_input = receiver.recv().unwrap();
+
+                let next_input = match receiver.recv() {
+                    Ok(input) => input,
+                    Err(_) => {
+                        debug!("Error receiving input");
+                        break;
+                    }
+                };
+                
                 if parse_packet_type(&next_input) == EPacketType::InternalEOL {
                     inner_client.disconnect();
                     break;
                 }
-                inner_client.send(&next_input).unwrap();
+                
+                if let Err(e) = inner_client.send(&next_input) {
+                    debug!("Error sending input: {:?}", e);
+                }
             }
             *connected_clone.lock().unwrap() = false;
         });
@@ -355,7 +366,7 @@ impl Input {
 
                     let mut buf = [0; MTU];
                     client_clone.set_meta_via_state(&state);
-  
+
                     let client_state = ClientStatePayload {
                         width,
                         height,
@@ -363,7 +374,7 @@ impl Input {
                         opus: state.opus,
                         csp: match state.colorspace.as_str() {
                             "limited" => EColorSpace::YUV420,
-                            "full"  => EColorSpace::YUV444,
+                            "full" => EColorSpace::YUV444,
                             _ => EColorSpace::YUV444,
                         },
                     };

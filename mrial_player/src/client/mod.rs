@@ -1,4 +1,5 @@
 use std::{
+    fmt,
     net::{SocketAddr, UdpSocket},
     sync::{Arc, RwLock},
     thread,
@@ -58,6 +59,60 @@ pub struct Client {
     conn_sender: Sender<ConnectionAction>,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum HandshakeError {
+    VersionMismatch(String, String),
+    FailedToReceiveShookSE(String),
+    FailedToSendShakeUE(String),
+    FailedToSetTimeout(String),
+    InvalidPublicKey(String),
+    Other(String),
+    FailedToReceiveShakeUE(String),
+    SocketNotInitialized,
+    FailedToReceiveShookUE(String),
+    InvalidShakeUEPayload(String),
+}
+
+impl fmt::Display for HandshakeError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            HandshakeError::InvalidShakeUEPayload(err) => {
+                write!(f, "Invalid Shake UE Payload: {err}")
+            }
+            HandshakeError::FailedToReceiveShookUE(err) => {
+                write!(f, "Failed to Receive Shook UE Packet: {err}")
+            }
+            HandshakeError::VersionMismatch(server_version, client_version) => {
+                write!(
+                    f,
+                    "Version Mismatch: {server_version} (Server) != {client_version} (Client)",
+                )
+            }
+            HandshakeError::FailedToReceiveShookSE(err) => {
+                write!(f, "Failed to Receive Shook SE Packet: {err}")
+            }
+            HandshakeError::FailedToSendShakeUE(err) => {
+                write!(f, "Failed to Send Shake UE Packet: {err}")
+            }
+            HandshakeError::FailedToSetTimeout(err) => {
+                write!(f, "Failed to Set Timeout: {err}")
+            }
+            HandshakeError::SocketNotInitialized => {
+                write!(f, "Socket Not Initialized")
+            }
+            HandshakeError::FailedToReceiveShakeUE(err) => {
+                write!(f, "Failed to Receive Initial Shake UE Packet: {err}")
+            }
+            HandshakeError::InvalidPublicKey(err) => {
+                write!(f, "Invalid Public Key: {err}")
+            }
+            HandshakeError::Other(err) => {
+                write!(f, "{err}")
+            }
+        }
+    }
+}
+
 impl Client {
     pub fn new(meta: ClientMetaData, conn_sender: Sender<ConnectionAction>) -> Client {
         Client {
@@ -78,6 +133,11 @@ impl Client {
         if let Ok(mut meta_handle) = self.meta.write() {
             meta_handle.opus = state.opus;
             meta_handle.muted = state.muted;
+            meta_handle.colorspace = match state.colorspace.as_str() {
+                "limited" => EColorSpace::YUV420,
+                "full" => EColorSpace::YUV444,
+                _ => EColorSpace::YUV444,
+            }
         }
     }
 
@@ -93,21 +153,31 @@ impl Client {
         self.state = state;
     }
 
-    pub fn connect(&mut self) {
+    pub fn connect(&mut self) -> Result<(), HandshakeError> {
         if !self.socket_connected() && self.state == ConnectionState::Connecting {
             let client_address = SocketAddr::from(([0, 0, 0, 0], 0));
-            let socket = UdpSocket::bind(client_address).expect("Failed to Bind to Local Port");
+            let socket = match UdpSocket::bind(client_address) {
+                Ok(socket) => socket,
+                Err(e) => {
+                    return Err(HandshakeError::Other(format!(
+                        "Failed to Bind Socket: {}",
+                        e
+                    )));
+                }
+            };
             match socket.connect(&self.socket_address) {
                 Ok(_) => self.socket = Some(socket),
                 Err(_e) => {
-                    println!("Failed to Connect to Server: {}", &self.socket_address);
                     thread::sleep(Duration::from_millis(1000));
-                    return;
+                    return Err(HandshakeError::Other(format!(
+                        "Socket Failed to Connect to Server: {}",
+                        &self.socket_address
+                    )));
                 }
             }
         }
 
-        self.send_handshake();
+        self.send_handshake()
     }
 
     /// Retransmit a packet
@@ -116,22 +186,27 @@ impl Client {
     /// * `real_packet_size` - The size of the packet
     /// * `subpacket_ids` - The IDs of the packets to be retransmitted
     pub fn retransmit(
-        &self, 
-        frame_id: u8, 
-        real_packet_size: u32, 
-        subpacket_ids: Vec<u16>
+        &self,
+        frame_id: u8,
+        real_packet_size: u32,
+        subpacket_ids: Vec<u16>,
     ) -> Result<usize, std::io::Error> {
         let mut buf = [0u8; MTU];
 
         // Send multiple retransmit packets if there are too many subpacket IDs
         let body_len = write_retransmit_body(
-            frame_id, real_packet_size, subpacket_ids, &mut buf[HEADER..],);
+            frame_id,
+            real_packet_size,
+            subpacket_ids,
+            &mut buf[HEADER..],
+        );
         write_header(
-            EPacketType::Retransmit, 
-            0, 
-            body_len as u32, 
-            frame_id, 
-            &mut buf);
+            EPacketType::Retransmit,
+            0,
+            body_len as u32,
+            frame_id,
+            &mut buf,
+        );
 
         if let Some(socket) = &self.socket {
             return Ok(socket.send(&buf[0..HEADER + body_len])?);
@@ -247,100 +322,137 @@ impl Client {
         }
     }
 
-    pub fn send_handshake(&mut self) {
-        if let Some(socket) = &self.socket {
-            let _ = socket
-                .set_read_timeout(Some(Duration::from_millis(1000)))
-                .expect("Failed to Set Timeout");
-            let mut buf = [0u8; MTU];
+    pub fn send_handshake(&mut self) -> Result<(), HandshakeError> {
+        let socket = match &self.socket {
+            Some(socket) => socket,
+            None => return Err(HandshakeError::SocketNotInitialized),
+        };
 
-            write_header(EPacketType::ShakeUE, 0, HEADER as u32, 0, &mut buf);
+        if let Err(e) = socket.set_read_timeout(Some(Duration::from_millis(1000))) {
+            return Err(HandshakeError::FailedToSetTimeout(e.to_string()));
+        }
 
-            let _ = socket.send(&buf[0..HEADER]);
-            debug!("Sent Initial Shake UE Packet");
+        let mut buf = [0u8; MTU];
+        write_header(EPacketType::ShakeUE, 0, 0, 0, &mut buf);
 
-            let (amt, _src) = match socket.recv_from(&mut buf) {
-                Ok(v) => v,
-                Err(_e) => return,
-            };
+        if let Err(e) = socket.send(&buf[0..HEADER]) {
+            return Err(HandshakeError::FailedToSendShakeUE(e.to_string()));
+        };
+        debug!("Sent Initial Shake UE Packet");
 
-            if parse_packet_type(&buf) == EPacketType::ShookUE {
-                debug!("Received Initial Shook UE Packet");
+        let (amt, _src) = match socket.recv_from(&mut buf) {
+            Ok(v) => v,
+            Err(e) => return Err(HandshakeError::FailedToReceiveShakeUE(e.to_string())),
+        };
 
-                if let Ok(shookue_payload) = ServerShookUE::from_payload(&mut buf[HEADER..amt]) {
-                    if let Ok(pub_key) = RsaPublicKey::from_pkcs1_pem(&shookue_payload.pub_key) {
-                        debug!("Valid Public Key Received");
-
-                        let client_state = match self.meta.read() {
-                            Ok(meta) => ClientStatePayload {
-                                width: meta.width as u16,
-                                height: meta.height as u16,
-                                muted: meta.muted,
-                                opus: meta.opus,
-                                csp: meta.colorspace
-                            },
-                            Err(_e) => {
-                                debug!("Failed to Read Client Meta Data");
-                                return;
-                            }
-                        };
-
-                        let mut rng = rand::thread_rng();
-                        let key = ChaCha20Poly1305::generate_key(&mut rng);
-                        let cipher = ChaCha20Poly1305::new(&key);
-                        *self.sym_key.write().unwrap() = Some(cipher);
-                        let key_vec = key.to_vec();
-                        let key_base64 = STANDARD_NO_PAD.encode(&key_vec);
-
-                        let payload_len = ClientShakeAE::write_payload(
-                            &mut buf[HEADER..],
-                            &mut rng,
-                            pub_key,
-                            &ClientShakeAE {
-                                username: self.meta.read().unwrap().server.username.clone(),
-                                pass: self.meta.read().unwrap().server.pass.clone(),
-                                sym_key: key_base64,
-                                state: client_state,
-                            },
-                        );
-
-                        write_header(
-                            EPacketType::ShakeAE,
-                            0,
-                            (HEADER + payload_len) as u32,
-                            0,
-                            &mut buf,
-                        );
-                        let _ = socket.send(&buf[0..HEADER + payload_len]);
-                        debug!("Sent Shake AE Packet");
-
-                        // Wait for Shook SE Packet by Waiting at most a 100 Packets
-                        for _ in 0u8..100 {
-                            let (amt, _src) = match socket.recv_from(&mut buf) {
-                                Ok(v) => v,
-                                Err(_e) => return,
-                            };
-
-                            if parse_packet_type(&buf) == EPacketType::ShookSE {
-                                let _ = socket
-                                    .set_read_timeout(Some(Duration::from_millis(5000)))
-                                    .expect("Failed to Set Timeout");
-                                if let Ok(payload) = ServerShookSE::from_payload(
-                                    &mut buf[HEADER..amt],
-                                    self.sym_key.read().unwrap().clone().as_mut().unwrap(),
-                                ) {
-                                    debug!("Received Valid Shook SE Packet");
-                                    self.update_client_conn_state(payload.server_state);
-
-                                    // TODO: Validate if this is in the correct place
-                                    self.state = ConnectionState::Connected;
-                                    break;
-                                };
-                            }
-                        }
-                    }
-                }
+        match parse_packet_type(&buf) {
+            EPacketType::ShookUE => {}
+            _other => {
+                return Err(HandshakeError::FailedToReceiveShookUE(format!(
+                    "Instead got {:?}",
+                    _other
+                )))
             }
         }
+
+        debug!("Received Initial Shook UE Packet");
+
+        let shookue_payload = match ServerShookUE::from_payload(&mut buf[HEADER..amt]) {
+            Ok(payload) => payload,
+            Err(e) => return Err(HandshakeError::InvalidShakeUEPayload(e.to_string())),
+        };
+
+        let pub_key = match RsaPublicKey::from_pkcs1_pem(&shookue_payload.pub_key) {
+            Ok(key) => key,
+            Err(e) => {
+                return Err(HandshakeError::InvalidPublicKey(e.to_string()));
+            }
+        };
+
+        debug!("Valid Public Key Received");
+
+        let client_state = match self.meta.read() {
+            Ok(meta) => ClientStatePayload {
+                width: meta.width as u16,
+                height: meta.height as u16,
+                muted: meta.muted,
+                opus: meta.opus,
+                csp: meta.colorspace,
+            },
+            Err(e) => {
+                return Err(HandshakeError::Other(format!(
+                    "Failed to Read Local Client Meta: {e}"
+                )));
+            }
+        };
+
+        let mut rng = rand::thread_rng();
+        let key = ChaCha20Poly1305::generate_key(&mut rng);
+        let cipher = ChaCha20Poly1305::new(&key);
+        *self.sym_key.write().unwrap() = Some(cipher);
+        let key_vec = key.to_vec();
+        let key_base64 = STANDARD_NO_PAD.encode(&key_vec);
+
+        let payload_len = ClientShakeAE::write_payload(
+            &mut buf[HEADER..],
+            &mut rng,
+            pub_key,
+            &ClientShakeAE {
+                username: self.meta.read().unwrap().server.username.clone(),
+                pass: self.meta.read().unwrap().server.pass.clone(),
+                sym_key: key_base64,
+                state: client_state,
+            },
+        );
+
+        write_header(
+            EPacketType::ShakeAE,
+            0,
+            (HEADER + payload_len) as u32,
+            0,
+            &mut buf,
+        );
+        let _ = socket.send(&buf[0..HEADER + payload_len]);
+        debug!("Sent Shake AE Packet");
+
+        // Wait for Shook SE Packet by waiting at most a 100 Packets
+        for _ in 0..100 {
+            let (amt, _src) = match socket.recv_from(&mut buf) {
+                Ok(v) => v,
+                Err(e) => {
+                    return Err(HandshakeError::FailedToReceiveShookSE(e.to_string()));
+                }
+            };
+
+            if parse_packet_type(&buf) != EPacketType::ShookSE {
+                continue;
+            }
+
+            if let Err(e) = socket.set_read_timeout(Some(Duration::from_millis(5000))) {
+                return Err(HandshakeError::FailedToSetTimeout(e.to_string()));
+            };
+
+            if let Ok(payload) = ServerShookSE::from_payload(
+                &mut buf[HEADER..amt],
+                self.sym_key.read().unwrap().clone().as_mut().unwrap(),
+            ) {
+                debug!("Received Valid Shook SE Packet");
+
+                if payload.server_state.version != env!("CARGO_PKG_VERSION").to_string() {
+                    return Err(HandshakeError::VersionMismatch(
+                        payload.server_state.version,
+                        env!("CARGO_PKG_VERSION").to_string(),
+                    ));
+                }
+
+                self.update_client_conn_state(payload.server_state);
+                self.state = ConnectionState::Connected;
+                return Ok(());
+            };
+        }
+
+        Err(HandshakeError::FailedToReceiveShookSE(
+            "Exhausted Retries".to_string(),
+        ))
     }
 }

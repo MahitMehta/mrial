@@ -155,13 +155,12 @@ impl AudioClientThread {
         number_of_bytes: usize,
     ) -> Result<(), SendError> {
         self.handle_latency_by_dropping();
-        
-        self
-            .packet_constructor
+
+        self.packet_constructor
             .assemble_packet(buf, number_of_bytes, &|encrypted_audio| {
                 if let Err(e) = self.audio_sender.send((packet_type, encrypted_audio)) {
                     debug!("Failed to send audio packet: {}", e);
-                } 
+                }
             });
 
         Ok(())
