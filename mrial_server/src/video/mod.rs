@@ -149,8 +149,11 @@ impl VideoServerTask {
     }
 
     async fn handle_app_broadcast(&self, buf: &[u8]) {
-        let packet_type_variant = match buf[0] & 0x1F {
-            5 => ENalVariant::KeyFrame as u8,
+        // TODO: Find out why I-Frames are 7 instead of 5 and
+        // TODO: make sure the 4th byte is always represents the NAL header
+        
+        let packet_type_variant = match buf[4] & 0x1F {
+            7 => ENalVariant::KeyFrame as u8,
             _ => ENalVariant::NonKeyFrame as u8,
         };
         
