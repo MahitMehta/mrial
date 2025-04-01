@@ -14,8 +14,8 @@ rm -rf $MACOS_RUST_APP_NAME
 rm -rf $MACOS_APP_DIR
 mkdir -p $MACOS_APP_DIR/Contents/MacOS
 
-echo "Codesign Binary"
-codesign --timestamp -s "$MACOS_CODESIGN_SIGNATURE" -v -f -o runtime ../target/release/$RUST_APP_NAME  
+# echo "Codesign Binary"
+# codesign --timestamp -s "$MACOS_CODESIGN_SIGNATURE" -v -f -o runtime ../target/release/$RUST_APP_NAME  
 
 echo "Copying binary"
 MACOS_APP_BIN=$MACOS_APP_DIR/Contents/MacOS/$MACOS_BIN_NAME
@@ -28,15 +28,17 @@ echo "Copying Icon"
 mkdir -p $MACOS_APP_DIR/Contents/Resources
 cp ../macos/Info.plist $MACOS_APP_DIR/Contents/
 cp ../macos/logo.icns $MACOS_APP_DIR/Contents/Resources/
-codesign --timestamp -s "$MACOS_CODESIGN_SIGNATURE" -v -f -o runtime $MACOS_APP_DIR/Contents/Resources/logo.icns
+# codesign --timestamp -s "$MACOS_CODESIGN_SIGNATURE" -v -f -o runtime $MACOS_APP_DIR/Contents/Resources/logo.icns
 
 echo "Creating dmg"
-codesign --timestamp -s "$MACOS_CODESIGN_SIGNATURE" --deep -v -f -o runtime $MACOS_APP_DIR 
+# codesign --timestamp -s "$MACOS_CODESIGN_SIGNATURE" --deep -v -f -o runtime $MACOS_APP_DIR 
 mkdir -p $MACOS_RUST_APP_NAME
 cp -r $MACOS_APP_DIR $MACOS_RUST_APP_NAME/
 rm -rf $MACOS_RUST_APP_NAME/.Trashes
 
 FULL_NAME=$MACOS_RUST_APP_NAME
 
-create-dmg --codesign "$MACOS_CODESIGN_SIGNATURE" --notarize "$MACOS_NOTARYTOOL_PW_KEY" --window-size 500 500 --app-drop-link 370 200 --icon-size 125 --icon $FULL_NAME.app 120 200 $FULL_NAME.dmg $MACOS_RUST_APP_NAME
+create-dmg --window-size 500 500 --app-drop-link 370 200 --icon-size 125 --icon $FULL_NAME.app 120 200 $FULL_NAME.dmg $MACOS_RUST_APP_NAME
+# --codesign "$MACOS_CODESIGN_SIGNATURE"
+# --notarize "$MACOS_NOTARYTOOL_PW_KEY"
 rm -rf $MACOS_RUST_APP_NAME
