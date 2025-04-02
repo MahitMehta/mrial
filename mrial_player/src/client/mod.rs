@@ -32,7 +32,7 @@ impl Default for ClientMetaData {
             heights: vec![],
             muted: false,
             opus: true,
-            colorspace: EColorSpace::YUV444,
+            colorspace: EColorSpace::default(),
             server: Server::default(),
         }
     }

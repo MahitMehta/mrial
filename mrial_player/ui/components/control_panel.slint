@@ -27,7 +27,7 @@ export global ControlPanelAdapter {
     in-out property <int> resolution_index: 0;
     in-out property <bool> muted: false;
     in-out property <bool> opus: false;
-    in-out property <string> colorspace: "full";
+    in-out property <string> colorspace: "limited";
 }
 
 export component ControlPanel inherits TouchArea {
@@ -164,7 +164,7 @@ export component ControlPanel inherits TouchArea {
                     }
                     MrialDropdown {
                         label: "Colorspace";
-                        current-index: 0;
+                        current-index: 1;
                         items: [
                             {
                                 label: "Full",

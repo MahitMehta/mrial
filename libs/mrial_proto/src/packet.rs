@@ -394,7 +394,7 @@ impl PacketConstructor {
 }
 
  // TODO: optimal delay for retransmission in ms based on packet loss rate, internet network delay, etc.
-const NAL_RETRANSMISSION_DELAY: u128 = 32;
+const NAL_RETRANSMISSION_DELAY: u128 = 16;
 
 pub struct NALPacketConstructor {
     frame: Vec<u8>,
@@ -406,7 +406,16 @@ pub struct NALPacketConstructor {
     remaining_subpacket_ids: HashSet<usize>,
     previous_subpacket_number: i16,
     packet_queue: VecDeque<Vec<u8>>,
-    waiting: bool
+    waiting: bool,
+
+    #[cfg(feature = "stat")]
+    retransmit_count: usize,
+    #[cfg(feature = "stat")]
+    retransmit_pollutants: usize,
+    #[cfg(feature = "stat")]
+    organic_count: usize,
+    #[cfg(feature = "stat")]
+    frame_count: usize,
 }
 
 impl NALPacketConstructor {
@@ -423,7 +432,16 @@ impl NALPacketConstructor {
             retransmit_requests: HashMap::new(),
             remaining_subpacket_ids: HashSet::new(),
             packet_queue: VecDeque::new(),
-            waiting: false
+            waiting: false,
+
+            #[cfg(feature = "stat")]
+            frame_count: 0,
+            #[cfg(feature = "stat")]
+            organic_count: 0,
+            #[cfg(feature = "stat")]
+            retransmit_count: 0,
+            #[cfg(feature = "stat")]
+            retransmit_pollutants: 0
         }
     }
 
@@ -453,8 +471,31 @@ impl NALPacketConstructor {
         let frame_id = parse_frame_id(fragment) as i16;
 
         if packet_type == EPacketType::RNAL && self.current_frame_id != frame_id {
-            trace!("Skipping useless Retransmitted Frame ({})", frame_id);
+            #[cfg(feature = "stat")]
+            {
+                self.retransmit_pollutants += 1;
+            }
             return EAssemblerState::Assembling;
+        } 
+
+        #[cfg(feature = "stat")]
+        if packet_type == EPacketType::NAL {
+            self.organic_count += 1;
+
+            // ~ roughly every 2 seconds (assuming 60 fps avg.)
+            if self.frame_count == 120 {
+                // Organic : Retransmit Ratio
+                debug!("O:R Ratio: {}:{}",
+                    self.organic_count, 
+                    self.retransmit_count,
+                );
+                debug!("Pollutants: {}", self.retransmit_pollutants);
+
+                self.organic_count = 0;
+                self.retransmit_count = 0;
+                self.retransmit_pollutants = 0;
+                self.frame_count = 0;
+            }
         }
 
         let remaing_packets = parse_packets_remaining(fragment);
@@ -465,6 +506,10 @@ impl NALPacketConstructor {
                 warn!("Lost Frame: {} -> {}", self.last_processed_frame_id, frame_id);
             }
 
+            #[cfg(feature = "stat")] {
+                self.frame_count += 1;
+            }
+            
             self.current_frame_id = frame_id;
             self.current_real_packet_size = real_packet_size;
 
@@ -481,8 +526,10 @@ impl NALPacketConstructor {
 
             // If the frame id belongs to a key frame, clear queue and start a new frame
             if nal_variant == ENalVariant::KeyFrame as u8 {
-                #[cfg(feature = "stat")]
-                trace!("Freeing {} Queue Packets after Keyframe", self.packet_queue.len());
+                #[cfg(feature = "stat")] {
+                    trace!("Freeing {} Queue Packets after Keyframe", self.packet_queue.len());
+                    self.frame_count += 1;
+                }
 
                 self.packet_queue.clear();
 
@@ -511,7 +558,6 @@ impl NALPacketConstructor {
                 // that are missing 
                 
                 let mut potentionally_missing_packets= Vec::new();
-                // let mut should_request = Vec::new();
                 let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis();
                 for subpacket_id in &self.remaining_subpacket_ids {
                     if let Some(previous_timestamp) = self.retransmit_requests.get(&(*subpacket_id as u16)) {
@@ -527,7 +573,11 @@ impl NALPacketConstructor {
 
                 if potentionally_missing_packets.len() > 0 {
                     #[cfg(feature = "stat")]
-                    trace!("Requesting Retransmission (While Queuing) of: {:?}", potentionally_missing_packets);
+                    {
+                        trace!("Requesting Retransmission (While Queuing) of: {:?}", potentionally_missing_packets);
+                        self.retransmit_count += potentionally_missing_packets.len();
+                    }
+                    
                     retransmit(
                         self.current_frame_id as u8,
                         self.current_real_packet_size,
@@ -590,7 +640,10 @@ impl NALPacketConstructor {
 
             if potentionally_missing_packets.len() != 0 {
                 #[cfg(feature = "stat")]
-                trace!("Requesting retransmission of packets: {:?}", potentionally_missing_packets);
+                {
+                    trace!("Requesting retransmission of packets: {:?}", potentionally_missing_packets);
+                    self.retransmit_count += potentionally_missing_packets.len();
+                }
     
                 retransmit(frame_id as u8, real_packet_size, potentionally_missing_packets);        
             } 

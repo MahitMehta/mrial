@@ -8,7 +8,7 @@ pub enum EColorSpace {
 
 impl Default for EColorSpace {
     fn default() -> Self {
-        EColorSpace::YUV444
+        EColorSpace::YUV420
     }
 }
 
